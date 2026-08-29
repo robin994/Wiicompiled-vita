@@ -329,7 +329,7 @@ extern "C" int32_t NAND_IOS_Open_HLE(uint32_t pathPtr, uint32_t mode) {
     }
     
     // It's a NAND file path
-    std::string hostPath = TranslateNandPath(path);
+    const std::filesystem::path hostPath = TranslateNandPath(path);
     
     // Seed FaceLib resources before the existence check so every open mode can
     // still find them on a fresh managed NAND.
@@ -346,16 +346,16 @@ extern "C" int32_t NAND_IOS_Open_HLE(uint32_t pathPtr, uint32_t mode) {
     if (mode == 2 || mode == 3) {
         if (!PathExists(hostPath)) {
             LogNandWarning("IOS_Open", "'%s' does not exist; open mode %u never creates it",
-                    hostPath.c_str(), mode);
+                    HostPathText(hostPath).c_str(), mode);
             return ISFS_ENOENT;
         }
         fopenMode = "r+b";      // Write-only opens still need read for seeks
     }
 
-    FILE* file = std::fopen(hostPath.c_str(), fopenMode);
+    FILE* file = NandFopen(hostPath, fopenMode);
 
     if (!file) {
-        LogNandError("IOS_Open", "FAILED to open '%s'", hostPath.c_str());
+        LogNandError("IOS_Open", "FAILED to open '%s'", HostPathText(hostPath).c_str());
         return ISFS_ENOENT;
     }
     
@@ -516,14 +516,9 @@ extern "C" int32_t NAND_IOS_Ioctl_HLE(
                     return ISFS_EINVAL;
                 }
                 const char* path = (const char*)Memory::GetPointer(inBufPtr + 6);
-                std::string hostPath = TranslateNandPath(path);
+                const std::filesystem::path hostPath = TranslateNandPath(path);
                 
                 if (CreateDirectoryPath(hostPath)) {
-#ifdef _WIN32
-                    _mkdir(hostPath.c_str());
-#else
-                    mkdir(hostPath.c_str(), 0755);
-#endif
                     return ISFS_OK;
                 }
                 return ISFS_EIO;
@@ -534,16 +529,11 @@ extern "C" int32_t NAND_IOS_Ioctl_HLE(
                     return ISFS_EINVAL;
                 }
                 const char* path = (const char*)Memory::GetPointer(inBufPtr);
-                std::string hostPath = TranslateNandPath(path);
+                const std::filesystem::path hostPath = TranslateNandPath(path);
                 
-                if (IsDirectory(hostPath)) {
-#ifdef _WIN32
-                    if (RemoveDirectoryA(hostPath.c_str())) return ISFS_OK;
-#else
-                    if (rmdir(hostPath.c_str()) == 0) return ISFS_OK;
-#endif
-                } else {
-                    if (std::remove(hostPath.c_str()) == 0) return ISFS_OK;
+                // fs::remove refuses a non-empty directory, matching rmdir.
+                if (NandRemove(hostPath)) {
+                    return ISFS_OK;
                 }
                 return ISFS_ENOENT;
             }
@@ -553,7 +543,7 @@ extern "C" int32_t NAND_IOS_Ioctl_HLE(
                     return ISFS_EINVAL;
                 }
                 const char* path = (const char*)Memory::GetPointer(inBufPtr);
-                std::string hostPath = TranslateNandPath(path);
+                const std::filesystem::path hostPath = TranslateNandPath(path);
                 
                 if (!PathExists(hostPath)) {
                     return ISFS_ENOENT;
@@ -582,11 +572,11 @@ extern "C" int32_t NAND_IOS_Ioctl_HLE(
                     return ISFS_EINVAL;
                 }
                 const char* path = (const char*)Memory::GetPointer(inBufPtr + 6);
-                std::string hostPath = TranslateNandPath(path);
+                const std::filesystem::path hostPath = TranslateNandPath(path);
                 CreateParentDirectories(hostPath);
 
                 // Create empty file
-                FILE* f = std::fopen(hostPath.c_str(), "wb");
+                FILE* f = NandFopen(hostPath, "wb");
                 if (f) {
                     std::fclose(f);
                     return ISFS_OK;
@@ -606,10 +596,10 @@ extern "C" int32_t NAND_IOS_Ioctl_HLE(
                 }
                 const char* srcPath = (const char*)Memory::GetPointer(inBufPtr);
                 const char* dstPath = (const char*)Memory::GetPointer(inBufPtr + 0x40);
-                std::string srcHost = TranslateNandPath(srcPath);
-                std::string dstHost = TranslateNandPath(dstPath);
+                const std::filesystem::path srcHost = TranslateNandPath(srcPath);
+                const std::filesystem::path dstHost = TranslateNandPath(dstPath);
                 
-                if (std::rename(srcHost.c_str(), dstHost.c_str()) == 0) {
+                if (NandRename(srcHost, dstHost)) {
                     return ISFS_OK;
                 }
                 return ISFS_EIO;
@@ -805,11 +795,11 @@ int32_t ISFS_OpenLib_Initialize(CpuContext* ctx) {
     g_isfsInitialized = true;
     
     // Create the title data directory if it doesn't exist
-    char titlePath[256];
-    const std::string& base = GetNandBasePath();
-    std::snprintf(titlePath, sizeof(titlePath), "%s\\title\\%08x\\%08x\\data",
-                  base.c_str(), kNandTitleIdHi, CurrentMkwTitleIdLo());
-    CreateDirectoryPath(titlePath);
+    char titleId[32];
+    std::snprintf(titleId, sizeof(titleId), "%08x", kNandTitleIdHi);
+    char gameId[32];
+    std::snprintf(gameId, sizeof(gameId), "%08x", CurrentMkwTitleIdLo());
+    CreateDirectoryPath(GetNandBasePath() / "title" / titleId / gameId / "data");
 
     if (!ctx) {
         return ISFS_OK;
@@ -899,6 +889,74 @@ REGISTER_NATIVE_FUNCTION_AS(0x80169BCC, ISFS_OpenLib_HLE_80169BCC, "ISFS_OpenLib
 // IOS_Ioctlv HLE - Vector Ioctl for complex ISFS operations
 // ============================================================================
 
+static int32_t HandleIsfsReadDir(uint32_t numIn, uint32_t numOut, uint32_t vectorPtr) {
+    const bool countOnly = (numIn == 1 && numOut == 1);
+    if (!countOnly && !(numIn == 2 && numOut == 2)) {
+        LogNandWarning("IOS_Ioctlv", "READDIR unsupported vector shape numIn=%u numOut=%u",
+                numIn, numOut);
+        return ISFS_EINVAL;
+    }
+
+    const IosVector pathVec = ReadIosVector(vectorPtr, 0);
+    const std::string wiiPath = ReadGuestCString(pathVec.address, 64);
+    if (wiiPath.empty()) {
+        return ISFS_EINVAL;
+    }
+    const std::filesystem::path hostPath = TranslateNandPath(wiiPath.c_str());
+    if (!IsDirectory(hostPath)) {
+        return ISFS_ENOENT;
+    }
+
+    // NAND names are at most 12 characters; longer host names cannot exist on
+    // a real NAND (this also hides *.nandsafe.tmp write shadows).
+    constexpr size_t kMaxNandNameLength = 12;
+    std::vector<std::string> names;
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(hostPath, ec)) {
+        std::string name = HostPathText(entry.path().filename());
+        if (name.empty() || name.size() > kMaxNandNameLength) {
+            continue;
+        }
+        names.push_back(std::move(name));
+    }
+    std::sort(names.begin(), names.end());
+
+    if (countOnly) {
+        const IosVector countOut = ReadIosVector(vectorPtr, 1);
+        if (countOut.size < 4 || !Memory::Contains(countOut.address, 4)) {
+            return ISFS_EINVAL;
+        }
+        Memory::Write32(countOut.address, static_cast<uint32_t>(names.size()));
+        return ISFS_OK;
+    }
+
+    const IosVector maxVec = ReadIosVector(vectorPtr, 1);
+    const IosVector namesOut = ReadIosVector(vectorPtr, 2);
+    const IosVector countOut = ReadIosVector(vectorPtr, 3);
+    if (maxVec.size < 4 || !Memory::Contains(maxVec.address, 4) ||
+        countOut.size < 4 || !Memory::Contains(countOut.address, 4) ||
+        !IsValidGuestRange(namesOut.address, namesOut.size)) {
+        return ISFS_EINVAL;
+    }
+    const uint32_t maxCount = Memory::Read32(maxVec.address);
+
+    constexpr uint32_t kEntryWindow = 13; // 12 chars + terminator
+    uint32_t cursor = 0;
+    uint32_t written = 0;
+    for (const std::string& name : names) {
+        if (written >= maxCount || cursor + kEntryWindow > namesOut.size) {
+            break;
+        }
+        uint8_t* out = Memory::GetPointer(namesOut.address + cursor, kEntryWindow);
+        std::memset(out, 0, kEntryWindow);
+        std::memcpy(out, name.data(), name.size());
+        cursor += static_cast<uint32_t>(name.size()) + 1;
+        ++written;
+    }
+    Memory::Write32(countOut.address, written);
+    return ISFS_OK;
+}
+
 extern "C" int32_t NAND_IOS_Ioctlv_HLE(
     uint32_t fd,
     uint32_t cmd,
@@ -917,6 +975,16 @@ extern "C" int32_t NAND_IOS_Ioctlv_HLE(
 
     if (fd == DOLPHIN_DEV_FD) {
         return HandleDolphinIoctlv(cmd, numIn, numOut, vectorPtr);
+    }
+
+    if (fd == ISFS_DEV_FD) {
+        if (!vectorPtr || !Memory::Contains(vectorPtr, static_cast<size_t>(numIn + numOut) * 8u)) {
+            return ISFS_EINVAL;
+        }
+        if (cmd == ISFS_IOCTL_READDIR) {
+            return HandleIsfsReadDir(numIn, numOut, vectorPtr);
+        }
+        return ISFS_OK;
     }
 
     if (fd == ES_DEV_FD) {

@@ -26,6 +26,8 @@ Code.pul
 /build/
 /build-*/
 /*native-build/
+/.build-output/
+/.build-test/
 /dist/
 /extracted/
 /out/
