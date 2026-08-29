@@ -603,8 +603,9 @@ void DrawAudioSettings() {
             "Runs the AX/DSP voice mix off the game thread. Turn this off if you "
             "suspect an audio problem; the mix then runs inline as it used to.");
     }
-    // Windows Media Control (winrt/Windows.Media.Control.h) wont do anything
-    // under Wine/Proton, so hide the toggle
+    // The external-media integration (Windows Media Control on Windows, MPRIS
+    // over D-Bus on Linux) wont do anything under Wine/Proton, so hide the
+    // toggle
     if (!RuntimeHostPlatform::IsRunningUnderWine()) {
         ImGui::Separator();
         if (ImGui::Checkbox("Mute game music while external media is playing",
@@ -616,9 +617,9 @@ void DrawAudioSettings() {
             if (MusicAttenuation::IsExternalMediaPlaying()) {
                 ImGui::TextDisabled("External media is playing; game music is muted.");
             } else if (!MusicAttenuation::IsMediaControlInitializationComplete()) {
-                ImGui::TextDisabled("Waiting for Windows Media Control...");
+                ImGui::TextDisabled("Waiting for media controls...");
             } else if (!MusicAttenuation::IsMediaControlAvailable()) {
-                ImGui::TextDisabled("Windows Media Control is unavailable.");
+                ImGui::TextDisabled("Media controls are unavailable.");
             } else {
                 ImGui::TextDisabled("No external media is currently playing.");
             }
