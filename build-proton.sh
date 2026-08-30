@@ -157,6 +157,45 @@ fi
 RETRO_ROOT="${RETRO_ROOT:-$(pwd)/PulsarPacks/completed/RetroRewind/RetroRewind6}"
 export BUILD_DIR
 
+# Rough check so a build fails fast instead of running out of space partway
+# through. Override with REQUIRED_FREE_GB / REQUIRED_INSTALL_FREE_GB, or set
+# SKIP_DISK_CHECK=1 to skip.
+SKIP_DISK_CHECK="${SKIP_DISK_CHECK:-0}"
+if [ "$SKIP_DISK_CHECK" != "1" ]; then
+    build_required_gb=12
+    { [ "$RETRO" = "1" ] || [ "$PACKAGE" = "1" ] || [ "$APPIMAGE" = "1" ]; } && build_required_gb=20
+    install_required_gb=5
+    [ "$RETRO" = "1" ] && install_required_gb=8
+
+    # $1 path, $2 required GB.
+    check_free_space() {
+        local path="$1" need_gb="$2" avail_gb
+        while [ ! -d "$path" ]; do path="$(dirname "$path")"; done
+        avail_gb=$(($(df -Pk "$path" | awk 'NR==2 {print $4}') / 1024 / 1024))
+        if [ "$avail_gb" -lt "$need_gb" ]; then
+            echo "error: only ${avail_gb}GB free at $path (need ~${need_gb}GB); set REQUIRED_FREE_GB/REQUIRED_INSTALL_FREE_GB or SKIP_DISK_CHECK=1" >&2
+            exit 1
+        fi
+    }
+
+    check_free_space "$(pwd)" "${REQUIRED_FREE_GB:-$build_required_gb}"
+    [ "$INSTALL" = "1" ] && check_free_space "$INSTALL_DIR" "${REQUIRED_INSTALL_FREE_GB:-$install_required_gb}"
+fi
+
+# Check for dotnet (the translator targets net8.0)
+if ! command -v dotnet >/dev/null 2>&1; then
+    echo "error: dotnet not found on PATH; install the .NET 8 SDK (e.g. the 'dotnet-sdk-8.0'" >&2
+    echo "package on Debian/Ubuntu/Fedora, 'dotnet-sdk' on Arch, or https://dotnet.microsoft.com/download/dotnet/8.0)" >&2
+    exit 1
+fi
+if ! dotnet --list-sdks 2>/dev/null | grep -qE '^([8-9]|[1-9][0-9])\.'; then
+    echo "error: no .NET 8+ SDK found (the translator targets net8.0); installed SDKs:" >&2
+    dotnet --list-sdks 2>&1 | sed 's/^/  /' >&2
+    echo "install the .NET 8 SDK (e.g. the 'dotnet-sdk-8.0' package on Debian/Ubuntu/Fedora," >&2
+    echo "'dotnet-sdk' on Arch, or https://dotnet.microsoft.com/download/dotnet/8.0)" >&2
+    exit 1
+fi
+
 build_args=()
 [ "$RETRO" = "1" ] && build_args+=(--retro)
 [ "$RETRO_SKIP_WFC" = "1" ] && build_args+=(--retro-skip-wfc)
