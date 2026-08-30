@@ -49,7 +49,6 @@
 #include "system_bridge.h"
 #include "ppc_runtime.h"
 #include "aurora_events.h"
-#include "wup028_adapter.h"
 #include "fiber_manager.h"
 #include "hle_stubs.h"
 #include "host_platform.h"
@@ -1117,7 +1116,9 @@ LONG CALLBACK SehLogger(EXCEPTION_POINTERS* info) {
     // flat module registers its own handler first, but registration order is
     // not guaranteed once another VEH is installed later, so consult it here
     // too - resolving a fault twice is a no-op.
-    if (info->ExceptionRecord != nullptr && info->ExceptionRecord->NumberParameters >= 2 &&
+    if (info->ExceptionRecord != nullptr &&
+        info->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION &&
+        info->ExceptionRecord->NumberParameters >= 2 &&
         GuestFlat::HandleAccessViolation(
             reinterpret_cast<void*>(info->ExceptionRecord->ExceptionInformation[1]),
             info->ExceptionRecord->ExceptionInformation[0] != 0)) {
@@ -1513,7 +1514,6 @@ int RuntimeMain(int argc, char** argv) {
         }
         aurora_set_frame_worker_wait_callback(ServiceGuestTimingDuringAuroraFrameWait);
         GxGuestWrite::InstallAuroraHooks();
-        Wup028Adapter::Initialize();
         UpdateMkwDynamicAspectSurface(auroraInfo.windowSize.native_fb_width,
                                       auroraInfo.windowSize.native_fb_height);
         settings_overlay::InitializeRuntimeSettings();
@@ -1555,7 +1555,6 @@ int RuntimeMain(int argc, char** argv) {
         // Shutdown fiber system
         Fiber::GuestFiberManager::Shutdown();
         WindowPlacementPersistence::Flush(true);
-        Wup028Adapter::Shutdown();
         aurora_shutdown();
         SetRuntimeExitCodeImpl(0);
         ShutdownProcessTranscript();
@@ -1573,7 +1572,6 @@ int RuntimeMain(int argc, char** argv) {
         SetRuntimeExitCodeImpl(1);
         Fiber::GuestFiberManager::Shutdown();
         WindowPlacementPersistence::Flush(true);
-        Wup028Adapter::Shutdown();
         aurora_shutdown();
         ShutdownProcessTranscript();
         return 1;
@@ -1585,7 +1583,6 @@ int RuntimeMain(int argc, char** argv) {
         SetRuntimeExitCodeImpl(1);
         Fiber::GuestFiberManager::Shutdown();
         WindowPlacementPersistence::Flush(true);
-        Wup028Adapter::Shutdown();
         aurora_shutdown();
         ShutdownProcessTranscript();
         return 1;

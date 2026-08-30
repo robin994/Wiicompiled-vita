@@ -155,7 +155,6 @@ internal static class Program
         reporter.Progress(InstallStages.Shortcuts, "Creating shortcuts", 98);
         var dolSha = Sha256Of(Path.Combine(assetsDir, "main.dol"));
         var relSha = Sha256Of(Path.Combine(assetsDir, "StaticR.rel"));
-        var toolDll = Path.Combine(AppContext.BaseDirectory, "WiiCompiled.Setup.Linux.dll");
 
         foreach (var p in profiles)
         {
@@ -172,7 +171,7 @@ internal static class Program
                 RelSha256 = relSha,
                 BuiltUtc = DateTime.UtcNow.ToString("O"),
             });
-            DesktopEntry.Create(p, displayName, toolDll);
+            DesktopEntry.Create(p, displayName, Path.Combine(dir, exeName));
         }
         JsonState.Write(StatePath, state);
 
@@ -219,7 +218,10 @@ internal static class Program
         var record = state?.Products.FirstOrDefault(r => r.Profile == profile);
         if (record is null)
         {
-            Console.Error.WriteLine($"{profile} is not installed. Run 'install --profile {profile}' first.");
+            var installHint = profile == "retro-rewind"
+                ? "install --retro-dir <RetroRewind6> {--download-retro-wfc-payload | --skip-retro-wfc-payload}"
+                : $"install --profile {profile}";
+            Console.Error.WriteLine($"{profile} is not installed. Run '{installHint}' first.");
             return 1;
         }
         var exePath = Path.Combine(record.InstallDirectory, record.ExecutableName);

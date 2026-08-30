@@ -13,17 +13,20 @@ internal static class DesktopEntry
     private static string PathFor(string profile) =>
         Path.Combine(ApplicationsDirectory, $"wiicompiled-{profile}.desktop");
 
-    public static void Create(string profile, string displayName, string toolDllPath)
+    public static void Create(string profile, string displayName, string exePath)
     {
-        // No --install-dir argument: launch-base/launch-retro already resolve everything from
-        // install-state.json, so there is nothing for this shortcut to pass beyond which profile.
+        // exePath is the installed native runtime binary itself (e.g.
+        // .../Install/Base/WiiCompiled) - each profile already gets its own .desktop file here,
+        // so there is no need to route through the setup tool's own launch-base/launch-retro
+        // subcommand dispatch first. Unquoted: the Desktop Entry spec's Exec grammar doesn't take
+        // a bare '"'-wrapped path, and none is needed here anyway - the only part of this path
+        // that varies is the username, which Unix forbids containing whitespace.
         Directory.CreateDirectory(ApplicationsDirectory);
-        var launchArg = profile == "retro-rewind" ? "launch-retro" : "launch-base";
         var contents =
             "[Desktop Entry]\n" +
             "Type=Application\n" +
             $"Name={displayName}\n" +
-            $"Exec=dotnet \"{toolDllPath}\" {launchArg}\n" +
+            $"Exec={exePath}\n" +
             "Categories=Game;\n" +
             "Terminal=false\n";
         File.WriteAllText(PathFor(profile), contents);

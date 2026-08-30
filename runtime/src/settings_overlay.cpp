@@ -1,5 +1,4 @@
 #include "settings_overlay.h"
-#include "wup028_adapter.h"
 #include "audio_backend.h"
 #include "controller_mapping_wizard.h"
 #include "game_graphics_options.h"
@@ -269,7 +268,6 @@ void SetTopBarVisible(bool visible) {
         return;
     }
     g_topBarVisible = visible;
-    PADBlockInput(visible);
 }
 
 void ApplyConfiguredMappings() {
@@ -313,34 +311,6 @@ void ApplyConfiguredMappings() {
     }
 }
 
-void DrawGameCubeAdapterInfo() {
-    ImGui::Separator();
-    if (!ImGui::BeginMenu("GameCube adapter info")) return;
-
-    const auto adapter = Wup028Adapter::GetInfo();
-    const char* state = adapter.state == Wup028Adapter::ConnectionState::Connected
-                            ? "Connected"
-                            : adapter.state == Wup028Adapter::ConnectionState::DriverError ? "Driver error"
-                                                                                           : "Searching";
-    ImGui::Text("Status: %s", state);
-    if (!adapter.deviceName.empty()) {
-        ImGui::Text("Device: %s", adapter.deviceName.c_str());
-    }
-    ImGui::TextWrapped("%s", adapter.detail.c_str());
-    if (adapter.state == Wup028Adapter::ConnectionState::Connected) {
-        ImGui::Text("Poll rate: %.1f reports/s", adapter.pollRateHz);
-        ImGui::Text("Endpoints: IN 0x%02X, OUT 0x%02X", adapter.inputEndpoint, adapter.outputEndpoint);
-        for (size_t port = 0; port < adapter.ports.size(); ++port) {
-            const uint8_t type = adapter.portStatus[port] & 0x30;
-            const char* typeName = type == 0x10 ? "wired" : type == 0x20 ? "wireless" : "none";
-            ImGui::Text("Adapter port %u: %s (type %s, raw 0x%02X)", static_cast<unsigned>(port + 1),
-                        adapter.ports[port] ? "Controller connected" : "Empty", typeName,
-                        adapter.portStatus[port]);
-        }
-    }
-    ImGui::EndMenu();
-}
-
 void DrawControllerSettings() {
     for (int port = 0; port < PAD_MAX_CONTROLLERS; ++port) {
         const std::string label = "Port " + std::to_string(port + 1);
@@ -352,40 +322,10 @@ void DrawControllerSettings() {
 
     ImGui::Separator();
     const uint32_t selectedGamePort = static_cast<uint32_t>(g_controllerPort);
-    const int adapterAssignment = Wup028Adapter::GetPortAssignment(selectedGamePort);
-    if (adapterAssignment >= 0) {
-        ImGui::Text("Assigned: GameCube adapter port %d", adapterAssignment + 1);
-    } else {
-        const char* currentName = PADGetName(selectedGamePort);
-        ImGui::Text("Assigned: %s", currentName != nullptr ? currentName : "None");
-    }
-    if (ImGui::BeginMenu("Assign GameCube adapter port")) {
-        if (ImGui::MenuItem("None", nullptr, adapterAssignment < 0)) {
-            Wup028Adapter::SetPortAssignment(selectedGamePort, -1);
-            RuntimeConfigFile::SetGameCubeAdapterPort(selectedGamePort, -1);
-        }
-        const auto adapter = Wup028Adapter::GetInfo();
-        for (int physicalPort = 0; physicalPort < PAD_CHANMAX; ++physicalPort) {
-            const std::string label = "Adapter port " + std::to_string(physicalPort + 1) +
-                (adapter.ports[static_cast<size_t>(physicalPort)] ? " (connected)" : " (empty)");
-            if (ImGui::MenuItem(label.c_str(), nullptr, adapterAssignment == physicalPort)) {
-                for (uint32_t gamePort = 0; gamePort < PAD_CHANMAX; ++gamePort) {
-                    if (gamePort != selectedGamePort && Wup028Adapter::GetPortAssignment(gamePort) == physicalPort) {
-                        RuntimeConfigFile::SetGameCubeAdapterPort(gamePort, -1);
-                    }
-                }
-                PADClearPort(selectedGamePort);
-                Wup028Adapter::SetPortAssignment(selectedGamePort, physicalPort);
-                RuntimeConfigFile::SetGameCubeAdapterPort(selectedGamePort, physicalPort);
-                g_configuredControllerIndices.fill(std::numeric_limits<int32_t>::min());
-            }
-        }
-        ImGui::EndMenu();
-    }
+    const char* currentName = PADGetName(selectedGamePort);
+    ImGui::Text("Assigned: %s", currentName != nullptr ? currentName : "None");
     if (ImGui::MenuItem("Unassign controller")) {
         PADClearPort(selectedGamePort);
-        Wup028Adapter::SetPortAssignment(selectedGamePort, -1);
-        RuntimeConfigFile::SetGameCubeAdapterPort(selectedGamePort, -1);
         g_configuredControllerIndices.fill(std::numeric_limits<int32_t>::min());
     }
     ImGui::Separator();
@@ -393,7 +333,6 @@ void DrawControllerSettings() {
     const uint32_t controllerCount = PADCount();
     if (controllerCount == 0) {
         ImGui::TextDisabled("No controller connected");
-        DrawGameCubeAdapterInfo();
         return;
     }
 
@@ -402,8 +341,6 @@ void DrawControllerSettings() {
             const char* name = PADGetNameForControllerIndex(index);
             ImGui::PushID(static_cast<int>(index));
             if (ImGui::MenuItem(name != nullptr ? name : "Unknown controller")) {
-                Wup028Adapter::SetPortAssignment(selectedGamePort, -1);
-                RuntimeConfigFile::SetGameCubeAdapterPort(selectedGamePort, -1);
                 PADSetPortForIndex(index, selectedGamePort);
                 g_configuredControllerIndices.fill(std::numeric_limits<int32_t>::min());
                 ApplyConfiguredMappings();
@@ -417,7 +354,6 @@ void DrawControllerSettings() {
     PADButtonMapping* mappings = PADGetButtonMappings(static_cast<uint32_t>(g_controllerPort), &mappingCount);
     if (mappings == nullptr || mappingCount != PAD_BUTTON_COUNT) {
         ImGui::TextDisabled("Assign a controller to edit its buttons");
-        DrawGameCubeAdapterInfo();
         return;
     }
 
@@ -557,7 +493,6 @@ void DrawControllerSettings() {
         ImGui::TextUnformatted(kControllerButtons[i].label);
         ImGui::PopID();
     }
-    DrawGameCubeAdapterInfo();
 }
 
 void DrawAudioSettings() {
@@ -943,7 +878,7 @@ void InitializeRuntimeSettings() noexcept {
     aurora_set_skip_unready_pipelines(g_skipUnreadyPipelines);
     g_strapInputAccepted.store(false, std::memory_order_relaxed);
     g_startupDismissFrame.store(UINT64_MAX, std::memory_order_relaxed);
-    PADBlockInput(g_topBarVisible);
+    PADBlockInput(false);
 }
 
 void HandleEvents(const AuroraEvent* events) noexcept {
@@ -980,9 +915,8 @@ void Draw() noexcept {
     DrawFpsOverlay();
     DrawTopBar();
     controller_mapping_wizard::Draw();
-    // The wizard captures raw presses; keep them out of the game even when the
-    // top bar is hidden mid-setup.
-    PADBlockInput(g_topBarVisible || controller_mapping_wizard::IsActive());
+    // The wizard captures raw presses; keep them out of the game.
+    PADBlockInput(controller_mapping_wizard::IsActive());
     DrawStartupScreen();
 }
 
