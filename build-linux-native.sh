@@ -191,7 +191,7 @@ ensure_nodtool() {
 }
 
 # Auto-extract from a local disc image, same as build.sh.
-if ! have_assets || { { [ "$PACKAGE" = "1" ] || [ "$APPIMAGE" = "1" ]; } && ! have_extracted_data; }; then
+if ! have_assets || { { [ "$PACKAGE" = "1" ] || [ "$APPIMAGE" = "1" ] || [ "$INSTALL" = "1" ]; } && ! have_extracted_data; }; then
     if [ -z "${GAME_IMAGE:-}" ]; then
         shopt -s nullglob nocaseglob
         candidates=(*.wbfs *.iso *.gcm *.gcz *.ciso *.wia *.rvz)
