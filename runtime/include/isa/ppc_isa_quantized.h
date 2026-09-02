@@ -259,12 +259,19 @@ inline void PpcWritePairPsqInline(uint32_t addr, T first, T second)
     }
 }
 
-// The flat reservation makes every 32-bit guest address a host address; a pending-deferred
-// (EFB) page is PAGE_NOACCESS so the load faults through the vectored handler instead of
-// reading stale bytes, and unmapped pages commit on demand, same as MemoryInline::Flat* loads.
+// The desktop flat reservation makes every 32-bit guest address a host address; a
+// pending-deferred (EFB) page is PAGE_NOACCESS so the load faults through the vectored
+// handler instead of reading stale bytes, and unmapped pages commit on demand, same as
+// MemoryInline::Flat* loads. Vita cannot reserve that 4 GiB window, so resolve the eight-byte
+// range through the ordinary page table instead. In particular, MKW_FLAT_GUEST_BASE is zero
+// on Vita and must never be added directly to a guest address.
 MKW_PPC_FORCE_INLINE const uint8_t* PpcTryGetPsqReadableHostInline(uint32_t addr)
 {
+#if defined(MKW_TARGET_VITA)
+    return MemoryInline::ResolveRangeHost(addr, 0, 8u, true, false);
+#else
     return MKW_FLAT_GUEST_BASE + addr;
+#endif
 }
 
 // Same reduction for stores. Still refuses a 32-bit address wrap (one host access can't
@@ -279,7 +286,12 @@ MKW_PPC_FORCE_INLINE uint8_t* PpcTryGetPsqWritableHostInline(uint32_t addr)
     if (MemoryInline::FlatWriteNeedsPolicy(addr) ||
         MemoryInline::FlatWriteNeedsPolicy(addr + 7u)) [[unlikely]]
         return nullptr;
+#if defined(MKW_TARGET_VITA)
+    uint8_t* host = nullptr;
+    return MemoryInline::TryGetWritablePointerFast(addr, 8u, host) ? host : nullptr;
+#else
     return MKW_FLAT_GUEST_BASE + addr;
+#endif
 }
 
 inline double PpcLoadPairPsqFloatFastInline(uint32_t addr)

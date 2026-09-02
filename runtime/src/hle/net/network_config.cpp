@@ -111,6 +111,11 @@ static uint64_t KdAdjustedUtcSeconds() {
 
 int32_t HandleKdTimeIoctl(uint32_t cmd, uint32_t inBuf, uint32_t inLen, uint32_t outBuf,
                                  uint32_t outLen) {
+#if defined(MKW_TARGET_VITA)
+    RT_LOGF(RT_TAG_NET,
+            "[WC24] KD/time ioctl cmd=0x%02X in=0x%08X/%u out=0x%08X/%u\n",
+            cmd, inBuf, inLen, outBuf, outLen);
+#endif
     // Dolphin: NetKDTimeDevice::IOCtl. Every reply writes the WC24 result word
     // at out+0; the u64 payloads live at out+4.
     enum : uint32_t {
@@ -158,6 +163,11 @@ int32_t HandleKdTimeIoctl(uint32_t cmd, uint32_t inBuf, uint32_t inLen, uint32_t
 
 int32_t HandleKdIoctl(uint32_t cmd, uint32_t inBuf, uint32_t inLen, uint32_t outBuf,
                              uint32_t outLen) {
+#if defined(MKW_TARGET_VITA)
+    RT_LOGF(RT_TAG_NET,
+            "[WC24] KD/request ioctl cmd=0x%02X phase=%u in=0x%08X/%u out=0x%08X/%u\n",
+            cmd, static_cast<unsigned>(g_kdTrySuspendPhase), inBuf, inLen, outBuf, outLen);
+#endif
     switch (cmd) {
     case 0x01: // NWC24 suspend scheduler
         WriteReturn(outBuf, outLen, 0);
@@ -194,11 +204,21 @@ int32_t HandleKdIoctl(uint32_t cmd, uint32_t inBuf, uint32_t inLen, uint32_t out
         if (g_kdTrySuspendPhase == KdTrySuspendPhase::Boot) {
             g_kdBootProbeSeen = true;
             WriteReturn(outBuf, outLen, -42);
+#if defined(MKW_TARGET_VITA)
+            RT_LOGF(RT_TAG_NET, "[WC24] KD/request try-suspend -> pending (-42), phase=boot\n");
+#endif
         } else if (g_kdTrySuspendPhase == KdTrySuspendPhase::PostResumeProbe) {
             WriteReturn(outBuf, outLen, -42);
             g_kdTrySuspendPhase = KdTrySuspendPhase::Ready;
+#if defined(MKW_TARGET_VITA)
+            RT_LOGF(RT_TAG_NET,
+                    "[WC24] KD/request try-suspend -> pending (-42), phase=post-resume; now ready\n");
+#endif
         } else {
             WriteReturn(outBuf, outLen, 0);
+#if defined(MKW_TARGET_VITA)
+            RT_LOGF(RT_TAG_NET, "[WC24] KD/request try-suspend -> ready (0)\n");
+#endif
         }
         return 0;
     case 0x06: // startup socket

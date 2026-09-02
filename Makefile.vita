@@ -1,0 +1,563 @@
+VITASDK ?= /usr/local/vitasdk
+PREFIX := arm-vita-eabi
+
+CC := $(PREFIX)-gcc
+CXX := $(PREFIX)-g++
+
+TARGET := wiicompiled-vita-probe
+TITLE := WICMPVITA
+TITLE_NAME := WiiCompiled Vita Probe
+
+BUILD_DIR := build/vita
+TRANSLATOR_PROBE_DIR := $(BUILD_DIR)/translator_probe
+RECOMP_PROBE_DIR := $(BUILD_DIR)/recomp_probe
+MKW_PROJECT := projects/mkwii/recomp.yml
+MKW_GENERATED_DIR := generated
+MKW_TRANSLATED_METADATA := $(MKW_GENERATED_DIR)/base_translation_output.json
+MKW_BUILD_SHARDS_DIR := $(MKW_GENERATED_DIR)/build_shards
+# Keep first-boot translated objects separate from the original -O0 bring-up
+# build. Command-line overrides still take precedence over this default.
+MKW_TRANSLATED_BUILD_DIR ?= $(BUILD_DIR)/mkwii_translated_os
+MKW_RUNTIME_BUILD_DIR := $(BUILD_DIR)/mkwii_runtime
+TRANSLATOR_THREADS ?= 4
+PROBE_OBJ := $(BUILD_DIR)/porting_probe.o
+LIBCO_OBJ := $(BUILD_DIR)/libco.o
+GUEST_MEMORY_OBJ := $(BUILD_DIR)/guest_flat_memory_vita.o
+HOST_JOBS_OBJ := $(BUILD_DIR)/host_jobs.o
+VITA_GX_BACKEND_OBJ := $(BUILD_DIR)/gx_backend_vita.o
+VITA_SETTINGS_OVERLAY_OBJ := $(BUILD_DIR)/settings_overlay_vita.o
+VITA_VI_OBJ := $(BUILD_DIR)/vi_vita.o
+RUNTIME_CHECK_OBJS := $(BUILD_DIR)/check_memory.o $(BUILD_DIR)/check_fiber_manager.o \
+	$(BUILD_DIR)/check_ppc_helpers.o $(BUILD_DIR)/check_fpu_helpers.o
+OS_CHECK_SRCS := $(filter-out runtime/src/hle/os/os_alarm.cpp,$(wildcard runtime/src/hle/os/*.cpp))
+OS_CHECK_OBJS := $(patsubst runtime/src/hle/os/%.cpp,$(BUILD_DIR)/check_os_%.o,$(OS_CHECK_SRCS))
+HLE_CHECK_SRCS := $(wildcard runtime/src/hle/*.cpp) \
+	$(wildcard runtime/src/hle/audio/*.cpp) \
+	$(wildcard runtime/src/hle/input/*.cpp) \
+	$(wildcard runtime/src/hle/net/*.cpp) \
+	$(wildcard runtime/src/hle/storage/*.cpp)
+RUNTIME_NATIVE_CHECK_SRCS := $(filter-out runtime/src/main.cpp runtime/src/settings_overlay.cpp \
+	runtime/src/guest_flat_memory.cpp runtime/src/host_cpu_baseline.cpp runtime/src/controller_mapping_wizard.cpp,\
+	$(wildcard runtime/src/*.cpp)) vita/controller_mapping_wizard_vita.cpp
+GX_HLE_CHECK_SRCS := $(wildcard runtime/src/hle/gx/*.cpp)
+GX_HLE_OBJS := $(patsubst runtime/src/hle/gx/%.cpp,$(BUILD_DIR)/gx_bridge_%.o,$(GX_HLE_CHECK_SRCS))
+GX_HLE_LINK_OBJ := $(BUILD_DIR)/gx_bridge_all.o
+GX_VITA_LINK_OBJ := $(BUILD_DIR)/gx_bridge_vita_all.o
+GX_VITA_VI_LINK_OBJ := $(BUILD_DIR)/gx_bridge_vita_vi_all.o
+AURORA_GX_FRONTEND_SRCS := $(wildcard aurora-main/lib/dolphin/gx/*.cpp)
+ELF := $(BUILD_DIR)/$(TARGET).elf
+VELF := $(BUILD_DIR)/$(TARGET).velf
+EBOOT := $(BUILD_DIR)/eboot.bin
+SFO := $(BUILD_DIR)/param.sfo
+VPK := $(BUILD_DIR)/$(TARGET).vpk
+RECOMP_TARGET := wiicompiled-vita-recomp-probe
+RECOMP_TITLE := WICMPRCMP
+RECOMP_TITLE_NAME := WiiCompiled Recomp Probe
+RECOMP_ELF := $(RECOMP_PROBE_DIR)/$(RECOMP_TARGET).elf
+RECOMP_VELF := $(RECOMP_PROBE_DIR)/$(RECOMP_TARGET).velf
+RECOMP_EBOOT := $(RECOMP_PROBE_DIR)/eboot.bin
+RECOMP_SFO := $(RECOMP_PROBE_DIR)/param.sfo
+RECOMP_VPK := $(BUILD_DIR)/$(RECOMP_TARGET).vpk
+RECOMP_FIXED_OBJS := $(RECOMP_PROBE_DIR)/main.o $(RECOMP_PROBE_DIR)/abi_bridge.o \
+	$(RECOMP_PROBE_DIR)/guest_flat_memory_vita.o
+VITA_RUNTIME_MAIN_OBJ := $(BUILD_DIR)/main_vita.o
+RECOMP_GENERATED_SRCS := $(wildcard $(TRANSLATOR_PROBE_DIR)/build_shards/base_common/*.cpp) \
+	$(wildcard $(TRANSLATOR_PROBE_DIR)/build_shards/base_registration/*.cpp) \
+	$(wildcard $(TRANSLATOR_PROBE_DIR)/build_shards/base_dispatch/*.cpp)
+RECOMP_GENERATED_OBJS := $(patsubst $(TRANSLATOR_PROBE_DIR)/%.cpp,$(RECOMP_PROBE_DIR)/generated/%.o,$(RECOMP_GENERATED_SRCS))
+MKW_TRANSLATED_SRCS := $(shell if test -d "$(MKW_BUILD_SHARDS_DIR)"; then \
+	find "$(MKW_BUILD_SHARDS_DIR)" -type f -name '*.cpp' | \
+	grep -E '/(base_common|base_portable_sensitive|base_registration|base_dispatch)/' | sort; fi) \
+	$(wildcard $(MKW_GENERATED_DIR)/data_sections_init.cpp)
+MKW_TRANSLATED_OBJS := $(patsubst $(MKW_GENERATED_DIR)/%.cpp,$(MKW_TRANSLATED_BUILD_DIR)/%.o,$(MKW_TRANSLATED_SRCS))
+MKW_GUEST_SYMBOL_SRC := $(wildcard $(MKW_GENERATED_DIR)/guest_symbol_table.cpp)
+MKW_GUEST_SYMBOL_OBJ := $(patsubst $(MKW_GENERATED_DIR)/%.cpp,$(MKW_TRANSLATED_BUILD_DIR)/%.o,$(MKW_GUEST_SYMBOL_SRC))
+MKW_DATA_BLOB_ASM := $(wildcard $(MKW_GENERATED_DIR)/data_sections_init_blobs.S)
+MKW_DATA_BLOB_OBJ := $(patsubst $(MKW_GENERATED_DIR)/%.S,$(MKW_TRANSLATED_BUILD_DIR)/%.o,$(MKW_DATA_BLOB_ASM))
+MKW_PUGIXML_OBJ := $(MKW_RUNTIME_BUILD_DIR)/third_party/pugixml.o
+MKW_CRYPTOPP_BUILD_DIR := $(MKW_RUNTIME_BUILD_DIR)/third_party/cryptopp
+MKW_CRYPTOPP_SRCS := $(shell find runtime/third_party/cryptopp -maxdepth 1 -type f -name '*.cpp' | sort | \
+	grep -Ev '/(adhoc|bench[123]|datatest|dlltest|fipsalgt|fipstest|pch|regtest[1234]|simple|test|validat[0-9]+)\.cpp$$' | \
+	grep -Ev '(_avx|_ppc|_simd|_sse)\.cpp$$')
+MKW_CRYPTOPP_OBJS := $(patsubst runtime/third_party/cryptopp/%.cpp,$(MKW_CRYPTOPP_BUILD_DIR)/%.o,$(MKW_CRYPTOPP_SRCS))
+MKW_CRYPTOPP_LIB := $(MKW_RUNTIME_BUILD_DIR)/third_party/libmkw_cryptopp.a
+
+# Full native runtime for the first real Mario Kart boot. Desktop-only entry,
+# UI, memory, audio and CPU-baseline units are replaced by Vita equivalents.
+MKW_VITA_NATIVE_SRCS := $(shell find runtime/src -type f -name '*.cpp' | sort | \
+	grep -v -E '^runtime/src/(main|settings_overlay|controller_mapping_wizard|guest_flat_memory|audio_backend|host_cpu_baseline)\.cpp$$|^runtime/src/product/retro_rewind_product\.cpp$$|^runtime/src/vita/aurora/')
+MKW_VITA_NATIVE_OBJS := $(patsubst runtime/src/%.cpp,$(MKW_RUNTIME_BUILD_DIR)/runtime/%.o,$(MKW_VITA_NATIVE_SRCS))
+MKW_VITA_MAIN_OBJ := $(MKW_RUNTIME_BUILD_DIR)/vita/main_vita.o
+MKW_VITA_AUDIO_OBJ := $(MKW_RUNTIME_BUILD_DIR)/vita/audio_backend_vita.o
+MKW_VITA_CONTROLLER_OBJ := $(MKW_RUNTIME_BUILD_DIR)/vita/controller_mapping_wizard_vita.o
+MKW_VITA_SETTINGS_OBJ := $(MKW_RUNTIME_BUILD_DIR)/vita/settings_overlay_vita.o
+MKW_VITA_PLATFORM_OBJ := $(MKW_RUNTIME_BUILD_DIR)/vita/firstboot_platform_vita.o
+MKW_VITA_DEBUG_FONT_OBJ := $(MKW_RUNTIME_BUILD_DIR)/vita/debug_screen_font.o
+MKW_VITA_AURORA_RENDERER ?= 1
+MKW_VITA_VITAGL ?= speedhack
+AURORA_VITAGL_LIB ?= ../aurora-vita-max-prehardware/third_party/vitaGL-speedhack-src/libvitaGL.a
+AURORA_VITA_GFX_DIR := aurora-main/platforms/vita/gfx
+AURORA_VITA_GFX_SRCS := $(addprefix $(AURORA_VITA_GFX_DIR)/,\
+	vita_buffer_pool.cpp vita_draw_adapter.cpp vita_efb.cpp vita_gl_util.cpp \
+	vita_pipeline_cache.cpp vita_pipeline_key.cpp vita_renderer.cpp vita_shader_gen.cpp \
+	vita_streaming_arena.cpp vita_telemetry.cpp vita_texture_cache.cpp vita_texture_decode.cpp \
+	vita_vertex_decode.cpp vita_vertex_pipeline.cpp)
+
+ifeq ($(MKW_VITA_AURORA_RENDERER),1)
+MKW_VITA_RENDERER_VARIANT := aurora
+MKW_RENDERER_CPPFLAGS := -DMKW_VITA_AURORA_RENDERER=1 -I$(AURORA_VITA_GFX_DIR)
+else ifeq ($(MKW_VITA_AURORA_RENDERER),0)
+MKW_VITA_RENDERER_VARIANT := legacy
+MKW_RENDERER_CPPFLAGS :=
+else
+$(error MKW_VITA_AURORA_RENDERER must be 0 or 1)
+endif
+
+ifeq ($(MKW_VITA_VITAGL),speedhack)
+MKW_VITA_VITAGL_VARIANT := speedhack
+MKW_VITAGL_CPPFLAGS := -DMKW_VITA_VITAGL_SPEEDHACK=1 -DAURORA_VITAGL_MAPPED_STREAM_UPLOAD=1
+VITAGL_LINK := $(AURORA_VITAGL_LIB)
+else ifeq ($(MKW_VITA_VITAGL),stock)
+MKW_VITA_VITAGL_VARIANT := stock
+MKW_VITAGL_CPPFLAGS := -DMKW_VITA_VITAGL_STOCK=1
+VITAGL_LINK := -lvitaGL
+else
+$(error MKW_VITA_VITAGL must be stock or speedhack)
+endif
+
+MKW_VITA_BUILD_VARIANT := $(MKW_VITA_RENDERER_VARIANT)-$(MKW_VITA_VITAGL_VARIANT)
+# Objects compiled with renderer/vitaGL-specific flags live under this variant tag.
+# Common runtime/third-party objects remain shared because their compile flags are identical.
+MKW_VITA_VARIANT_OBJ_DIR := $(MKW_RUNTIME_BUILD_DIR)/variants/$(MKW_VITA_BUILD_VARIANT)
+AURORA_VITA_GFX_OBJS := $(patsubst $(AURORA_VITA_GFX_DIR)/%.cpp,\
+	$(MKW_VITA_VARIANT_OBJ_DIR)/aurora_vita/gfx/%.o,$(AURORA_VITA_GFX_SRCS))
+MKW_VITA_GX_OBJ := $(MKW_VITA_VARIANT_OBJ_DIR)/vita/gx_backend.o
+MKW_VITA_AURORA_PACKET_OBJ := $(MKW_VITA_VARIANT_OBJ_DIR)/vita/aurora_packet_renderer.o
+MKW_AURORA_CPPFLAGS := $(MKW_RENDERER_CPPFLAGS) $(MKW_VITAGL_CPPFLAGS)
+
+MKW_FIRSTBOOT_FIXED_OBJS := $(MKW_VITA_MAIN_OBJ) $(MKW_VITA_AUDIO_OBJ) \
+	$(MKW_VITA_CONTROLLER_OBJ) $(MKW_VITA_SETTINGS_OBJ) $(MKW_VITA_GX_OBJ) \
+	$(MKW_VITA_PLATFORM_OBJ) $(MKW_VITA_DEBUG_FONT_OBJ) $(LIBCO_OBJ) \
+	$(MKW_PUGIXML_OBJ) $(MKW_CRYPTOPP_LIB)
+ifeq ($(MKW_VITA_AURORA_RENDERER),1)
+MKW_FIRSTBOOT_FIXED_OBJS += $(MKW_VITA_AURORA_PACKET_OBJ) $(AURORA_VITA_GFX_OBJS)
+endif
+MKW_FIRSTBOOT_TARGET := wiicompiled-vita-mkw-firstboot-$(MKW_VITA_BUILD_VARIANT)
+MKW_FIRSTBOOT_TITLE := WICMPMKW1
+MKW_FIRSTBOOT_TITLE_NAME := WiiCompiled MKW First Boot
+MKW_FIRSTBOOT_ELF := $(MKW_RUNTIME_BUILD_DIR)/$(MKW_FIRSTBOOT_TARGET).elf
+MKW_FIRSTBOOT_VELF := $(MKW_RUNTIME_BUILD_DIR)/$(MKW_FIRSTBOOT_TARGET).velf
+MKW_FIRSTBOOT_EBOOT := $(MKW_RUNTIME_BUILD_DIR)/$(MKW_FIRSTBOOT_TARGET).bin
+MKW_FIRSTBOOT_SFO := $(MKW_RUNTIME_BUILD_DIR)/param.sfo
+MKW_FIRSTBOOT_VPK := $(BUILD_DIR)/$(MKW_FIRSTBOOT_TARGET).vpk
+
+COMMON_FLAGS := -O2 -g -ffunction-sections -fdata-sections -D__vita__ -DMKW_TARGET_VITA=1 -DTARGET_PC=1 -DLIBCO_MP=1 \
+	-DCRYPTOPP_DISABLE_ASM -DCRYPTOPP_NO_GLOBAL_BYTE \
+	-Iruntime/third_party -Iruntime/third_party/libco -Iruntime/third_party/toml11 \
+	-Iruntime/third_party/pugixml -Iruntime/include -Iruntime/src -Iaurora-main/include -Ivita/include
+CFLAGS := $(COMMON_FLAGS) -std=gnu11
+CXXFLAGS := $(COMMON_FLAGS) -std=gnu++20 -fexceptions
+# The generated Mario Kart shards are enormous translation units. -Os cuts the
+# loadable text footprint enough for the Vita loader while preserving C++
+# exceptions required by runtime headers included from translated shards.
+MKW_TRANSLATED_OPT ?= -Os -fno-asynchronous-unwind-tables
+MKW_TRANSLATED_CXXFLAGS := $(CXXFLAGS) $(MKW_TRANSLATED_OPT) -g0
+LDFLAGS := -Wl,-q -Wl,--gc-sections
+LIBS := -lSceFiber_stub -lSceSysmodule_stub -lSceIofilemgr_stub -lSceKernelThreadMgr_stub \
+	-lSceProcessmgr_stub -Wl,--whole-archive -lpthread -Wl,--no-whole-archive \
+	$(VITAGL_LINK) -lvitashark -lSceShaccCgExt -lSceShaccCg_stub -lSceGxm_stub -lSceDisplay_stub \
+	-lSceKernelDmacMgr_stub -lScePower_stub -lSceAppMgr_stub -lSceCommonDialog_stub -lSceCtrl_stub \
+	-lmathneon -ltaihen_stub
+
+.PHONY: all probe recomp-probe recomp-probe-package vita-runtime-main-check generate translated-check \
+	full-translated-compile full-translated-compile-package graphics-check \
+	runtime-check runtime-os-check runtime-hle-check runtime-gx-bridge-check \
+	runtime-gx-symbol-audit runtime-gx-backend-check runtime-gx-vi-check translator-vita-check runtime-abi-check \
+	runtime-native-check aurora-gx-frontend-check vita-sync-game-assets mkw-first-boot \
+	mkw-first-boot-package clean check-vitasdk check-vitagl-variant verify-mkw-firstboot-vpk
+
+all: probe
+
+probe: $(VPK)
+	@echo "Built $(VPK)"
+
+# A recursive make is intentional: the generated shard filenames do not exist
+# until translator-vita-check has run, so the second parse discovers the exact
+# translator-owned graph without hard-coding content hashes.
+recomp-probe: translator-vita-check
+	$(MAKE) -f Makefile.vita recomp-probe-package
+
+recomp-probe-package: $(RECOMP_VPK)
+	@echo "Built $(RECOMP_VPK)"
+
+vita-runtime-main-check: $(VITA_RUNTIME_MAIN_OBJ)
+	@echo "Compiled Vita runtime entrypoint for ARM32"
+
+generate: check-vitasdk
+	@test -f Assets/main.dol || \
+		(echo "Missing Assets/main.dol (user-owned PAL RMCP01 dump required)" && false)
+	@test -f Assets/StaticR.rel || \
+		(echo "Missing Assets/StaticR.rel (user-owned PAL RMCP01 dump required)" && false)
+	@test "$$(shasum -a 256 Assets/main.dol | awk '{print $$1}')" = \
+		"80d18895b39c63bd80f457398bfcbb91b7d16ac116a41a88967e954080155b05" || \
+		(echo "Assets/main.dol is not the expected PAL RMCP01 revision" && false)
+	@test "$$(shasum -a 256 Assets/StaticR.rel | awk '{print $$1}')" = \
+		"16d9d146112541fefea701ecb5bc1a496f9d50e4a752fbb5b6778e7c6399f67d" || \
+		(echo "Assets/StaticR.rel is not the expected PAL RMCP01 revision" && false)
+	DOTNET_ROLL_FORWARD=Major dotnet run --project translator/src/Translator.Cli/Translator.Cli.csproj --configuration Release -- \
+		translate-recursive 0x800060A4 --project $(MKW_PROJECT) \
+		--outdir $(MKW_GENERATED_DIR)/functions \
+		--output-metadata $(MKW_TRANSLATED_METADATA) \
+		--threads $(TRANSLATOR_THREADS) --prune-stale
+	DOTNET_ROLL_FORWARD=Major dotnet run --project translator/src/Translator.Cli/Translator.Cli.csproj --configuration Release -- \
+		generate-data-init --project $(MKW_PROJECT)
+	DOTNET_ROLL_FORWARD=Major dotnet run --project translator/src/Translator.Cli/Translator.Cli.csproj --configuration Release -- \
+		emit-build-shards --project $(MKW_PROJECT) \
+		--base-metadata $(MKW_TRANSLATED_METADATA) \
+		--base-functions-dir $(MKW_GENERATED_DIR)/functions \
+		--native-source-dir runtime/src --out $(MKW_BUILD_SHARDS_DIR)
+	@echo "Generated PAL RMCP01 translated sources and build shards"
+
+full-translated-compile: generate
+	$(MAKE) -f Makefile.vita full-translated-compile-package
+
+full-translated-compile-package: $(MKW_TRANSLATED_OBJS)
+	@test -n "$(strip $(MKW_TRANSLATED_OBJS))" || \
+		(echo "No Mario Kart base translated shards were discovered" && false)
+	@echo "Compiled all PAL RMCP01 base translated shards for Vita ARM32"
+
+translated-check: full-translated-compile
+
+vita-sync-game-assets:
+	node vita/tools/sync_game_assets_from_vita.js
+
+# Like the translated compile target, re-enter make after generation so the
+# parser sees the translator's content-addressed shard filenames.
+mkw-first-boot: generate
+	$(MAKE) -f Makefile.vita mkw-first-boot-package
+
+mkw-first-boot-package: $(MKW_FIRSTBOOT_VPK)
+	@echo "Built $(MKW_FIRSTBOOT_VPK)"
+
+graphics-check: runtime-gx-vi-check aurora-gx-frontend-check
+	@echo "Completed Vita graphics bridge/frontend checks"
+
+runtime-check: $(RUNTIME_CHECK_OBJS)
+	@echo "Compiled Vita runtime core check objects"
+
+runtime-os-check: $(OS_CHECK_OBJS)
+	@echo "Compiled Vita OS HLE check objects"
+
+runtime-hle-check: | $(BUILD_DIR) check-vitasdk
+	$(CXX) $(CXXFLAGS) -fsyntax-only $(HLE_CHECK_SRCS)
+	@echo "Syntax-checked Vita non-GX HLE sources"
+
+runtime-gx-bridge-check: | $(BUILD_DIR) check-vitasdk
+	$(CXX) $(CXXFLAGS) -fsyntax-only $(GX_HLE_CHECK_SRCS)
+	@echo "Syntax-checked Vita Mario Kart GX HLE bridge sources"
+
+runtime-gx-symbol-audit: $(GX_HLE_LINK_OBJ)
+	@echo "Unresolved graphics/VI surface required by the Mario Kart HLE bridge:"
+	@arm-vita-eabi-nm -uC $(GX_HLE_LINK_OBJ) | sed 's/^ *U //' | \
+		grep -E '(^GX|^Aurora|^aurora_|aurora::|settings_overlay|VI_HLE)' | sort -u || true
+
+runtime-gx-backend-check: $(GX_VITA_LINK_OBJ)
+	@echo "Graphics symbols still unresolved after the Vita GX bring-up backend:"
+	@arm-vita-eabi-nm -uC $(GX_VITA_LINK_OBJ) | sed 's/^ *U //' | \
+		grep -E '(^GX|^Aurora|^aurora_|aurora::|settings_overlay|VI_HLE)' | sort -u || true
+
+runtime-gx-vi-check: $(GX_VITA_VI_LINK_OBJ)
+	@echo "Graphics/VI symbols still unresolved after the Vita VI integration:"
+	@arm-vita-eabi-nm -uC $(GX_VITA_VI_LINK_OBJ) | sed 's/^ *U //' | \
+		grep -E '(^GX|^Aurora|^aurora_|aurora::|settings_overlay|VI_HLE)' | sort -u || true
+	@arm-vita-eabi-nm $(GX_VITA_VI_LINK_OBJ) | \
+		grep -q ' T GX_HLE_ReplayDisplayListVita$$' || \
+		(echo "Vita GX display-list HLE replay symbol is not linked" && false)
+	@arm-vita-eabi-nm -uC $(BUILD_DIR)/gx_bridge_gx_dl.o | \
+		grep -q 'WiiCompiledVita::GxBackend::ApplyXfPacket' || \
+		(echo "Vita display-list replay is not wired to the XF backend" && false)
+	@arm-vita-eabi-nm -uC $(BUILD_DIR)/gx_bridge_gx_fifo.o | \
+		grep -q 'WiiCompiledVita::GxBackend::ApplyXfPacket' || \
+		(echo "Vita live FIFO is not wired to the XF backend" && false)
+
+translator-vita-check: | $(BUILD_DIR) check-vitasdk
+	python3 vita/tools/generate_translator_probe.py $(TRANSLATOR_PROBE_DIR)
+	DOTNET_ROLL_FORWARD=Major dotnet run --project translator/src/Translator.Cli/Translator.Cli.csproj --configuration Release -- \
+		translate-recursive 0x80001000 \
+		--project $(TRANSLATOR_PROBE_DIR)/recomp.yml \
+		--outdir $(TRANSLATOR_PROBE_DIR)/functions \
+		--output-metadata $(TRANSLATOR_PROBE_DIR)/functions_metadata.json \
+		--threads 1 --prune-stale
+	DOTNET_ROLL_FORWARD=Major dotnet run --project translator/src/Translator.Cli/Translator.Cli.csproj --configuration Release -- \
+		emit-build-shards \
+		--project $(TRANSLATOR_PROBE_DIR)/recomp.yml \
+		--base-metadata $(TRANSLATOR_PROBE_DIR)/functions_metadata.json \
+		--base-functions-dir $(TRANSLATOR_PROBE_DIR)/functions \
+		--native-source-dir runtime/src \
+		--out $(TRANSLATOR_PROBE_DIR)/build_shards
+	@grep -R -q 'RECOMP_STATE_FREE_ABI' $(TRANSLATOR_PROBE_DIR)/functions || \
+		(echo "Translator probe did not emit a state-free ABI variant" && false)
+	@for source in $(TRANSLATOR_PROBE_DIR)/functions/*.cpp; do \
+		echo "ARM32 syntax check: $$source"; \
+		$(CXX) $(CXXFLAGS) -I$(TRANSLATOR_PROBE_DIR) -I$(TRANSLATOR_PROBE_DIR)/generated \
+			-fsyntax-only "$$source" || exit $$?; \
+	done
+	@for source in $$(find $(TRANSLATOR_PROBE_DIR)/build_shards -name '*.cpp' -type f | sort); do \
+		echo "ARM32 shard syntax check: $$source"; \
+		$(CXX) $(CXXFLAGS) -I$(TRANSLATOR_PROBE_DIR) -I$(TRANSLATOR_PROBE_DIR)/generated \
+			-I$(TRANSLATOR_PROBE_DIR)/build_shards -fsyntax-only "$$source" || exit $$?; \
+	done
+	@echo "Translated synthetic PPC code compiles for Vita ARM32"
+
+runtime-abi-check: translator-vita-check
+	$(CXX) $(CXXFLAGS) -I$(TRANSLATOR_PROBE_DIR) -fsyntax-only \
+		runtime/src/abi_bridge.cpp runtime/src/system_bridge.cpp
+	@echo "Syntax-checked Vita ABI/system bridge against generated RuntimeConfig"
+
+runtime-native-check: translator-vita-check
+	$(CXX) $(CXXFLAGS) -I$(TRANSLATOR_PROBE_DIR) -fsyntax-only $(RUNTIME_NATIVE_CHECK_SRCS)
+	@echo "Syntax-checked Vita top-level native runtime sources"
+
+aurora-gx-frontend-check: | $(BUILD_DIR) check-vitasdk
+	$(CXX) $(CXXFLAGS) -Iaurora-main/lib -fsyntax-only $(AURORA_GX_FRONTEND_SRCS)
+	@echo "Syntax-checked Aurora GX frontend for Vita"
+
+check-vitasdk:
+	@test -n "$(VITASDK)" || (echo "VITASDK is not set" && false)
+	@test -x "$(VITASDK)/bin/$(CXX)" || (echo "VitaSDK compiler not found: $(VITASDK)/bin/$(CXX)" && false)
+
+$(BUILD_DIR):
+	@mkdir -p $@
+
+$(PROBE_OBJ): vita/porting_probe/main.cpp runtime/third_party/libco/libco.h | $(BUILD_DIR) check-vitasdk
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
+
+$(LIBCO_OBJ): runtime/third_party/libco/libco.c runtime/third_party/libco/scefiber.c \
+		runtime/third_party/libco/libco.h runtime/third_party/libco/settings.h | $(BUILD_DIR) check-vitasdk
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+
+$(GUEST_MEMORY_OBJ): runtime/src/vita/guest_flat_memory_vita.cpp runtime/include/guest_flat_memory.h | $(BUILD_DIR) check-vitasdk
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
+
+$(HOST_JOBS_OBJ): vita/host_jobs.cpp vita/include/wiicompiled_vita/host_jobs.h \
+			vita/include/wiicompiled_vita/host_thread.h | $(BUILD_DIR) check-vitasdk
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
+
+$(VITA_GX_BACKEND_OBJ): vita/gx_backend.cpp vita/include/wiicompiled_vita/gx_backend.h \
+				vita/include/wiicompiled_vita/host_thread.h | $(BUILD_DIR) check-vitasdk
+	$(CXX) $(CXXFLAGS) -Werror=infinite-recursion -MMD -MP -c $< -o $@
+
+$(VITA_SETTINGS_OVERLAY_OBJ): vita/settings_overlay_vita.cpp runtime/include/settings_overlay.h | $(BUILD_DIR) check-vitasdk
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
+
+$(VITA_VI_OBJ): runtime/src/hle/vi.cpp | $(BUILD_DIR) check-vitasdk
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
+
+$(BUILD_DIR)/check_memory.o: runtime/src/memory.cpp | $(BUILD_DIR) check-vitasdk
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
+
+$(BUILD_DIR)/check_fiber_manager.o: runtime/src/fiber_manager.cpp | $(BUILD_DIR) check-vitasdk
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
+
+$(BUILD_DIR)/check_ppc_helpers.o: runtime/src/ppc_helpers.cpp | $(BUILD_DIR) check-vitasdk
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
+
+$(BUILD_DIR)/check_fpu_helpers.o: runtime/src/fpu_helpers.cpp | $(BUILD_DIR) check-vitasdk
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
+
+$(BUILD_DIR)/check_os_%.o: runtime/src/hle/os/%.cpp | $(BUILD_DIR) check-vitasdk
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
+
+$(BUILD_DIR)/gx_bridge_%.o: runtime/src/hle/gx/%.cpp | $(BUILD_DIR) check-vitasdk
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
+
+$(GX_HLE_LINK_OBJ): $(GX_HLE_OBJS)
+	arm-vita-eabi-ld -r $^ -o $@
+
+$(GX_VITA_LINK_OBJ): $(GX_HLE_LINK_OBJ) $(VITA_GX_BACKEND_OBJ)
+	arm-vita-eabi-ld -r $^ -o $@
+
+$(GX_VITA_VI_LINK_OBJ): $(GX_VITA_LINK_OBJ) $(VITA_VI_OBJ) $(VITA_SETTINGS_OVERLAY_OBJ)
+	arm-vita-eabi-ld -r $^ -o $@
+
+$(ELF): $(PROBE_OBJ) $(LIBCO_OBJ) $(GUEST_MEMORY_OBJ) $(HOST_JOBS_OBJ) $(VITA_GX_BACKEND_OBJ)
+	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) $(LIBS) -o $@
+
+$(VELF): $(ELF)
+	vita-elf-create $< $@
+
+$(EBOOT): $(VELF)
+	vita-make-fself -c $< $@
+
+$(SFO): | $(BUILD_DIR)
+	vita-mksfoex -s TITLE_ID=$(TITLE) "$(TITLE_NAME)" $@
+
+$(VPK): $(EBOOT) $(SFO)
+	vita-pack-vpk -s $(SFO) -b $(EBOOT) $@
+
+$(RECOMP_PROBE_DIR)/main.o: vita/recomp_probe/main.cpp | $(RECOMP_PROBE_DIR) check-vitasdk
+	$(CXX) $(CXXFLAGS) -I$(TRANSLATOR_PROBE_DIR) -I$(TRANSLATOR_PROBE_DIR)/build_shards/base_common \
+		-MMD -MP -c $< -o $@
+
+$(VITA_RUNTIME_MAIN_OBJ): vita/main_vita.cpp | $(BUILD_DIR) check-vitasdk translator-vita-check
+	$(CXX) $(CXXFLAGS) -I$(TRANSLATOR_PROBE_DIR) -MMD -MP -c $< -o $@
+
+$(MKW_TRANSLATED_BUILD_DIR)/%.o: $(MKW_GENERATED_DIR)/%.cpp | check-vitasdk
+	@mkdir -p $(dir $@)
+	$(CXX) $(MKW_TRANSLATED_CXXFLAGS) -I. -I$(MKW_GENERATED_DIR) -I$(MKW_BUILD_SHARDS_DIR)/base_common \
+		-MMD -MP -c $< -o $@
+
+$(MKW_TRANSLATED_BUILD_DIR)/%.o: $(MKW_GENERATED_DIR)/%.S | check-vitasdk
+	@mkdir -p $(dir $@)
+	# GNU as for ARM treats '@' as a comment marker, unlike the host ELF
+	# assembler used by the translator. Normalize only the section-type token
+	# while streaming the generated assembly; keep generated sources untouched.
+	sed 's/@progbits/%progbits/g' $< | $(CXX) $(CXXFLAGS) -I. -x assembler -c - -o $@
+
+$(MKW_RUNTIME_BUILD_DIR)/runtime/%.o: runtime/src/%.cpp | check-vitasdk
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -I. -I$(MKW_GENERATED_DIR) -I$(MKW_BUILD_SHARDS_DIR)/base_common \
+		-MMD -MP -c $< -o $@
+
+$(MKW_VITA_MAIN_OBJ): vita/main_vita.cpp | check-vitasdk
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -I. -I$(MKW_GENERATED_DIR) -I$(MKW_BUILD_SHARDS_DIR)/base_common \
+		-MMD -MP -c $< -o $@
+
+$(MKW_VITA_AUDIO_OBJ): vita/audio_backend_vita.cpp | check-vitasdk
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -I. -MMD -MP -c $< -o $@
+
+$(MKW_VITA_CONTROLLER_OBJ): vita/controller_mapping_wizard_vita.cpp | check-vitasdk
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -I. -MMD -MP -c $< -o $@
+
+$(MKW_VITA_SETTINGS_OBJ): vita/settings_overlay_vita.cpp | check-vitasdk
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -I. -MMD -MP -c $< -o $@
+
+$(MKW_VITA_GX_OBJ): vita/gx_backend.cpp vita/include/wiicompiled_vita/gx_backend.h | check-vitasdk
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(MKW_AURORA_CPPFLAGS) -I. -Werror=infinite-recursion -MMD -MP -c $< -o $@
+
+$(MKW_VITA_AURORA_PACKET_OBJ): vita/aurora_packet_renderer.cpp vita/aurora_packet_renderer.h | check-vitasdk
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(MKW_AURORA_CPPFLAGS) -I. -MMD -MP -c $< -o $@
+
+$(MKW_VITA_VARIANT_OBJ_DIR)/aurora_vita/gfx/%.o: $(AURORA_VITA_GFX_DIR)/%.cpp | check-vitasdk
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(MKW_AURORA_CPPFLAGS) -I. -MMD -MP -c $< -o $@
+
+$(MKW_VITA_DEBUG_FONT_OBJ): $(VITASDK)/share/gcc-arm-vita-eabi/samples/common/debugScreen.c | check-vitasdk
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -I$(VITASDK)/share/gcc-arm-vita-eabi/samples/common \
+		-MMD -MP -c $< -o $@
+
+$(MKW_VITA_PLATFORM_OBJ): vita/firstboot_platform_vita.cpp | check-vitasdk
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -I. -MMD -MP -c $< -o $@
+
+$(MKW_PUGIXML_OBJ): runtime/third_party/pugixml/pugixml.cpp | check-vitasdk
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -O0 -g0 -w -MMD -MP -c $< -o $@
+
+$(MKW_CRYPTOPP_BUILD_DIR)/%.o: runtime/third_party/cryptopp/%.cpp | check-vitasdk
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -O0 -g0 -w -MMD -MP -c $< -o $@
+
+$(MKW_CRYPTOPP_LIB): $(MKW_CRYPTOPP_OBJS)
+	@mkdir -p $(dir $@)
+	$(PREFIX)-ar rcs $@ $^
+
+$(MKW_FIRSTBOOT_ELF): $(MKW_VITA_NATIVE_OBJS) $(MKW_TRANSLATED_OBJS) $(MKW_GUEST_SYMBOL_OBJ) \
+		$(MKW_DATA_BLOB_OBJ) $(MKW_FIRSTBOOT_FIXED_OBJS)
+	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) $(LIBS) -o $@
+
+$(MKW_FIRSTBOOT_ELF): | check-vitagl-variant
+
+ifeq ($(MKW_VITA_VITAGL),speedhack)
+check-vitagl-variant:
+	@test -f "$(AURORA_VITAGL_LIB)" || \
+		(echo "Missing tested vitaGL speedhack archive: $(AURORA_VITAGL_LIB)" && false)
+else
+check-vitagl-variant:
+	@true
+endif
+
+verify-mkw-firstboot-vpk: $(MKW_FIRSTBOOT_VPK)
+	unzip -t $(MKW_FIRSTBOOT_VPK)
+	shasum -a 256 $(MKW_FIRSTBOOT_VPK)
+	@grep -a -q 'init_marker=vglInitExtended' $(MKW_FIRSTBOOT_ELF) || \
+		(echo "Missing init instrumentation marker in $(MKW_FIRSTBOOT_ELF)" && false)
+	@grep -a -q 'guest_after_OSGetResetCode' $(MKW_FIRSTBOOT_ELF) || \
+		(echo "Missing guest continuation marker in $(MKW_FIRSTBOOT_ELF)" && false)
+
+$(MKW_FIRSTBOOT_VELF): $(MKW_FIRSTBOOT_ELF)
+	vita-elf-create -s $< $@
+
+$(MKW_FIRSTBOOT_EBOOT): $(MKW_FIRSTBOOT_VELF)
+	vita-make-fself -c $< $@
+
+$(MKW_FIRSTBOOT_SFO): | $(MKW_RUNTIME_BUILD_DIR)
+	vita-mksfoex -s TITLE_ID=$(MKW_FIRSTBOOT_TITLE) "$(MKW_FIRSTBOOT_TITLE_NAME)" $@
+
+$(MKW_FIRSTBOOT_VPK): $(MKW_FIRSTBOOT_EBOOT) $(MKW_FIRSTBOOT_SFO)
+	vita-pack-vpk -s $(MKW_FIRSTBOOT_SFO) -b $(MKW_FIRSTBOOT_EBOOT) \
+		-a runtime/assets/dsp/dsp_coef.bin=dsp_coef.bin \
+		-a runtime/assets/wii/shared2/wc24/misc.bin=wii_bootstrap/shared2/wc24/misc.bin \
+		-a runtime/assets/wii/shared2/wc24/nwc24dl.bin=wii_bootstrap/shared2/wc24/nwc24dl.bin \
+		-a runtime/assets/wii/shared2/wc24/nwc24fl.bin=wii_bootstrap/shared2/wc24/nwc24fl.bin \
+		-a runtime/assets/wii/shared2/wc24/nwc24fls.bin=wii_bootstrap/shared2/wc24/nwc24fls.bin \
+		-a runtime/assets/wii/shared2/wc24/nwc24msg.cbk=wii_bootstrap/shared2/wc24/nwc24msg.cbk \
+		-a runtime/assets/wii/shared2/wc24/nwc24msg.cfg=wii_bootstrap/shared2/wc24/nwc24msg.cfg \
+		-a runtime/assets/wii/shared2/wc24/mbox/Readme.txt=wii_bootstrap/shared2/wc24/mbox/Readme.txt \
+		-a runtime/assets/wii/shared2/wc24/mbox/wc24recv.ctl=wii_bootstrap/shared2/wc24/mbox/wc24recv.ctl \
+		-a runtime/assets/wii/shared2/wc24/mbox/wc24recv.mbx=wii_bootstrap/shared2/wc24/mbox/wc24recv.mbx \
+		-a runtime/assets/wii/shared2/wc24/mbox/wc24send.ctl=wii_bootstrap/shared2/wc24/mbox/wc24send.ctl \
+		-a runtime/assets/wii/shared2/wc24/mbox/wc24send.mbx=wii_bootstrap/shared2/wc24/mbox/wc24send.mbx \
+		$@
+
+$(RECOMP_PROBE_DIR)/abi_bridge.o: runtime/src/abi_bridge.cpp | $(RECOMP_PROBE_DIR) check-vitasdk
+	$(CXX) $(CXXFLAGS) -I$(TRANSLATOR_PROBE_DIR) -MMD -MP -c $< -o $@
+
+$(RECOMP_PROBE_DIR)/guest_flat_memory_vita.o: runtime/src/vita/guest_flat_memory_vita.cpp | $(RECOMP_PROBE_DIR) check-vitasdk
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
+
+$(RECOMP_PROBE_DIR)/generated/%.o: $(TRANSLATOR_PROBE_DIR)/%.cpp | check-vitasdk
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -I$(TRANSLATOR_PROBE_DIR) -I$(TRANSLATOR_PROBE_DIR)/build_shards/base_common \
+		-MMD -MP -c $< -o $@
+
+$(RECOMP_PROBE_DIR):
+	@mkdir -p $@
+
+$(MKW_RUNTIME_BUILD_DIR):
+	@mkdir -p $@
+
+$(RECOMP_ELF): $(RECOMP_FIXED_OBJS) $(RECOMP_GENERATED_OBJS)
+	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) $(LIBS) -o $@
+
+$(RECOMP_VELF): $(RECOMP_ELF)
+	vita-elf-create $< $@
+
+$(RECOMP_EBOOT): $(RECOMP_VELF)
+	vita-make-fself -c $< $@
+
+$(RECOMP_SFO): | $(RECOMP_PROBE_DIR)
+	vita-mksfoex -s TITLE_ID=$(RECOMP_TITLE) "$(RECOMP_TITLE_NAME)" $@
+
+$(RECOMP_VPK): $(RECOMP_EBOOT) $(RECOMP_SFO)
+	vita-pack-vpk -s $(RECOMP_SFO) -b $(RECOMP_EBOOT) $@
+
+clean:
+	rm -rf $(BUILD_DIR)
+
+-include $(PROBE_OBJ:.o=.d) $(LIBCO_OBJ:.o=.d) $(GUEST_MEMORY_OBJ:.o=.d) $(HOST_JOBS_OBJ:.o=.d) \
+	$(VITA_GX_BACKEND_OBJ:.o=.d) $(VITA_SETTINGS_OVERLAY_OBJ:.o=.d) $(VITA_VI_OBJ:.o=.d) \
+	$(RUNTIME_CHECK_OBJS:.o=.d) $(OS_CHECK_OBJS:.o=.d) $(GX_HLE_OBJS:.o=.d) \
+	$(RECOMP_FIXED_OBJS:.o=.d) $(RECOMP_GENERATED_OBJS:.o=.d) $(VITA_RUNTIME_MAIN_OBJ:.o=.d) \
+	$(MKW_TRANSLATED_OBJS:.o=.d) $(MKW_VITA_NATIVE_OBJS:.o=.d) \
+	$(MKW_VITA_MAIN_OBJ:.o=.d) $(MKW_VITA_AUDIO_OBJ:.o=.d) $(MKW_VITA_CONTROLLER_OBJ:.o=.d) \
+	$(MKW_VITA_SETTINGS_OBJ:.o=.d) $(MKW_VITA_GX_OBJ:.o=.d) $(MKW_VITA_PLATFORM_OBJ:.o=.d) \
+	$(MKW_VITA_DEBUG_FONT_OBJ:.o=.d) \
+	$(MKW_PUGIXML_OBJ:.o=.d) $(MKW_CRYPTOPP_OBJS:.o=.d)

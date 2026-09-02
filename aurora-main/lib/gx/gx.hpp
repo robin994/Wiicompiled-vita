@@ -3,10 +3,14 @@
 #include <aurora/math.hpp>
 
 #include "../internal.hpp"
+#if defined(MKW_TARGET_VITA)
+#include "../vita/gfx_frontend.hpp"
+#else
 #include "../gfx/common.hpp"
 #include "../gfx/texture.hpp"
 
 #include <absl/container/flat_hash_map.h>
+#endif
 #include <algorithm>
 #include <type_traits>
 #include <cstring>
@@ -15,6 +19,10 @@
 #include <array>
 #include <cfloat>
 #include <cmath>
+#if defined(MKW_TARGET_VITA)
+#include <map>
+#include <tuple>
+#endif
 
 #define M_PIF 3.14159265358979323846f
 
@@ -125,14 +133,18 @@ struct TevStage {
   bool operator==(const TevStage& rhs) const { return memcmp(this, &rhs, sizeof(*this)) == 0; }
   bool operator!=(const TevStage& rhs) const { return !(*this == rhs); }
 };
+#if !defined(MKW_TARGET_VITA)
 static_assert(std::has_unique_object_representations_v<TevStage>);
+#endif
 struct IndStage {
   GXTexCoordID texCoordId;
   GXTexMapID texMapId;
   GXIndTexScale scaleS;
   GXIndTexScale scaleT;
 };
+#if !defined(MKW_TARGET_VITA)
 static_assert(std::has_unique_object_representations_v<IndStage>);
+#endif
 // For shader generation
 struct ColorChannelConfig {
   GXColorSrc matSrc = GX_SRC_REG;
@@ -210,7 +222,9 @@ struct AlphaCompare {
   bool operator!=(const AlphaCompare& rhs) const { return !(*this == rhs); }
   explicit operator bool() const { return comp0 != GX_ALWAYS || comp1 != GX_ALWAYS; }
 };
+#if !defined(MKW_TARGET_VITA)
 static_assert(std::has_unique_object_representations_v<AlphaCompare>);
+#endif
 struct IndTexMtxInfo {
   Mat3x2<float> mtx;
   s8 scaleExp = 0;
@@ -412,13 +426,24 @@ struct GXState {
       return dest == rhs.dest && width == rhs.width && height == rhs.height && format == rhs.format;
     }
 
+#if defined(MKW_TARGET_VITA)
+    bool operator<(const CopyTextureKey& rhs) const {
+      return std::tie(dest, width, height, format) < std::tie(rhs.dest, rhs.width, rhs.height, rhs.format);
+    }
+#endif
+
     template <typename H>
     friend H AbslHashValue(H h, const CopyTextureKey& key) {
       return H::combine(std::move(h), key.dest, key.width, key.height, key.format);
     }
   };
+#if defined(MKW_TARGET_VITA)
+  std::map<const void*, CopyTextureRef> copyTextures;
+  std::map<CopyTextureKey, CopyTextureRef> copyTextureCache;
+#else
   absl::flat_hash_map<const void*, CopyTextureRef> copyTextures;
   absl::flat_hash_map<CopyTextureKey, CopyTextureRef> copyTextureCache;
+#endif
   gfx::TextureHandle displayCopyTexture;
   wgpu::BindGroup displayCopyBindGroup;
   u32 displayCopyWidth = 0;
@@ -565,7 +590,9 @@ struct ShaderConfig {
 
   bool operator==(const ShaderConfig& rhs) const { return memcmp(this, &rhs, sizeof(*this)) == 0; }
 };
+#if !defined(MKW_TARGET_VITA)
 static_assert(std::has_unique_object_representations_v<ShaderConfig>);
+#endif
 
 // GX supplies an opaque white color when a draw omits vertex colors.
 inline int shader_vertex_color_attr(const ShaderConfig& config, u32 channel) noexcept {

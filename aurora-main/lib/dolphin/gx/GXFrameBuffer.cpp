@@ -1,14 +1,20 @@
 #include "gx.hpp"
 #include "__gx.h"
 
+#if defined(MKW_TARGET_VITA)
+#include "../../vita/gfx_frontend.hpp"
+#else
 #include "../../gfx/tex_copy_conv.hpp"
 #include "../../gfx/efb_ram_copy.hpp"
 #include "../../gfx/texture.hpp"
+#endif
 #include "../../gx/fifo.hpp"
 #include "../../internal.hpp"
+#if !defined(MKW_TARGET_VITA)
 #include "../../window.hpp"
 #include "../../gfx/clear.hpp"
 #include "../../webgpu/gpu.hpp"
+#endif
 #include "../vi/vi_internal.hpp"
 
 #include <algorithm>

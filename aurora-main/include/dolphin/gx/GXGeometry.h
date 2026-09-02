@@ -21,10 +21,11 @@ void GXSetLineWidth(u8 width, GXTexOffset texOffsets);
 void GXSetPointSize(u8 pointSize, GXTexOffset texOffsets);
 void GXEnableTexOffsets(GXTexCoordID coord, GXBool line_enable, GXBool point_enable);
 #ifdef TARGET_PC
+#ifdef __cplusplus
+void GXSetArray(GXAttr attr, const void* data, u32 size, u8 stride, bool le = false);
+#else
 void GXSetArray(GXAttr attr, const void* data, u32 size, u8 stride, bool le);
-static inline void GXSetArray(GXAttr attr, const void* data, u32 size, u8 stride) {
-  GXSetArray(attr, data, size, stride, false);
-}
+#endif
 #define GXSETARRAY(attr, data, size, stride, le) GXSetArray((attr), (data), (size), (stride), (le))
 #else
 void GXSetArray(GXAttr attr, const void* data, u8 stride);

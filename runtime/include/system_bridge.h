@@ -16,7 +16,7 @@
 // only sigsetjmp/siglongjmp save and restore the process signal mask, which is what keeps SIGSEGV
 // from staying blocked (and a second fault during the same ctor loop from escalating instead of
 // trapping) after the first recovered fault.
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(__vita__)
 using MkwJmpBuf = jmp_buf;
 #define MKW_SETJMP(buf) setjmp(buf)
 #else
@@ -36,6 +36,7 @@ extern thread_local uint32_t g_sehLastAccessType;
 
 void WriteFatalLog(std::string_view reason);
 void SetRuntimeExitCode(int code);
+void MarkFatalErrorReported();
 
 // Centralized crash reporting (defined in main.cpp). Every fatal path funnels
 // through these so the per-run log folder always receives the same artifact

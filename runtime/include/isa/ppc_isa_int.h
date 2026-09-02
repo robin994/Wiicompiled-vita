@@ -11,7 +11,8 @@
 
 inline uint32_t PpcRotl32Inline(uint32_t value, uint32_t shift)
 {
-    return __builtin_rotateleft32(value, shift);
+    shift &= 31u;
+    return (value << shift) | (value >> ((32u - shift) & 31u));
 }
 
 extern "C" uint32_t OSSystemCall();

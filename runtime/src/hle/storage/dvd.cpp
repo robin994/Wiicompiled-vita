@@ -169,7 +169,6 @@ static const fs::path& GetDvdRoot() {
 }
 
 static std::string NormalizePath(const std::string& path);
-static fs::path ResolveDvdMappedHostPath(const std::string& dvdPath, const fs::path& fallbackHostPath);
 
 static void InvokeDvdCallback(uint32_t callbackPtr, int32_t result, uint32_t fileInfoPtr) {
     if (callbackPtr == 0) {
@@ -331,8 +330,7 @@ static void LoadFstIndex() {
         entry.end = endBytes;
         entry.size = fileSize;
         entry.dvdPath = "/" + relPath;
-        const fs::path baseHostPath = GetDvdRoot() / "files" / fs::path(relPath);
-        entry.hostPath = ResolveDvdMappedHostPath(entry.dvdPath, baseHostPath);
+        entry.hostPath = GetDvdRoot() / "files" / fs::path(relPath);
         g_fstFiles.push_back(std::move(entry));
     }
 
@@ -440,6 +438,12 @@ static void WalkDirectory(const fs::path& root, bool recursive, bool announceErr
         return;
     }
 
+#if defined(MKW_TARGET_VITA)
+    if (announceErrors) {
+        RT_LOG(RT_TAG_DVD) << "[BOOT] recursive iterator create root="
+                           << HostPathText(root) << std::endl;
+    }
+#endif
     fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec);
     if (ec) {
         if (announceErrors) {
@@ -448,10 +452,25 @@ static void WalkDirectory(const fs::path& root, bool recursive, bool announceErr
         }
         return;
     }
+#if defined(MKW_TARGET_VITA)
+    if (announceErrors) {
+        RT_LOG(RT_TAG_DVD) << "[BOOT] recursive iterator ready root="
+                           << HostPathText(root) << std::endl;
+    }
+#endif
 
     const fs::recursive_directory_iterator end;
+    size_t visited = 0;
     while (it != end) {
         const fs::directory_entry entry = *it;
+
+#if defined(MKW_TARGET_VITA)
+        ++visited;
+        if (announceErrors && (visited <= 4u || (visited % 128u) == 0u)) {
+            RT_LOG(RT_TAG_DVD) << "[BOOT] scan progress visited=" << visited
+                               << " path=" << HostPathText(entry.path()) << std::endl;
+        }
+#endif
 
         it.increment(ec);
         if (ec) {
@@ -466,6 +485,12 @@ static void WalkDirectory(const fs::path& root, bool recursive, bool announceErr
 
         visit(entry);
     }
+#if defined(MKW_TARGET_VITA)
+    if (announceErrors) {
+        RT_LOG(RT_TAG_DVD) << "[BOOT] recursive iterator complete visited=" << visited
+                           << " root=" << HostPathText(root) << std::endl;
+    }
+#endif
 }
 
 // Helper: Scan directory and build file index.
@@ -474,7 +499,16 @@ static void WalkDirectory(const fs::path& root, bool recursive, bool announceErr
 static void ScanDirectory(const fs::path& root, const std::string& virtualPrefix,
                           bool recursive = true, bool addNewFiles = true) {
     std::error_code ec;
-    if (!fs::exists(root, ec)) {
+#if defined(MKW_TARGET_VITA)
+    RT_LOG(RT_TAG_DVD) << "[BOOT] directory existence check root="
+                       << HostPathText(root) << std::endl;
+#endif
+    const bool rootExists = fs::exists(root, ec);
+#if defined(MKW_TARGET_VITA)
+    RT_LOG(RT_TAG_DVD) << "[BOOT] directory existence result exists=" << rootExists
+                       << " error=" << (ec ? ec.message() : "none") << std::endl;
+#endif
+    if (!rootExists || ec) {
         return;
     }
 
@@ -588,25 +622,6 @@ static void ScanOverlayRoot(const RuntimeRiivolution::Overlay& overlay) {
             break;
         }
     }
-}
-
-static fs::path ResolveDvdMappedHostPath(const std::string& dvdPath, const fs::path& fallbackHostPath) {
-    const std::string normalized = NormalizePath(dvdPath);
-    const auto it = g_pathToEntry.find(normalized);
-    if (it != g_pathToEntry.end() && it->second >= 0 &&
-        it->second < static_cast<int32_t>(g_fileEntries.size())) {
-        return g_fileEntries[it->second].hostPath;
-    }
-
-    for (const auto& overlay : RuntimeRiivolution::Overlays()) {
-        const fs::path candidate = overlay.root / fs::path(normalized.substr(1));
-        std::error_code ec;
-        if (fs::is_regular_file(candidate, ec)) {
-            return candidate;
-        }
-    }
-
-    return fallbackHostPath;
 }
 
 [[noreturn]] static void FailRuntimeFst(const std::string& reason) {
@@ -782,6 +797,9 @@ extern "C" void DVDInit_8015EA1C()
     if (initializing) return;
     initializing = true;
 
+#if defined(MKW_TARGET_VITA)
+    RT_LOG(RT_TAG_DVD) << "[BOOT] DVDInit enter" << std::endl;
+#endif
 
     // 1. Initialize Global Flags (Emulate OS state)
     // These addresses are standard OS globals for DVD context
@@ -807,13 +825,52 @@ extern "C" void DVDInit_8015EA1C()
     Memory::Write16(diskHeader + 0x04, 0x3031);     // '01' (Maker)
     Memory::Write8(diskHeader + 0x06, 0x01);        // Disk #1
     // 4. Scan Files
+#if defined(MKW_TARGET_VITA)
+    RT_LOG(RT_TAG_DVD) << "[BOOT] resolving DVD root" << std::endl;
+#endif
     const fs::path& rootPath = GetDvdRoot();
-    
-    // Map "<dvd_root>/files" -> "/"
+#if defined(MKW_TARGET_VITA)
+    RT_LOG(RT_TAG_DVD) << "[BOOT] DVD root=" << HostPathText(rootPath) << std::endl;
+#endif
+
+    // The disc FST already contains every vanilla path, size and physical
+    // offset. On Vita, registering those entries in memory avoids thousands of
+    // slow ux0 metadata calls from recursive_directory_iterator.
+#if defined(MKW_TARGET_VITA)
+    RT_LOG(RT_TAG_DVD) << "[BOOT] load FST begin" << std::endl;
+#endif
+    LoadFstIndex();
+#if defined(MKW_TARGET_VITA)
+    RT_LOG(RT_TAG_DVD) << "[BOOT] load FST end files=" << g_fstFiles.size() << std::endl;
+    const size_t filesEntryBase = g_fileEntries.size();
+    if (!g_fstFiles.empty()) {
+        RT_LOG(RT_TAG_DVD) << "[BOOT] register vanilla files from FST begin" << std::endl;
+        for (const FstFileEntry& file : g_fstFiles) {
+            RegisterFileEntry(file.dvdPath, file.hostPath, file.size);
+        }
+        RT_LOG(RT_TAG_DVD) << "[BOOT] register vanilla files from FST end entries="
+                           << (g_fileEntries.size() - filesEntryBase) << std::endl;
+    } else {
+        RT_LOG(RT_TAG_DVD) << "WARNING: FST index unavailable; falling back to directory scan"
+                           << std::endl;
+        ScanDirectory(rootPath / "files", "/");
+        RT_LOG(RT_TAG_DVD) << "[BOOT] fallback scan files end entries="
+                           << (g_fileEntries.size() - filesEntryBase) << std::endl;
+    }
+#else
     ScanDirectory(rootPath / "files", "/");
+#endif
 
     // Map "<dvd_root>/sys" -> "/sys/" (e.g. main.dol, bi2.bin)
+#if defined(MKW_TARGET_VITA)
+    RT_LOG(RT_TAG_DVD) << "[BOOT] scan sys begin" << std::endl;
+    const size_t sysEntryBase = g_fileEntries.size();
+#endif
     ScanDirectory(rootPath / "sys", "/sys/");
+#if defined(MKW_TARGET_VITA)
+    RT_LOG(RT_TAG_DVD) << "[BOOT] scan sys end entries="
+                       << (g_fileEntries.size() - sysEntryBase) << std::endl;
+#endif
 
     const auto& overlays = RuntimeRiivolution::Overlays();
     if (overlays.empty() && RuntimeProduct::IsRetroRewind()) {
@@ -835,18 +892,32 @@ extern "C" void DVDInit_8015EA1C()
               << (g_fileEntries.size() - vanillaEntryCount) << " overlay registration(s) from "
               << overlays.size() << " root(s)" << std::endl;
 
-    // Load FST mapping so real files keep their physical disc extents.
-    LoadFstIndex();
+    // Publish the runtime FST after overlays have replaced or added entries.
+#if defined(MKW_TARGET_VITA)
+    RT_LOG(RT_TAG_DVD) << "[BOOT] publish FST begin" << std::endl;
+#endif
     BuildAndPublishRuntimeFst();
+#if defined(MKW_TARGET_VITA)
+    RT_LOG(RT_TAG_DVD) << "[BOOT] publish FST end" << std::endl;
+#endif
 
     // Initialize the translated DVD filesystem so it can use the published FST.
     constexpr uint32_t kDvdFsInitAddress = 0x8015DF1C;
     if (TranslatedFunctionRegistry::FindByAddressPtr(kDvdFsInitAddress)) {
+#if defined(MKW_TARGET_VITA)
+        RT_LOG(RT_TAG_DVD) << "[BOOT] translated DVD filesystem init begin" << std::endl;
+#endif
         InvokeIndirectCpu(kDvdFsInitAddress, &GetPersistentCpuContext());
+#if defined(MKW_TARGET_VITA)
+        RT_LOG(RT_TAG_DVD) << "[BOOT] translated DVD filesystem init end" << std::endl;
+#endif
     }
 
     g_dvdInitialized = true;
     initializing = false;
+#if defined(MKW_TARGET_VITA)
+    RT_LOG(RT_TAG_DVD) << "[BOOT] DVDInit complete" << std::endl;
+#endif
 }
 PPC_NATIVE_OVERRIDE_VOID(8015EA1C, DVDInit_8015EA1C, (), ());
 
@@ -1117,4 +1188,3 @@ PPC_NATIVE_OVERRIDE(801643FC, DVDCheckDevice_801643FC, int32_t, (), ());
 
 extern "C" int32_t DVDLowClearCoverInterrupt_80166964(uint32_t cb) { return 1; }
 PPC_NATIVE_OVERRIDE(80166964, DVDLowClearCoverInterrupt_80166964, int32_t, (uint32_t cb), (cb));
-

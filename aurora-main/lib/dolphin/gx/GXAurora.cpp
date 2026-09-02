@@ -6,9 +6,13 @@
 
 #include "__gx.h"
 #include "gx.hpp"
+#if defined(MKW_TARGET_VITA)
+#include "../../vita/gfx_frontend.hpp"
+#else
 #include "../../window.hpp"
 
 #include "../../gfx/common.hpp"
+#endif
 #include "../../gx/fifo.hpp"
 
 // Single definition for the `Log` that gx.hpp declares for this directory.

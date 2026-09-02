@@ -62,7 +62,11 @@ public:
     {
         g_currentCpuContext = ctx;
 
+<<<<<<< HEAD
         savedMxcsr_ = MkwGetHostFpControl();
+=======
+        savedFpControl_ = MkwReadHostFpControl();
+>>>>>>> 577dc0e (checkpoint: add PS Vita port and Aurora backend)
         if (ctx != nullptr)
             MkwApplyHostNiMode(ctx->fpscr);
     }
@@ -73,7 +77,7 @@ public:
         if (previous_ != nullptr)
             MkwApplyHostNiMode(previous_->fpscr);
         else
-            MkwRestoreHostMxcsr(savedMxcsr_);
+            MkwRestoreHostFpControl(savedFpControl_);
     }
 
     CpuContextScope(const CpuContextScope&) = delete;
@@ -81,7 +85,7 @@ public:
 
 private:
     CpuContext* previous_ = nullptr;
-    uint32_t savedMxcsr_ = 0;
+    uint32_t savedFpControl_ = 0;
 };
 
 inline CpuContext* TryGetCpuContext() noexcept

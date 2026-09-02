@@ -105,12 +105,9 @@ extern "C" int32_t NANDOpen_HLE(uint32_t pathPtr, uint32_t fileInfoPtr, uint32_t
         } else {
             const std::filesystem::path tempPath = SafeTempPathFor(hostPath);
             if (DiscardStaleSafeTemp(tempPath)) {
-                std::error_code ec;
-                std::filesystem::copy_file(hostPath, tempPath,
-                                           std::filesystem::copy_options::overwrite_existing, ec);
-                if (ec) {
-                    LogNandWarning("NANDOpen", "WARNING: could not seed shadow '%s' (%s), writing in place",
-                                   HostPathText(tempPath).c_str(), ec.message().c_str());
+                if (!NandCopyFile(hostPath, tempPath)) {
+                    LogNandWarning("NANDOpen", "WARNING: could not seed shadow '%s' from '%s', writing in place",
+                                   HostPathText(tempPath).c_str(), HostPathText(hostPath).c_str());
                     NandRemove(tempPath);
                 } else {
                     FILE* shadow = NandFopen(tempPath, "r+b");
@@ -157,7 +154,12 @@ extern "C" int32_t NANDOpen_HLE(uint32_t pathPtr, uint32_t fileInfoPtr, uint32_t
             file = NandFopen(hostPath, fopenMode);
         }
         if (!file) {
-            LogNandError("NANDOpen", "FAILED to open");
+            LogNandError("NANDOpen", "FAILED guest='%s' host='%s' mode=%u exists=%u dir=%u",
+                         path,
+                         HostPathText(hostPath).c_str(),
+                         mode,
+                         PathExists(hostPath) ? 1u : 0u,
+                         IsDirectory(hostPath) ? 1u : 0u);
             return NAND_RESULT_NOEXISTS;
         }
     }
@@ -165,6 +167,13 @@ extern "C" int32_t NANDOpen_HLE(uint32_t pathPtr, uint32_t fileInfoPtr, uint32_t
     int32_t fd = AllocateFd(hostPath, file, mode);
     Memory::Write32(fileInfoPtr, static_cast<uint32_t>(fd));
     Memory::Write8(fileInfoPtr + 0x8a, NAND_OPEN_FLAG_OPEN);
+    const char* traceTag = IsMkwRksysPath(hostPath)
+        ? "RKSYS"
+        : (IsFaceLibDatabaseHostPath(hostPath) ? "RFL_DB" : nullptr);
+    if (traceTag) {
+        LogNandWarning(traceTag, "open guest='%s' mode=%u fd=%d",
+                       path, mode, fd);
+    }
     return NAND_RESULT_OK;
 }
 PPC_NATIVE_OVERRIDE(8019C800, NANDOpen_HLE, int32_t, (uint32_t pathPtr, uint32_t fileInfoPtr, uint32_t mode), (pathPtr, fileInfoPtr, mode));
@@ -217,6 +226,9 @@ extern "C" int32_t NANDRead_HLE(uint32_t fileInfoPtr, uint32_t bufferPtr, uint32
     }
 
     size_t bytesRead = std::fread(buffer, 1, length, handle->file);
+    handle->bytesRead += bytesRead;
+    ++handle->readCalls;
+    handle->position += static_cast<uint32_t>(bytesRead);
     return static_cast<int32_t>(bytesRead);
 }
 PPC_NATIVE_OVERRIDE(8019B7A4, NANDRead_HLE, int32_t, (uint32_t fileInfoPtr, uint32_t bufferPtr, uint32_t length), (fileInfoPtr, bufferPtr, length));
@@ -236,7 +248,20 @@ extern "C" int32_t NANDWrite_HLE(uint32_t fileInfoPtr, uint32_t bufferPtr, uint3
         return NAND_RESULT_INVALID;
     }
 
+    const long fileOffset = std::ftell(handle->file);
     size_t bytesWritten = std::fwrite(buffer, 1, length, handle->file);
+    if (handle->writeCalls == 0) {
+        handle->firstWriteGuestAddress = bufferPtr;
+        handle->firstWriteOffset = fileOffset >= 0 ? static_cast<uint32_t>(fileOffset) : 0;
+    }
+    ++handle->writeCalls;
+    handle->bytesWritten += bytesWritten;
+    handle->position += static_cast<uint32_t>(bytesWritten);
+    for (size_t i = 0; i < bytesWritten; ++i) {
+        handle->nonzeroBytesWritten += buffer[i] != 0 ? 1u : 0u;
+        handle->writeHash ^= buffer[i];
+        handle->writeHash *= 1099511628211ull;
+    }
     std::fflush(handle->file);
     return static_cast<int32_t>(bytesWritten);
 }
@@ -256,7 +281,12 @@ extern "C" int32_t NANDSeek_HLE(uint32_t fileInfoPtr, int32_t offset, int32_t wh
         return NAND_RESULT_UNKNOWN;
     }
 
-    return static_cast<int32_t>(std::ftell(handle->file));
+    const long position = std::ftell(handle->file);
+    if (position < 0) {
+        return NAND_RESULT_UNKNOWN;
+    }
+    handle->position = static_cast<uint32_t>(position);
+    return static_cast<int32_t>(position);
 }
 PPC_NATIVE_OVERRIDE(8019B964, NANDSeek_HLE, int32_t, (uint32_t fileInfoPtr, int32_t offset, int32_t whence), (fileInfoPtr, offset, whence));
 
@@ -296,6 +326,14 @@ extern "C" int32_t NANDCreate_HLE(uint32_t pathPtr, uint32_t perm, uint32_t attr
         return NAND_RESULT_UNKNOWN;
     }
     std::fclose(f);
+
+    const char* traceTag = IsMkwRksysPath(hostPath)
+        ? "RKSYS"
+        : (IsFaceLibDatabaseHostPath(hostPath) ? "RFL_DB" : nullptr);
+    if (traceTag) {
+        LogNandWarning(traceTag, "create guest='%s' host='%s'",
+                       path, HostPathText(hostPath).c_str());
+    }
     
     return NAND_RESULT_OK;
 }
@@ -314,6 +352,10 @@ extern "C" int32_t NANDDelete_HLE(uint32_t pathPtr) {
     }
     
     if (NandRemove(hostPath)) {
+        if (IsMkwRksysPath(hostPath)) {
+            LogNandWarning("RKSYS", "delete guest='%s' host='%s'",
+                           path, HostPathText(hostPath).c_str());
+        }
         return NAND_RESULT_OK;
     }
     

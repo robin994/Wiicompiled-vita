@@ -28,6 +28,10 @@
 #include <string>
 #include <thread>
 
+#if defined(MKW_TARGET_VITA)
+#include <wiicompiled_vita/host_thread.h>
+#endif
+
 namespace AxDspHle {
 namespace {
 
@@ -1347,6 +1351,14 @@ private:
         m_mixStop = false;
         m_mixPending = false;
         m_mixBusy = false;
+#if defined(MKW_TARGET_VITA)
+        if (!m_mixThread.start(WiiCompiledVita::HostThreadRole::Audio, 96 * 1024,
+                               [this] { MixWorkerMain(); })) {
+            RT_LOGF(RT_TAG_AUDIO, "failed to start the Vita mix worker; mixing inline\n");
+            std::fflush(stderr);
+            return false;
+        }
+#else
         try {
             m_mixThread = std::thread([this] { MixWorkerMain(); });
         } catch (const std::system_error&) {
@@ -1354,6 +1366,7 @@ private:
             std::fflush(stderr);
             return false;
         }
+#endif
         return true;
     }
 
@@ -1417,7 +1430,11 @@ private:
     std::array<uint16_t, 3> m_lastAuxVolumes{};
 
     // Mix worker handshake.
+#if defined(MKW_TARGET_VITA)
+    WiiCompiledVita::HostThread m_mixThread;
+#else
     std::thread m_mixThread;
+#endif
     mutable std::mutex m_mixMutex;
     std::condition_variable m_mixWake;  // guest -> worker
     std::condition_variable m_mixIdle;  // worker -> guest

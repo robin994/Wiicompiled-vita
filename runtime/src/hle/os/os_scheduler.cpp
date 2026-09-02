@@ -482,6 +482,20 @@ extern "C" void OSLockMutex_HLE_801a7ee4(CpuContext* ctx)
             return;
         }
 
+#if defined(MKW_TARGET_VITA)
+        constexpr uint32_t kWc24MutexBase = 0x80356EE0u;
+        constexpr uint32_t kWc24MutexSpan = 0x300u;
+        const bool traceWc24Mutex =
+            mutexPtr >= kWc24MutexBase && mutexPtr < kWc24MutexBase + kWc24MutexSpan;
+        if (traceWc24Mutex) {
+            RT_LOGF(RT_TAG_OS,
+                    "[WC24] OSLockMutex mutex=0x%08X current=0x%08X owner=0x%08X count=%u\n",
+                    mutexPtr, currentThread,
+                    ::Memory::Read32(mutexPtr + kMutexOwnerOffset),
+                    ::Memory::Read32(mutexPtr + kMutexCountOffset));
+        }
+#endif
+
         while (true) {
             const uint32_t ownerThread = ::Memory::Read32(mutexPtr + kMutexOwnerOffset);
             if (ownerThread == 0) {
@@ -497,6 +511,14 @@ extern "C" void OSLockMutex_HLE_801a7ee4(CpuContext* ctx)
                 ::Memory::Write32(mutexPtr + kMutexCountOffset, count + 1u);
                 break;
             }
+
+#if defined(MKW_TARGET_VITA)
+            if (traceWc24Mutex) {
+                RT_LOGF(RT_TAG_OS,
+                        "[WC24] OSLockMutex blocking mutex=0x%08X current=0x%08X owner=0x%08X\n",
+                        mutexPtr, currentThread, ownerThread);
+            }
+#endif
 
             ::Memory::Write32(currentThread + kThreadMutexOffset, mutexPtr);
             const int32_t priority =
@@ -532,6 +554,19 @@ extern "C" void OSUnlockMutex_HLE_801a7fc0(CpuContext* ctx)
             return;
         }
 
+
+#if defined(MKW_TARGET_VITA)
+        constexpr uint32_t kWc24MutexBase = 0x80356EE0u;
+        constexpr uint32_t kWc24MutexSpan = 0x300u;
+        if (mutexPtr >= kWc24MutexBase && mutexPtr < kWc24MutexBase + kWc24MutexSpan) {
+            RT_LOGF(RT_TAG_OS,
+                    "[WC24] OSUnlockMutex mutex=0x%08X current=0x%08X owner=0x%08X count=%u\n",
+                    mutexPtr, currentThread,
+                    ::Memory::Read32(mutexPtr + kMutexOwnerOffset),
+                    ::Memory::Read32(mutexPtr + kMutexCountOffset));
+        }
+#endif
+
         if (::Memory::Read32(mutexPtr + kMutexOwnerOffset) == currentThread) {
             const uint32_t count = ::Memory::Read32(mutexPtr + kMutexCountOffset) - 1u;
             ::Memory::Write32(mutexPtr + kMutexCountOffset, count);
@@ -560,4 +595,3 @@ extern "C" void OSUnlockMutex_HLE_801a7fc0(CpuContext* ctx)
     OS__RestoreInterrupts_801a65d4(irqState);
 }
 PPC_NATIVE_OVERRIDE_VOID(801A7FC0, OSUnlockMutex_HLE_801a7fc0, (CpuContext* ctx), (ctx));
-

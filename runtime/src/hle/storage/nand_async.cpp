@@ -99,26 +99,28 @@ bool NandProcessPendingCallbacks(CpuContext* cpu, int maxToProcess) {
     return processed != 0;
 }
 
-// Async NAND entry points run the sync call, queue the guest completion callback, and return.
+// Async NAND entry points run the host operation, queue its result for the guest completion
+// callback, and report that the request itself was accepted. Filesystem errors such as
+// NAND_RESULT_NOEXISTS are completion results, not immediate submission failures. Returning
+// them here as well as queueing them makes SDK clients process the same request twice; RFL,
+// for example, takes its synchronous error path and later receives a stale open callback.
 // `params`'s last two args must stay named callbackPtr/commandBlockPtr since the macro bodies
 // reference them directly. PPC_NATIVE_OVERRIDE calls stay written out verbatim, not macro-generated,
 // because the C# translator regex-scans this file as raw text to decide which addresses to leave untranslated.
 
-// Returns the synchronous result verbatim.
 #define NAND_ASYNC_FWD_BODY(Name, Sync, params, sync_args)        \
     extern "C" int32_t Name params {                              \
         int32_t result = Sync sync_args;                          \
         InvokeNandCallback(callbackPtr, result, commandBlockPtr); \
-        return result;                                            \
+        return NAND_RESULT_OK;                                    \
     }
 
-// Reports only success or failure: the transferred count travels to the guest
-// through the callback, so a non-negative result collapses to NAND_RESULT_OK.
+// Read/write/seek completion counts likewise travel only through the callback.
 #define NAND_ASYNC_FWD_BODY_OKZERO(Name, Sync, params, sync_args) \
     extern "C" int32_t Name params {                              \
         int32_t result = Sync sync_args;                          \
         InvokeNandCallback(callbackPtr, result, commandBlockPtr); \
-        return (result < 0) ? result : NAND_RESULT_OK;            \
+        return NAND_RESULT_OK;                                    \
     }
 
 NAND_ASYNC_FWD_BODY(NANDOpenAsync_HLE, NANDOpen_HLE,
@@ -332,6 +334,7 @@ int32_t CommitAndCloseFd(const char* who, int32_t fd, bool missingFdIsError) {
     std::filesystem::path commitPath;
     FILE* file = nullptr;
     int32_t mode = 0;
+    FileHandle trace{};
 
     {
         std::lock_guard<std::mutex> lock(g_fdMutex);
@@ -347,7 +350,25 @@ int32_t CommitAndCloseFd(const char* who, int32_t fd, bool missingFdIsError) {
         commitPath = it->second.safeCommitPath;
         file = it->second.file;
         mode = it->second.mode;
+        trace = it->second;
+        trace.file = nullptr;
         g_fileHandles.erase(it);
+    }
+
+    const std::filesystem::path& logicalPath = commitPath.empty() ? tempPath : commitPath;
+    const char* traceTag = IsMkwRksysPath(logicalPath)
+        ? "RKSYS"
+        : (IsFaceLibDatabaseHostPath(logicalPath) ? "RFL_DB" : nullptr);
+    if (traceTag) {
+        LogNandWarning(traceTag,
+                       "close via=%s mode=%d reads=%u/%llu writes=%u/%llu nonzero=%llu hash=%016llX first=0x%08X@%u shadow=%u",
+                       who, mode, trace.readCalls,
+                       static_cast<unsigned long long>(trace.bytesRead), trace.writeCalls,
+                       static_cast<unsigned long long>(trace.bytesWritten),
+                       static_cast<unsigned long long>(trace.nonzeroBytesWritten),
+                       static_cast<unsigned long long>(trace.writeHash),
+                       trace.firstWriteGuestAddress, trace.firstWriteOffset,
+                       commitPath.empty() ? 0u : 1u);
     }
 
     const bool needsCommit = !commitPath.empty();
@@ -446,13 +467,9 @@ extern "C" int32_t NANDSafeOpen_HLE(uint32_t pathPtr, uint32_t fileInfoPtr, uint
 
     // The scratch file starts as a byte-for-byte copy of the original and the guest is
     // positioned at offset 0, so partial writes keep the bytes they never touch.
-    std::error_code ec;
-    std::filesystem::copy_file(hostPath, tempPath,
-                               std::filesystem::copy_options::overwrite_existing, ec);
-    if (ec) {
-        LogNandError("NANDSafeOpen", "FAILED to seed scratch file '%s' from '%s': %s",
-                HostPathText(tempPath).c_str(), HostPathText(hostPath).c_str(),
-                ec.message().c_str());
+    if (!NandCopyFile(hostPath, tempPath)) {
+        LogNandError("NANDSafeOpen", "FAILED to seed scratch file '%s' from '%s'",
+                HostPathText(tempPath).c_str(), HostPathText(hostPath).c_str());
         NandRemove(tempPath);
         return NAND_RESULT_UNKNOWN;
     }

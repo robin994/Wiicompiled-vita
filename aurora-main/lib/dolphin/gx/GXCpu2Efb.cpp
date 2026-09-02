@@ -1,6 +1,10 @@
 #include "gx.hpp"
 
+#if defined(MKW_TARGET_VITA)
+#include "../../vita/gfx_frontend.hpp"
+#else
 #include "../../gfx/depth_peek.hpp"
+#endif
 
 #include <dolphin/gx/GXCpu2Efb.h>
 

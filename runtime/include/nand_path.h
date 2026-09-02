@@ -13,6 +13,11 @@
 #include <string>
 #include <string_view>
 
+#if defined(MKW_TARGET_VITA)
+#include <psp2/io/fcntl.h>
+#include <psp2/io/stat.h>
+#endif
+
 namespace RuntimeNandPath {
 
 inline std::optional<std::filesystem::path> ExistingDirectory(const std::filesystem::path& path) {
@@ -57,6 +62,15 @@ inline std::filesystem::path ManagedNandRootPath() {
 }
 
 inline std::optional<std::filesystem::path> BootstrapPayloadPath() {
+#if defined(MKW_TARGET_VITA)
+    // Always prefer the title's mounted read-only app partition. It follows the
+    // actual install location (ux0/uma0/etc.) and is the canonical way for a
+    // Vita title to access files packaged in its VPK.
+    const auto mounted = RuntimeConfigFile::PathFromUtf8("app0:/wii_bootstrap");
+    if (ExistingDirectory(mounted / "shared2" / "wc24")) {
+        return mounted;
+    }
+#endif
     if (auto executableDirectory = RuntimeConfigFile::ExecutableDirectory()) {
         const auto adjacent = *executableDirectory / "wii_bootstrap";
         if (ExistingDirectory(adjacent / "shared2" / "wc24")) {
@@ -79,6 +93,97 @@ inline std::optional<std::filesystem::path> BootstrapPayloadPath() {
     return std::nullopt;
 }
 
+#if defined(MKW_TARGET_VITA)
+inline bool EnsureVitaDirectoryTree(const std::filesystem::path& path) {
+    const std::string utf8 = RuntimeConfigFile::PathToUtf8(path);
+    if (utf8.empty()) {
+        return false;
+    }
+
+    // newlib's std::filesystem implementation is sufficient for many Vita
+    // paths, but nested device paths have proven unreliable during first-boot
+    // seeding. Build every prefix with the native I/O API, ignoring EEXIST-like
+    // failures and verifying the final directory afterwards.
+    size_t scan = 0;
+    for (;;) {
+        const size_t slash = utf8.find('/', scan);
+        const std::string prefix =
+            slash == std::string::npos ? utf8 : utf8.substr(0, slash);
+        if (!prefix.empty()) {
+            sceIoMkdir(prefix.c_str(), 0777);
+        }
+        if (slash == std::string::npos) {
+            break;
+        }
+        scan = slash + 1;
+    }
+
+    std::error_code verifyError;
+    return std::filesystem::is_directory(path, verifyError) && !verifyError;
+}
+
+inline bool CopyBootstrapFileVita(const std::filesystem::path& source,
+                                  const std::filesystem::path& destination) {
+    const std::string sourceUtf8 = RuntimeConfigFile::PathToUtf8(source);
+    const std::string destinationUtf8 = RuntimeConfigFile::PathToUtf8(destination);
+
+    const SceUID input = sceIoOpen(sourceUtf8.c_str(), SCE_O_RDONLY, 0);
+    if (input < 0) {
+        RT_LOGF(RT_TAG_NAND, "bootstrap open failed: %s (0x%08X)\n",
+                sourceUtf8.c_str(), static_cast<uint32_t>(input));
+        return false;
+    }
+
+    const SceUID output = sceIoOpen(destinationUtf8.c_str(),
+                                    SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC,
+                                    0666);
+    if (output < 0) {
+        RT_LOGF(RT_TAG_NAND, "bootstrap create failed: %s (0x%08X)\n",
+                destinationUtf8.c_str(), static_cast<uint32_t>(output));
+        sceIoClose(input);
+        return false;
+    }
+
+    bool ok = true;
+    char buffer[16 * 1024];
+    for (;;) {
+        const SceSSize bytesRead = sceIoRead(input, buffer, sizeof(buffer));
+        if (bytesRead < 0) {
+            RT_LOGF(RT_TAG_NAND, "bootstrap read failed: %s (0x%08X)\n",
+                    sourceUtf8.c_str(), static_cast<uint32_t>(bytesRead));
+            ok = false;
+            break;
+        }
+        if (bytesRead == 0) {
+            break;
+        }
+
+        SceSSize written = 0;
+        while (written < bytesRead) {
+            const SceSSize result = sceIoWrite(
+                output, buffer + written, static_cast<SceSize>(bytesRead - written));
+            if (result <= 0) {
+                RT_LOGF(RT_TAG_NAND, "bootstrap write failed: %s (0x%08X)\n",
+                        destinationUtf8.c_str(), static_cast<uint32_t>(result));
+                ok = false;
+                break;
+            }
+            written += result;
+        }
+        if (!ok) {
+            break;
+        }
+    }
+
+    sceIoClose(output);
+    sceIoClose(input);
+    if (!ok) {
+        sceIoRemove(destinationUtf8.c_str());
+    }
+    return ok;
+}
+#endif
+
 inline bool CopyBootstrapFile(const std::filesystem::path& sourceRoot,
                               const std::filesystem::path& destinationRoot,
                               const std::filesystem::path& relativePath,
@@ -89,12 +194,21 @@ inline bool CopyBootstrapFile(const std::filesystem::path& sourceRoot,
         return !ec;
     }
 
+    #if defined(MKW_TARGET_VITA)
+    if (!EnsureVitaDirectoryTree(destination.parent_path())) {
+        RT_LOGF(RT_TAG_NAND, "bootstrap mkdir failed: %s\n",
+                RuntimeConfigFile::PathToUtf8(destination.parent_path()).c_str());
+        return false;
+    }
+    return CopyBootstrapFileVita(source, destination);
+    #else
     std::filesystem::create_directories(destination.parent_path(), ec);
     if (ec) {
         return false;
     }
     std::filesystem::copy_file(source, destination, std::filesystem::copy_options::none, ec);
     return !ec;
+    #endif
 }
 
 // Create these WC24 files only for a new profile; never overwrite user data.

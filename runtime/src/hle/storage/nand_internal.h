@@ -69,6 +69,17 @@ struct FileHandle {
     // sibling scratch file the guest is writing into, and this is the original file it
     // atomically replaces on NANDSafeClose.
     std::filesystem::path safeCommitPath;
+    // Compact per-handle diagnostics for rksys.dat. Keeping the aggregation on
+    // the handle avoids emitting one log line for every 10 KiB preallocation
+    // chunk (a full MKW save is roughly 280 writes).
+    uint64_t bytesRead = 0;
+    uint64_t bytesWritten = 0;
+    uint64_t nonzeroBytesWritten = 0;
+    uint64_t writeHash = 1469598103934665603ull;
+    uint32_t readCalls = 0;
+    uint32_t writeCalls = 0;
+    uint32_t firstWriteGuestAddress = 0;
+    uint32_t firstWriteOffset = 0;
 };
 
 extern std::map<int32_t, FileHandle> g_fileHandles;
@@ -103,6 +114,9 @@ std::string HostPathText(const std::filesystem::path& path);
 FILE* NandFopen(const std::filesystem::path& path, const char* mode);
 bool NandRemove(const std::filesystem::path& path);
 bool NandRename(const std::filesystem::path& from, const std::filesystem::path& to);
+bool NandCopyFile(const std::filesystem::path& from, const std::filesystem::path& to);
+bool IsMkwRksysPath(const std::filesystem::path& path);
+bool IsFaceLibDatabaseHostPath(const std::filesystem::path& path);
 
 bool SeedFaceLibResource(const std::filesystem::path& hostPath);
 bool IsFaceLibResourcePath(const char* path);

@@ -251,6 +251,20 @@ extern "C" void OS__SleepTicks_HLE_801aaca8(CpuContext* ctx)
             return;
         }
 
+#if defined(MKW_TARGET_VITA)
+        // Bound this bring-up trace so normal gameplay cannot turn short SDK sleeps into
+        // an unbounded log stream. It is primarily useful before VI/DVD init, where a
+        // parked NWC24 retry is otherwise indistinguishable from a silent boot freeze.
+        static std::atomic<uint32_t> s_sleepTraceCount{0};
+        const uint32_t sleepTraceIndex = s_sleepTraceCount.fetch_add(1, std::memory_order_relaxed);
+        const bool traceSleep = sleepTraceIndex < 32u;
+        if (traceSleep) {
+            RT_LOG(RT_TAG_OS) << "OSSleepTicks trace #" << sleepTraceIndex
+                              << ": arm thread=0x" << std::hex << currentThread
+                              << " ticks=0x" << ticks << std::dec << std::endl;
+        }
+#endif
+
         // Parking here is OSSuspendThread plus a one-shot timer that can only peel one suspension.
         // If the scheduler cannot switch away (OSDisableScheduler nesting raised around a deferred
         // guest-callback batch), suspending would inflate the count with nothing left to zero it,
@@ -275,6 +289,14 @@ extern "C" void OS__SleepTicks_HLE_801aaca8(CpuContext* ctx)
         MarkParkOutstanding(currentThread);
         cpu->gpr[3] = currentThread;
         OSSuspendThread_HLE_801aa6a8(cpu);
+
+#if defined(MKW_TARGET_VITA)
+        if (traceSleep) {
+            RT_LOG(RT_TAG_OS) << "OSSleepTicks trace #" << sleepTraceIndex
+                              << ": suspend returned thread=0x" << std::hex << currentThread
+                              << std::dec << std::endl;
+        }
+#endif
 
         // Defence in depth: SelectThread has other refusal paths (context mismatch, drained run
         // queues), and there's a fire-before-park race where the timer fires and its resume is

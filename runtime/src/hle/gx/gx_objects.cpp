@@ -539,6 +539,11 @@ TlutObjMeta& GetTlutObjMeta(uint32_t addr) {
     return g_TlutObjMeta[addr];
 }
 
+TlutObjMeta* FindTlutObjMeta(uint32_t addr) {
+    const auto it = g_TlutObjMeta.find(addr);
+    return it == g_TlutObjMeta.end() ? nullptr : &it->second;
+}
+
 GXTexObj* GetHostTexObj(uint32_t addr) {
     TexObjSlot* slot = FindTexObjSlot(addr);
     if (slot == nullptr || !slot->host || !slot->host->constructed) {

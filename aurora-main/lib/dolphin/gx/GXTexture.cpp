@@ -1,17 +1,29 @@
 #include "gx.hpp"
 #include "__gx.h"
 
+#if defined(MKW_TARGET_VITA)
+#include "../../vita/gfx_frontend.hpp"
+#else
 #include "../../gfx/texture.hpp"
 #include "../../gfx/texture_replacement.hpp"
+#endif
 #include "dolphin/gx/GXAurora.h"
 
+#if !defined(MKW_TARGET_VITA)
 #include <absl/container/flat_hash_map.h>
+#endif
 
 #include <algorithm>
 #include <cstddef>
+#if defined(MKW_TARGET_VITA)
+#include <map>
+#include <tuple>
+#endif
 #include <utility>
 
+#if !defined(MKW_TARGET_VITA)
 #include "tracy/Tracy.hpp"
+#endif
 
 namespace {
 constexpr u8 GXTexMode0Ids[8] = {0x80, 0x81, 0x82, 0x83, 0xA0, 0xA1, 0xA2, 0xA3};
@@ -50,6 +62,12 @@ struct TlutIdentity {
     return data == rhs.data && format == rhs.format && entries == rhs.entries;
   }
 
+#if defined(MKW_TARGET_VITA)
+  bool operator<(const TlutIdentity& rhs) const noexcept {
+    return std::tie(data, format, entries) < std::tie(rhs.data, rhs.format, rhs.entries);
+  }
+#endif
+
   template <typename H>
   friend H AbslHashValue(H h, const TlutIdentity& key) {
     return H::combine(std::move(h), key.data, key.format, key.entries);
@@ -64,7 +82,11 @@ struct TlutIdentityRecord {
 
   // Limit cached palette IDs; evicted palettes are safely uploaded again.
 constexpr size_t MaxTlutIdentities = 4096;
+#if defined(MKW_TARGET_VITA)
+std::map<TlutIdentity, TlutIdentityRecord> sTlutIdentities;
+#else
 absl::flat_hash_map<TlutIdentity, TlutIdentityRecord> sTlutIdentities;
+#endif
 
   // Use separate high-range versions when a palette points to a new buffer.
 u32 sNextRepointedTlutDataVersion = 0;

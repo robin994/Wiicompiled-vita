@@ -22,6 +22,9 @@
 *.wad
 Code.pul
 
+# ROM output
+/local/
+
 # Build output
 /build/
 /build-*/
@@ -77,3 +80,6 @@ Mario Kart Wii*
 .claude
 .clang-format
 output.txt
+
+# PS Vita crash dumps
+*.psp2dmp

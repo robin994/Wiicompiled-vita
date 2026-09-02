@@ -11,6 +11,7 @@ option(AURORA_ENABLE_GX "Enable GX implementation and WebGPU renderer" ON)
 option(AURORA_ENABLE_DVD "Enable DVD implementation backed by nod" OFF)  # TODO: need to fix tests
 option(AURORA_ENABLE_CARD "Enable CARD implementation based on kabufuda" ON)
 option(AURORA_CACHE_USE_ZSTD "Compress WebGPU cache entries with zstd" ON)
+option(AURORA_ENABLE_VITA_BACKEND "Build Dawn-free PS Vita graphics backend" OFF)
 
 # Dependency versions
 set(AURORA_DAWN_VERSION "v20260603.191052" CACHE STRING "Dawn version tag (https://github.com/encounter/dawn-build/releases)")
@@ -57,6 +58,11 @@ set_property(CACHE AURORA_NOD_LINKAGE PROPERTY STRINGS shared static)
 add_subdirectory(extern)
 
 include(cmake/aurora_core.cmake)
+
+# AURORA_VITA_BACKEND_OVERLAY
+if (AURORA_ENABLE_VITA_BACKEND)
+  include(cmake/aurora_vita.cmake)
+endif ()
 include(cmake/aurora_os.cmake)
 if (AURORA_ENABLE_GX)
   include(cmake/aurora_gx.cmake)

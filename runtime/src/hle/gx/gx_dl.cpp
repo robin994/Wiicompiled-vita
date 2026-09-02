@@ -3,12 +3,21 @@
 #include "gx_cp_decode.h"
 #include "isa/big_endian.h"
 
+#if defined(MKW_TARGET_VITA)
+#include "wiicompiled_vita/gx_backend.h"
+#endif
+
 #include <cstdlib>
 #include <unordered_map>
 
 // The display-list scan cache validates a cached scan against the live guest
-// bytes with a 64-bit XXH3 digest (see GxDisplayListScanCache::CanReuse).
+// bytes with a 64-bit digest (see GxDisplayListScanCache::CanReuse). Desktop
+// keeps XXH3; the Vita bring-up build deliberately avoids Aurora's FetchContent
+// dependency graph and uses a small portable hash until the renderer toolchain
+// is established.
+#if !defined(MKW_TARGET_VITA)
 #include <xxhash.h>
+#endif
 
 namespace aurora::gx::fifo {
 bool in_display_list();
@@ -17,6 +26,38 @@ bool submit_raw_draw(GXPrimitive prim, GXVtxFmt fmt, const uint8_t* vertices, ui
 }
 
 namespace {
+
+thread_local GxCpuPerfSnapshot g_cpuPerf{};
+
+class ScopedGxCpuPerfTimer {
+public:
+    explicit ScopedGxCpuPerfTimer(uint64_t& accumulator) noexcept
+        : accumulator_(accumulator), begin_(std::chrono::steady_clock::now()) {}
+    ~ScopedGxCpuPerfTimer() noexcept {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - begin_).count();
+        accumulator_ += static_cast<uint64_t>(elapsed > 0 ? elapsed : 0);
+    }
+private:
+    uint64_t& accumulator_;
+    std::chrono::steady_clock::time_point begin_;
+};
+
+static uint64_t HashDisplayListBytes(const uint8_t* data, size_t size) noexcept {
+#if defined(MKW_TARGET_VITA)
+    // 64-bit FNV-1a is sufficient for cache invalidation: a collision can only
+    // cause a stale scan-cache hit, exactly the same class of risk as any
+    // non-cryptographic digest. Keep this dependency-free during Vita bring-up.
+    uint64_t hash = 1469598103934665603ull;
+    for (size_t i = 0; i < size; ++i) {
+        hash ^= data[i];
+        hash *= 1099511628211ull;
+    }
+    return hash;
+#else
+    return static_cast<uint64_t>(XXH3_64bits(data, size));
+#endif
+}
 
 // Opcode constants and the stream helpers this file shares with gx_fifo.cpp /
 // gx_vertex.cpp; see gx_stream_common.h.
@@ -54,6 +95,16 @@ static uint32_t CalcDLVertexSize(GXVtxFmt vtxfmt) {
         }
     }
     return size;
+}
+
+static bool DlVertexLayoutIsAllDirect() {
+    for (int attr = 0; attr < 26; ++attr) {
+        const GXAttrType type = g_hleGxState.vtxDesc[attr];
+        if (type != GX_NONE && type != GX_DIRECT) {
+            return false;
+        }
+    }
+    return true;
 }
 
 static void ApplyAuroraVtxDesc();
@@ -206,6 +257,8 @@ static bool SubmitLytDrawDirect(float x0, float y0, float x1, float y1, int texC
 
 static inline void EmitLytDrawQuad(uint32_t posAddr, uint32_t sizeAddr, int texCoordCount,
                                    uint32_t texCoordAddr, const uint32_t* colors) {
+    ++g_cpuPerf.lytCalls;
+    ScopedGxCpuPerfTimer lytTimer(g_cpuPerf.lytUs);
     const float x0 = Memory::ReadFloat32(posAddr);
     const float y0 = Memory::ReadFloat32(posAddr + 4);
     // The casts pin the arithmetic to PPC single precision regardless of the
@@ -214,8 +267,10 @@ static inline void EmitLytDrawQuad(uint32_t posAddr, uint32_t sizeAddr, int texC
     const float y1 = static_cast<float>(y0 - Memory::ReadFloat32(sizeAddr + 4));
 
     if (SubmitLytDrawDirect(x0, y0, x1, y1, texCoordCount, texCoordAddr, colors)) {
+        ++g_cpuPerf.lytDirect;
         return;
     }
+    ++g_cpuPerf.lytPacket;
 
     // GX has exactly 8 texture coordinates, so nw4r::lyt cannot ask for more.
     // The fixed packet buffer below is sized for that maximum; bail rather than
@@ -526,7 +581,7 @@ static DlScanCacheState& DlScanCache() {
 }
 
 static uint64_t DlContentDigest(const uint8_t* list, uint32_t nbytes) {
-    return static_cast<uint64_t>(XXH3_64bits(list, static_cast<size_t>(nbytes)));
+    return HashDisplayListBytes(list, static_cast<size_t>(nbytes));
 }
 
 
@@ -827,7 +882,11 @@ struct DlInterpretVisitor {
         return true;
     }
     bool OnXfReg(const uint8_t* cmdPtr, uint32_t payloadBytes) {
+#if defined(MKW_TARGET_VITA)
+        WiiCompiledVita::GxBackend::ApplyXfPacket(cmdPtr, 1u + payloadBytes);
+#else
         GXCallDisplayList(cmdPtr, 1u + payloadBytes);
+#endif
         GXMarkFrameWork();
         return true;
     }
@@ -851,6 +910,25 @@ struct DlInterpretVisitor {
         EnsureAuroraFrameActive();
         const HleGxVertexStateSnapshot drawGuestState = CaptureGxVertexState();
         ApplyAuroraVtxStateForDlBegin(vtxfmt);
+
+#if defined(MKW_TARGET_VITA)
+        // The Vita backend consumes packed direct vertices itself. Keep indexed
+        // display lists on the established per-vertex HLE expansion path for
+        // now; this fast path is allocation-free and shares the same decoder as
+        // the live FIFO raw-draw bridge.
+        if (DlVertexLayoutIsAllDirect()) {
+            const uint32_t vertexSize = CalcDLVertexSize(vtxfmt);
+            const uint32_t rawBytes = vertexSize * static_cast<uint32_t>(vtxCount);
+            if (vertexSize != 0 && aurora::gx::fifo::submit_raw_draw(
+                    OpcodeToGXPrimitive(opcode), vtxfmt, vertices, vtxCount, rawBytes)) {
+                GXMarkFrameWork();
+                RestoreGxVertexState(drawGuestState);
+                payloadBytes = rawBytes;
+                return true;
+            }
+        }
+#endif
+
         GXBegin(OpcodeToGXPrimitive(opcode), vtxfmt, vtxCount);
         GXMarkFrameWork();
         // The per-vertex decode is what advances the cursor here, exactly as
@@ -871,6 +949,14 @@ static void ParseDisplayList(const uint8_t* data, uint32_t nbytes) {
     DlInterpretVisitor visitor;
     WalkDisplayList(data, nbytes, visitor, 0);
 }
+
+#if defined(MKW_TARGET_VITA)
+extern "C" void GX_HLE_ReplayDisplayListVita(const uint8_t* data, uint32_t nbytes) {
+    if (data && nbytes != 0) {
+        ParseDisplayList(data, nbytes);
+    }
+}
+#endif
 
 struct DlIndexScanVisitor {
     static constexpr int kMaxDepth = 4;
@@ -1285,12 +1371,21 @@ static bool ApplyAuroraIndexedXFArraysForDisplayList(const std::array<uint32_t, 
 
 } // namespace
 
+GxCpuPerfSnapshot GX_HLE_TakeCpuPerfSnapshot() noexcept {
+    const GxCpuPerfSnapshot snapshot = g_cpuPerf;
+    g_cpuPerf = {};
+    return snapshot;
+}
+
 extern "C" void GxNotifyDisplayListMemoryWrite(uint32_t addr, uint32_t size) {
     GxGuestWrite::NotifyWrite(addr, size);
 }
 
 extern "C" void GX__CallDisplayList_80172f64(uint32_t listAddr, uint32_t nbytes) {
     if (nbytes == 0 || listAddr == 0) return;
+    ++g_cpuPerf.dlCalls;
+    g_cpuPerf.dlBytes += nbytes;
+    ScopedGxCpuPerfTimer dlTimer(g_cpuPerf.dlUs);
     try {
         const uint8_t* list = static_cast<const uint8_t*>(GuestToHostPtr(listAddr, nbytes));
         if (!list) return;
@@ -1304,6 +1399,11 @@ extern "C" void GX__CallDisplayList_80172f64(uint32_t listAddr, uint32_t nbytes)
             allowScanCache ? ProbeDlScanCache(list, listAddr, nbytes, scanLayoutHash)
                            : DlScanCacheProbe{};
         const DlScanCacheRecord* cached = probe.record;
+        if (cached != nullptr) {
+            ++g_cpuPerf.dlCacheHits;
+        } else {
+            ++g_cpuPerf.dlCacheMisses;
+        }
 
         // The scan a cached record came from already walked the list for this,
         // so only a miss pays for DisplayListMayContainDraw.
@@ -1478,6 +1578,7 @@ extern "C" void GX__CallDisplayList_80172f64(uint32_t listAddr, uint32_t nbytes)
         EnsureAuroraFrameActive();
         GXMarkFrameWork();
         InvalidateAppliedAuroraState();
+        ++g_cpuPerf.dlFallbacks;
         ParseDisplayList(list, nbytes);
         InvalidateAppliedAuroraState();
     } catch (...) {}

@@ -7,6 +7,7 @@
 #include <cstdint>
 
 // Software-flushing Gekko's single-precision denormals per op roughly doubled the THP IDCT
+<<<<<<< HEAD
 // kernel's cycle count, so instead the runtime mirrors guest FPSCR[NI] into the host FP control
 // register's flush-to-zero bit(s) wherever FPSCR can change (PPC_Mtfs*, fiber context switches,
 // CpuContextScope), making per-op flushes free. Accepted deviations (same trade Dolphin makes):
@@ -24,6 +25,17 @@ inline constexpr uint32_t kMkwFpControlFlushToZeroBits = (1u << 24); // FZ
 #else
 #error "ppc_isa_fpenv.h has no host FP control register mapping for this architecture"
 #endif
+=======
+// kernel's cycle count. Desktop mirrors guest FPSCR[NI] into MXCSR FTZ+DAZ; Vita uses the ARM
+// VFP FPSCR FZ bit. The software mirror below remains the architecture-independent authority for
+// helper paths that need the exact guest NI state.
+#if defined(MKW_TARGET_VITA)
+inline constexpr uint32_t kMkwHostFlushToZeroBits = 1u << 24; // ARM FPSCR.FZ
+#else
+inline constexpr uint32_t kMkwHostFlushToZeroBits = (1u << 15) | (1u << 6); // MXCSR FTZ | DAZ
+#endif
+
+>>>>>>> 577dc0e (checkpoint: add PS Vita port and Aurora backend)
 
 inline thread_local bool g_mkwHostNiActive = false;
 
@@ -33,6 +45,7 @@ inline thread_local bool g_mkwHostNiActive = false;
 inline constexpr double kMkwNiFlushThreshold = 0x1p-126;  // 0x3810000000000000
 inline thread_local double g_mkwNiFlushThreshold = 0.0;
 
+<<<<<<< HEAD
 // Host FP control register access (MXCSR on x86_64, FPCR on AArch64), abstracted so
 // MkwApplyHostNiMode/MkwRestoreHostMxcsr and CpuContextScope (ppc_isa_context.h) don't each need
 // their own per-arch branch.
@@ -58,11 +71,31 @@ inline void MkwSetHostFpControl(uint32_t value) noexcept
     __asm__ __volatile__("mrs %0, fpcr" : "=r"(fpcr));
     fpcr = (fpcr & ~static_cast<uint64_t>(0xFFFFFFFFu)) | value;
     __asm__ __volatile__("msr fpcr, %0" :: "r"(fpcr));
+=======
+inline uint32_t MkwReadHostFpControl() noexcept
+{
+#if defined(MKW_TARGET_VITA)
+    uint32_t value = 0;
+    __asm__ volatile("vmrs %0, fpscr" : "=r"(value));
+    return value;
+#else
+    return _mm_getcsr();
+#endif
+}
+
+inline void MkwWriteHostFpControl(uint32_t value) noexcept
+{
+#if defined(MKW_TARGET_VITA)
+    __asm__ volatile("vmsr fpscr, %0" : : "r"(value));
+#else
+    _mm_setcsr(value);
+>>>>>>> 577dc0e (checkpoint: add PS Vita port and Aurora backend)
 #endif
 }
 
 inline void MkwApplyHostNiMode(uint32_t fpscr) noexcept
 {
+<<<<<<< HEAD
     const uint32_t csr = MkwGetHostFpControl();
     const bool wantNi = (fpscr & 0x4u) != 0;
     const uint32_t want = wantNi
@@ -74,10 +107,20 @@ inline void MkwApplyHostNiMode(uint32_t fpscr) noexcept
     // `(MkwGetHostFpControl() & kMkwFpControlFlushToZeroBits) != 0` after the write - the
     // mirror cannot disagree with the register even if the incoming value held only some of
     // those bits.
+=======
+    const uint32_t control = MkwReadHostFpControl();
+    const bool wantNi = (fpscr & 0x4u) != 0;
+    const uint32_t want = wantNi
+        ? (control | kMkwHostFlushToZeroBits)
+        : (control & ~kMkwHostFlushToZeroBits);
+    if (want != control)
+        MkwWriteHostFpControl(want);
+>>>>>>> 577dc0e (checkpoint: add PS Vita port and Aurora backend)
     g_mkwHostNiActive = wantNi;
     g_mkwNiFlushThreshold = wantNi ? kMkwNiFlushThreshold : 0.0;
 }
 
+<<<<<<< HEAD
 /// <summary>
 /// Restores a previously captured MXCSR/FPCR value and re-derives the mirror from it. Every raw
 /// restore has to go through here; a bare MkwSetHostFpControl would leave the mirror describing
@@ -87,6 +130,12 @@ inline void MkwRestoreHostMxcsr(uint32_t csr) noexcept
 {
     MkwSetHostFpControl(csr);
     const bool niActive = (csr & kMkwFpControlFlushToZeroBits) != 0;
+=======
+inline void MkwRestoreHostFpControl(uint32_t control) noexcept
+{
+    MkwWriteHostFpControl(control);
+    const bool niActive = (control & kMkwHostFlushToZeroBits) != 0;
+>>>>>>> 577dc0e (checkpoint: add PS Vita port and Aurora backend)
     g_mkwHostNiActive = niActive;
     g_mkwNiFlushThreshold = niActive ? kMkwNiFlushThreshold : 0.0;
 }

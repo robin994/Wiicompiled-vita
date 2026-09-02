@@ -112,6 +112,7 @@ PPC_NATIVE_OVERRIDE_VOID(8016fc24, GX__SetDispCopyGamma_8016fc24, (uint32_t g), 
 // ============================================================================
 
 extern "C" void GX__CopyDisp_8016fc38(uint32_t da, uint32_t c) {
+    const auto copyBegin = std::chrono::steady_clock::now();
     EnsureAuroraFrameActive();
     // GX copies are FIFO-ordered on hardware. Drain submitted draws before
     // resolving the EFB so high-level copies see the same contents.
@@ -129,6 +130,28 @@ extern "C" void GX__CopyDisp_8016fc38(uint32_t da, uint32_t c) {
     // Seal, pace to the VI retrace boundary (Aurora renders the sealed frame
     // during the wait), and pre-warm the next frame.
     VI_HLE_PresentFrame(/*presentedXfb=*/true, /*paceToRetrace=*/true);
+#if defined(MKW_TARGET_VITA)
+    const auto copyUs = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - copyBegin).count();
+    const GxCpuPerfSnapshot cpuPerf = GX_HLE_TakeCpuPerfSnapshot();
+    if (g_gxFrameCount <= 8 || (g_gxFrameCount % 120) == 0) {
+        RT_LOGF(RT_TAG_GX,
+                "gx_cpu_perf frame=%d lyt_calls=%llu lyt_us=%llu lyt_direct=%llu lyt_packet=%llu "
+                "dl_calls=%llu dl_us=%llu dl_bytes=%llu dl_cache=%llu/%llu dl_fallback=%llu copydisp_us=%llu\n",
+                g_gxFrameCount,
+                static_cast<unsigned long long>(cpuPerf.lytCalls),
+                static_cast<unsigned long long>(cpuPerf.lytUs),
+                static_cast<unsigned long long>(cpuPerf.lytDirect),
+                static_cast<unsigned long long>(cpuPerf.lytPacket),
+                static_cast<unsigned long long>(cpuPerf.dlCalls),
+                static_cast<unsigned long long>(cpuPerf.dlUs),
+                static_cast<unsigned long long>(cpuPerf.dlBytes),
+                static_cast<unsigned long long>(cpuPerf.dlCacheHits),
+                static_cast<unsigned long long>(cpuPerf.dlCacheMisses),
+                static_cast<unsigned long long>(cpuPerf.dlFallbacks),
+                static_cast<unsigned long long>(copyUs > 0 ? copyUs : 0));
+    }
+#endif
 }
 
 PPC_NATIVE_OVERRIDE_VOID(8016fc38, GX__CopyDisp_8016fc38, (uint32_t da, uint32_t c), (da, c));

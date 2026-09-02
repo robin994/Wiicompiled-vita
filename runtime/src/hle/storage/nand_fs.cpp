@@ -50,7 +50,11 @@ std::mutex g_fdMutex;
 int32_t AllocateFd(const std::filesystem::path& path, FILE* file, int32_t mode) {
     std::lock_guard<std::mutex> lock(g_fdMutex);
     int32_t fd = g_nextFd++;
-    g_fileHandles[fd] = {file, path, mode, 0};
+    FileHandle handle{};
+    handle.file = file;
+    handle.path = path;
+    handle.mode = mode;
+    g_fileHandles.emplace(fd, std::move(handle));
     return fd;
 }
 
@@ -110,14 +114,70 @@ FILE* NandFopen(const std::filesystem::path& path, const char* mode) {
 }
 
 bool NandRemove(const std::filesystem::path& path) {
+#ifdef _WIN32
     std::error_code ec;
     return std::filesystem::remove(path, ec) && !ec;
+#else
+    return std::remove(path.c_str()) == 0;
+#endif
 }
 
 bool NandRename(const std::filesystem::path& from, const std::filesystem::path& to) {
+#ifdef _WIN32
     std::error_code ec;
     std::filesystem::rename(from, to, ec);
     return !ec;
+#else
+    return std::rename(from.c_str(), to.c_str()) == 0;
+#endif
+}
+
+bool NandCopyFile(const std::filesystem::path& from, const std::filesystem::path& to) {
+    FILE* input = NandFopen(from, "rb");
+    if (!input) {
+        return false;
+    }
+
+    FILE* output = NandFopen(to, "wb");
+    if (!output) {
+        std::fclose(input);
+        return false;
+    }
+
+    std::vector<uint8_t> buffer(16u * 1024u);
+    bool ok = true;
+    for (;;) {
+        const size_t bytesRead = std::fread(buffer.data(), 1, buffer.size(), input);
+        if (bytesRead != 0 && std::fwrite(buffer.data(), 1, bytesRead, output) != bytesRead) {
+            ok = false;
+            break;
+        }
+        if (bytesRead < buffer.size()) {
+            if (std::ferror(input)) {
+                ok = false;
+            }
+            break;
+        }
+    }
+    if (std::fflush(output) != 0) {
+        ok = false;
+    }
+    if (std::fclose(output) != 0) {
+        ok = false;
+    }
+    std::fclose(input);
+    if (!ok) {
+        NandRemove(to);
+    }
+    return ok;
+}
+
+bool IsMkwRksysPath(const std::filesystem::path& path) {
+    return path.filename() == "rksys.dat";
+}
+
+bool IsFaceLibDatabaseHostPath(const std::filesystem::path& path) {
+    return path.filename() == "RFL_DB.dat";
 }
 
 // Guest paths are absolute and already lexically resolved against the NAND root, so

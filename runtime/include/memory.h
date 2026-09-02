@@ -13,7 +13,14 @@ public:
     using DeferredReadCallback = bool (*)(void* user);
 
     static constexpr size_t kMem1Size = 24u * 1024u * 1024u;
+#if defined(MKW_TARGET_VITA)
+    // Retail Wii hardware exposes 64 MiB of MEM2. The desktop runtime uses the
+    // 128 MiB NDEV layout, but reserving that developer-only expansion is not
+    // viable in the Vita process and makes the game choose larger debug heaps.
+    static constexpr size_t kMem2Size = 64u * 1024u * 1024u;
+#else
     static constexpr size_t kMem2Size = 128u * 1024u * 1024u;
+#endif
     static constexpr uint32_t kMem1PhysicalBase = 0x00000000u;
     static constexpr uint32_t kMem1CachedBase = 0x80000000u;
     static constexpr uint32_t kMem1UncachedBase = 0xC0000000u;

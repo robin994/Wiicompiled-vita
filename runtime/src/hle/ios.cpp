@@ -7,6 +7,7 @@
 #include "hle/net/network.h"
 
 #include <cstdint>
+#include <cstring>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
@@ -119,14 +120,43 @@ extern "C" void IOS_OpenAsync_HLE(CpuContext* ctx) {
     const uint32_t callback = ctx->gpr[5];
     const uint32_t callbackArg = ctx->gpr[6];
     const char* path = pathPtr ? (const char*)Memory::GetPointer(pathPtr) : "(null)";
+    const bool traceWc24 = pathPtr && std::strstr(path, "wc24") != nullptr;
+#if defined(MKW_TARGET_VITA)
+    if (traceWc24) {
+        RT_LOGF(RT_TAG_NAND,
+                "[WC24] IOS_OpenAsync phase=enter path='%s' mode=%u callback=0x%08X arg=0x%08X\n",
+                path, mode, callback, callbackArg);
+    }
+#endif
     if (pathPtr) {
         if (const int32_t netFd = Network_HLE_OpenDevice(path, mode)) {
+#if defined(MKW_TARGET_VITA)
+            if (traceWc24) {
+                RT_LOGF(RT_TAG_NAND,
+                        "[WC24] IOS_OpenAsync phase=network_complete result=%d callback=0x%08X\n",
+                        netFd, callback);
+            }
+#endif
             CompleteAsync(ctx, callback, netFd, callbackArg);
             return;
         }
     }
     const int32_t result = NAND_IOS_Open_HLE(pathPtr, mode);
+#if defined(MKW_TARGET_VITA)
+    if (traceWc24) {
+        RT_LOGF(RT_TAG_NAND,
+                "[WC24] IOS_OpenAsync phase=before_complete result=%d callback=0x%08X arg=0x%08X\n",
+                result, callback, callbackArg);
+    }
+#endif
     CompleteAsync(ctx, callback, result, callbackArg); // Queued successfully
+#if defined(MKW_TARGET_VITA)
+    if (traceWc24) {
+        RT_LOGF(RT_TAG_NAND,
+                "[WC24] IOS_OpenAsync phase=after_complete queued=1 return=0\n");
+        std::fflush(stderr);
+    }
+#endif
 }
 PPC_NATIVE_OVERRIDE_VOID(801937E0, IOS_OpenAsync_HLE, (CpuContext* ctx), (ctx));
 

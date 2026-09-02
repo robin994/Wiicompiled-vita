@@ -431,9 +431,9 @@ GuestFlat::Backing ClassifyBacking(uint32_t baseAddress) {
         return GuestFlat::Backing::Mem1;
     }
 
-    // NDEV-sized MEM2: physical (0x10000000), cached (0x90000000),
-    // uncached (0xD0000000). Mario Kart Wii detects this configuration and
-    // creates its original EGGRootDebug expansion heap.
+    // MEM2: physical (0x10000000), cached (0x90000000), uncached
+    // (0xD0000000). Desktop builds retain the 128 MiB NDEV layout; Vita uses
+    // the retail 64 MiB layout to fit the guest state into the available pools.
     if ((baseAddress >= Memory::kMem2PhysicalBase &&
          baseAddress < Memory::kMem2PhysicalEnd) ||
         (baseAddress >= Memory::kMem2CachedBase &&

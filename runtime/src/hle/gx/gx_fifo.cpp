@@ -3,6 +3,10 @@
 #include "gx_cp_decode.h"
 #include "isa/big_endian.h"
 
+#if defined(MKW_TARGET_VITA)
+#include "wiicompiled_vita/gx_backend.h"
+#endif
+
 // Opcode constants and the stream helpers this file shares with gx_dl.cpp /
 // gx_vertex.cpp; see gx_stream_common.h.
 using namespace GxCmd;
@@ -458,7 +462,11 @@ void HleFifoWrite(u32 val, uint32_t sizeBytes) {
             const uint16_t countWords = ReadBE16(data + 1);
             const uint32_t packetBytes = 1u + 4u + (static_cast<uint32_t>(countWords) + 1u) * 4u;
             if (g_hleGxState.fifoByteCount < packetBytes) break;
+#if defined(MKW_TARGET_VITA)
+            WiiCompiledVita::GxBackend::ApplyXfPacket(data, packetBytes);
+#else
             GXCallDisplayList(data, packetBytes);
+#endif
             GXMarkFrameWork();
             if (!consumeBytes(packetBytes, sink)) break;
             continue;
@@ -720,7 +728,11 @@ static uint32_t ApplyFifoPacketsDirect(const uint8_t* data, uint32_t sizeBytes) 
             const uint16_t countWords = ReadBE16(packet + 1);
             const uint32_t packetBytes = 1u + 4u + (static_cast<uint32_t>(countWords) + 1u) * 4u;
             if (avail < packetBytes) break;
+#if defined(MKW_TARGET_VITA)
+            WiiCompiledVita::GxBackend::ApplyXfPacket(packet, packetBytes);
+#else
             GXCallDisplayList(packet, packetBytes);
+#endif
             GXMarkFrameWork();
             offset += packetBytes;
             continue;

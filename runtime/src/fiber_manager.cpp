@@ -13,6 +13,10 @@
 #include <iomanip>
 #include <sstream>
 
+#if defined(MKW_TARGET_VITA)
+#include <wiicompiled_vita/host_thread.h>
+#endif
+
 #if !defined(_WIN32)
 #include "libco.h"
 #endif
@@ -206,6 +210,12 @@ void WakeGuestThreadsOnQueueNoSwitch(uint32_t queueAddr)
 // =============================================================================
 
 void GuestFiberManager::Initialize() {
+#if defined(MKW_TARGET_VITA)
+    // Every emulated Wii thread is a cooperative fiber on this one host
+    // thread. Keep that deterministic guest execution on its own Vita core;
+    // render/audio/background work is explicitly offloaded elsewhere.
+    WiiCompiledVita::ConfigureCurrentThread(WiiCompiledVita::HostThreadRole::Guest);
+#endif
     std::lock_guard<std::mutex> lock(s_mutex);
     
     if (s_initialized) {

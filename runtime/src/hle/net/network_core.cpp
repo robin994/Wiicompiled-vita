@@ -675,7 +675,15 @@ extern "C" int32_t Network_HLE_OpenDevice(const char* path, uint32_t mode) {
         return 0;
     }
 
-    return AllocateDevice(kind);
+    const int32_t fd = AllocateDevice(kind);
+#if defined(MKW_TARGET_VITA)
+    if (std::strcmp(path, "/dev/net/kd/request") == 0 ||
+        std::strcmp(path, "/dev/net/kd/time") == 0) {
+        RT_LOGF(RT_TAG_NET, "[WC24] IOS_Open device='%s' mode=%u -> fd=%d\n",
+                path, mode, fd);
+    }
+#endif
+    return fd;
 }
 
 extern "C" bool Network_HLE_IsFd(uint32_t fd) {
@@ -683,10 +691,23 @@ extern "C" bool Network_HLE_IsFd(uint32_t fd) {
 }
 
 extern "C" int32_t Network_HLE_Close(uint32_t fd) {
-    if (!GetDeviceKind(fd)) {
+    const std::optional<DeviceKind> kind = GetDeviceKind(fd);
+    if (!kind) {
         return -101;
     }
-    RemoveDevice(fd);
+#if defined(MKW_TARGET_VITA)
+    if (*kind == DeviceKind::KdRequest || *kind == DeviceKind::KdTime) {
+        RT_LOGF(RT_TAG_NET, "[WC24] IOS_Close KD fd=%u\n", fd);
+    }
+#endif
+    const bool removed = RemoveDevice(fd);
+#if defined(MKW_TARGET_VITA)
+    if (*kind == DeviceKind::KdRequest || *kind == DeviceKind::KdTime) {
+        RT_LOGF(RT_TAG_NET, "[WC24] IOS_Close KD fd=%u complete removed=%u\n",
+                fd, removed ? 1u : 0u);
+        std::fflush(stderr);
+    }
+#endif
     return 0;
 }
 

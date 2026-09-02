@@ -1,10 +1,13 @@
 #include "hle_stubs.h"
 #include "memory.h"
 #include "hle/controller_status_contract.h"
+#include "runtime_log.h"
 
 #include <cstdint>
+#include <cstring>
 
 void NandQueueIosCallback(uint32_t callbackPtr, int32_t result, uint32_t callbackArg);
+extern "C" bool KPAD_IsVitaChannelConnected(uint32_t chan);
 
 namespace {
 
@@ -100,7 +103,15 @@ PPC_NATIVE_OVERRIDE(801C0B54, WPADGetDataFormat_HLE, int32_t, (uint32_t chan), (
 
 extern "C" int32_t WPADSetDataFormat_HLE(uint32_t chan, int32_t format)
 {
-    return g_state.contract.SetDataFormat(chan, format);
+    if (chan >= WpadContract::kChannelCount) {
+        return WpadContract::kErrorBadChannel;
+    }
+    if (!g_state.contract.IsInitialized()) {
+        return WpadContract::kErrorNotReady;
+    }
+    (void)format;
+    return KPAD_IsVitaChannelConnected(chan) ? kStatusOk :
+                                               WpadContract::kErrorNoController;
 }
 PPC_NATIVE_OVERRIDE(801C0B9C, WPADSetDataFormat_HLE, int32_t, (uint32_t chan, int32_t format), (chan, format));
 
@@ -111,9 +122,10 @@ extern "C" int32_t WPADProbe_HLE(uint32_t chan, uint32_t typePtr)
     }
 
     if (typePtr != 0) {
-        Memory::Write32(typePtr, WpadContract::kExtensionCore);
+        Memory::Write32(typePtr, WpadContract::kExtensionClassic);
     }
-    return WpadContract::kErrorNoController;
+    return KPAD_IsVitaChannelConnected(chan) ? kStatusOk :
+                                               WpadContract::kErrorNoController;
 }
 PPC_NATIVE_OVERRIDE(801C0990, WPADProbe_HLE, int32_t, (uint32_t chan, uint32_t typePtr), (chan, typePtr));
 
@@ -130,8 +142,19 @@ extern "C" int32_t WPADGetInfoAsync_HLE(uint32_t chan, uint32_t infoPtr, uint32_
         return CompleteWpadRequest(chan, callback, WpadContract::kErrorBadChannel);
     }
 
-    (void)infoPtr;
-    return CompleteWpadRequest(chan, callback, WpadContract::kErrorNoController);
+    if (!KPAD_IsVitaChannelConnected(chan)) {
+        return CompleteWpadRequest(chan, callback, WpadContract::kErrorNoController);
+    }
+    try {
+        if (infoPtr != 0) {
+            std::memset(Memory::GetPointer(infoPtr, 24), 0, 24);
+            Memory::Write32(infoPtr, 4);
+        }
+    } catch (const Memory::AccessViolation& e) {
+        LogMemoryError(RT_TAG_HLE, "input WPADGetInfoAsync", e);
+        return CompleteWpadRequest(chan, callback, WpadContract::kErrorNotReady);
+    }
+    return CompleteWpadRequest(chan, callback, kStatusOk);
 }
 PPC_NATIVE_OVERRIDE(801C0CA4, WPADGetInfoAsync_HLE, int32_t,
          (uint32_t chan, uint32_t infoPtr, uint32_t callback), (chan, infoPtr, callback));
@@ -142,7 +165,9 @@ extern "C" int32_t WPADControlLed_HLE(uint32_t chan, uint32_t ledMask, uint32_t 
         return CompleteWpadRequest(chan, callback, WpadContract::kErrorBadChannel);
     }
     (void)ledMask;
-    return CompleteWpadRequest(chan, callback, WpadContract::kErrorNoController);
+    return CompleteWpadRequest(chan, callback,
+                               KPAD_IsVitaChannelConnected(chan) ? kStatusOk :
+                                                                  WpadContract::kErrorNoController);
 }
 PPC_NATIVE_OVERRIDE(801C0FF8, WPADControlLed_HLE, int32_t,
          (uint32_t chan, uint32_t ledMask, uint32_t callback), (chan, ledMask, callback));

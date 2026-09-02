@@ -518,14 +518,18 @@ void PaceToRetraceBoundary(Clock::time_point deadline) {
 // producer to the VI retrace boundary, and pre-warms the next frame. Paced from GXCopyDisp; unpaced for
 // the retrace-context black/boot present path in AdvanceRetrace.
 void VI_HLE_PresentFrame(bool presentedXfb, bool paceToRetrace) {
+    static uint64_t presentOrdinal = 0;
+    const auto presentBegin = Clock::now();
     if (s_presentSequenceActive.exchange(true, std::memory_order_acq_rel)) {
         return;
     }
     struct SequenceGuard {
         ~SequenceGuard() { s_presentSequenceActive.store(false, std::memory_order_release); }
     } sequenceGuard;
+    const uint64_t currentPresentOrdinal = ++presentOrdinal;
     Clock::time_point paceDeadline{};
     bool paceThisFrame = false;
+    uint32_t retracesElapsedForPerf = 0;
     if (paceToRetrace) {
         uint64_t baseNanos = 0;
         uint64_t intervalNanos = 0;
@@ -549,6 +553,7 @@ void VI_HLE_PresentFrame(bool presentedXfb, bool paceToRetrace) {
         // but free-running late frames matches the previous pacer and keeps a
         // heavy scene at e.g. 50 fps instead of hard 30.
         const uint32_t retracesElapsed = retraceCount - s_lastPacedRetraceCount;
+        retracesElapsedForPerf = retracesElapsed;
         paceThisFrame = retracesElapsed == 0;
         s_lastPacedRetraceCount = retraceCount;
         // aurora_report_producer_paced needs a different signal than the pace-wait above: the guest
@@ -579,11 +584,27 @@ void VI_HLE_PresentFrame(bool presentedXfb, bool paceToRetrace) {
         aurora_set_present_schedule(0, 0);
     }
 
+    const auto submitBegin = Clock::now();
     aurora_end_frame();
+    const auto submitEnd = Clock::now();
     if (paceThisFrame) {
         PaceToRetraceBoundary(paceDeadline);
         std::lock_guard<std::mutex> lock(g_viMutex);
         s_lastPacedRetraceCount = g_vi.retraceCount;
+    }
+    const auto paceEnd = Clock::now();
+    if (currentPresentOrdinal <= 8u || (currentPresentOrdinal % 120u) == 0u) {
+        const auto submitUs = std::chrono::duration_cast<std::chrono::microseconds>(submitEnd - submitBegin).count();
+        const auto paceUs = std::chrono::duration_cast<std::chrono::microseconds>(paceEnd - submitEnd).count();
+        const auto totalUs = std::chrono::duration_cast<std::chrono::microseconds>(paceEnd - presentBegin).count();
+        RT_LOGF(RT_TAG_VI,
+                "vi_perf present=%llu pace_requested=%u pace=%u retraces_elapsed=%u "
+                "submit_us=%lld pace_us=%lld total_us=%lld presented_xfb=%u\n",
+                static_cast<unsigned long long>(currentPresentOrdinal),
+                static_cast<unsigned>(paceToRetrace), static_cast<unsigned>(paceThisFrame),
+                retracesElapsedForPerf, static_cast<long long>(submitUs),
+                static_cast<long long>(paceUs), static_cast<long long>(totalUs),
+                static_cast<unsigned>(presentedXfb));
     }
     settings_overlay::AdvancePresentedFrame();
     g_auroraFrameActive.store(false, std::memory_order_release);

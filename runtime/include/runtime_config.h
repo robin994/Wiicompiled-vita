@@ -170,7 +170,11 @@ inline bool IsSupportedFrameInterpolationFps(uint32_t value) {
 }
 
 inline std::optional<std::filesystem::path> ExecutableDirectory() {
-#ifdef _WIN32
+#if defined(MKW_TARGET_VITA)
+    // Vita has no /proc/self/exe. Keep paths that are intentionally adjacent
+    // to the executable anchored to the installed title directory.
+    return PathFromUtf8("ux0:app/WICMPMKW1");
+#elif defined(_WIN32)
     std::wstring buffer(MAX_PATH, L'\0');
     for (;;) {
         const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
@@ -230,6 +234,12 @@ inline const std::optional<std::filesystem::path>& PortableRootDirectory() {
 }
 
 inline std::filesystem::path ApplicationDataDirectory() {
+#if defined(MKW_TARGET_VITA)
+    // Vita has no XDG/HOME convention and /proc/self/exe is not a usable
+    // application-data locator. Keep every user-owned runtime file under the
+    // same ux0:data tree as the bring-up logs and game-data staging area.
+    return PathFromUtf8("ux0:data/wiicompiled-vita");
+#endif
     if (const auto& portableRoot = PortableRootDirectory()) {
         return *portableRoot / kPortableUserDataDirectoryName;
     }
@@ -810,6 +820,14 @@ inline std::string NandRoot(std::string fallback = "") {
 }
 
 inline std::string DvdRoot(std::string fallback = "") {
+#if defined(MKW_TARGET_VITA)
+    if (fallback.empty()) {
+        // Relative to Config.toml, so the resolved path is
+        // ux0:data/wiicompiled-vita/game/DATA without relying on
+        // std::filesystem treating Vita's `ux0:` prefix as POSIX-absolute.
+        fallback = "game/DATA";
+    }
+#endif
     return Get().dvdRoot.value_or(std::move(fallback));
 }
 

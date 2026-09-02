@@ -14,6 +14,7 @@ namespace GuestFlat {
 // Fixed base so the emitted access is `[reg + imm64-in-register]` with no load
 // of a global.
 inline constexpr uint64_t kGuestSpaceSize = 0x1'0000'0000ull;
+<<<<<<< HEAD
 #if defined(__x86_64__)
 // 16 TiB: clear of the Windows ASan shadow (32 TiB) and of the usual image/heap
 // placement.
@@ -31,6 +32,15 @@ inline constexpr uintptr_t kFixedFlatGuestBase = 0x0000'1000'0000'0000ull;
 inline constexpr uintptr_t kFixedFlatGuestBase = 0x0000'0010'0000'0000ull;
 #else
 #error "guest_flat_memory.h has no fixed flat guest base chosen for this architecture"
+=======
+#if defined(MKW_TARGET_VITA)
+// A 32-bit Vita process cannot reserve a 4 GiB virtual window. Translated
+// memory helpers use the page-table backend instead, so no fixed guest base is
+// meaningful on this target.
+inline constexpr uintptr_t kFixedFlatGuestBase = 0;
+#else
+inline constexpr uintptr_t kFixedFlatGuestBase = 0x0000'1000'0000'0000ull;
+>>>>>>> 577dc0e (checkpoint: add PS Vita port and Aurora backend)
 #endif
 
 #define MKW_FLAT_GUEST_BASE (reinterpret_cast<uint8_t*>(GuestFlat::kFixedFlatGuestBase))
@@ -55,7 +65,8 @@ struct FaultCounters {
     uint32_t unmappedRegions = 0;  // distinct 64 KiB blocks committed on demand
 };
 
-// True once the reservation exists and translated code may use the flat path.
+// True once guest backing storage exists. On Vita this does not imply a flat
+// 4 GiB reservation; translated accesses use the checked page-table path.
 bool IsActive();
 
 // Reserves the 4 GiB space (once per process) and maps every requested region

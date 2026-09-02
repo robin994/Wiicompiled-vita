@@ -73,6 +73,21 @@ extern "C" void GX__SetCPUFifo_8016c94c(uint32_t fifoAddr);
 extern "C" void GX__SetDirtyState_8016ee78();
 extern "C" void GX__CallDisplayList_80172f64(uint32_t listAddr, uint32_t nbytes);
 
+struct GxCpuPerfSnapshot {
+    uint64_t lytCalls = 0;
+    uint64_t lytUs = 0;
+    uint64_t lytDirect = 0;
+    uint64_t lytPacket = 0;
+    uint64_t dlCalls = 0;
+    uint64_t dlUs = 0;
+    uint64_t dlBytes = 0;
+    uint64_t dlCacheHits = 0;
+    uint64_t dlCacheMisses = 0;
+    uint64_t dlFallbacks = 0;
+};
+
+GxCpuPerfSnapshot GX_HLE_TakeCpuPerfSnapshot() noexcept;
+
 extern std::atomic_bool g_auroraFrameActive;
 extern std::atomic_bool g_auroraFrameHadWork;
 
@@ -343,6 +358,7 @@ TexObjMeta& GetTexObjMeta(uint32_t addr);
 TexObjMeta ExtractTexObjMetaFromGuest(uint32_t addr);
 bool TryGetOrExtractTexObjMeta(uint32_t addr, TexObjMeta& outMeta);
 TlutObjMeta& GetTlutObjMeta(uint32_t addr);
+TlutObjMeta* FindTlutObjMeta(uint32_t addr);
 GXTexObj* GetHostTexObj(uint32_t addr);
 GXTexObj* TryGetHostTexObj(uint32_t addr);
 GXTexObj* CreateHostTexObj(uint32_t addr);

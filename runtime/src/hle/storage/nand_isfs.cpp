@@ -97,6 +97,18 @@ static std::string ReadGuestCString(uint32_t address, size_t maxLength = 1024) {
     }
     return text;
 }
+
+#if defined(MKW_TARGET_VITA)
+static bool IsWc24TracePath(std::string_view path) {
+    return path.find("/shared2/wc24/") != std::string_view::npos;
+}
+
+static bool IsWc24TracePath(const std::filesystem::path& path) {
+    const std::string text = HostPathText(path);
+    return IsWc24TracePath(std::string_view(text));
+}
+#endif
+
 static constexpr uint32_t SHA_CONTEXT_SIZE = 0x1c;
 static constexpr uint32_t SHA_DIGEST_SIZE = 0x14;
 
@@ -413,14 +425,36 @@ extern "C" int32_t NAND_IOS_Open_HLE(uint32_t pathPtr, uint32_t mode) {
         fopenMode = "r+b";      // Write-only opens still need read for seeks
     }
 
+    const bool wc24Trace = IsWc24TracePath(std::string_view(path));
+#if defined(MKW_TARGET_VITA)
+    if (wc24Trace) {
+        RT_LOGF(RT_TAG_NAND,
+                "[WC24] IOS_Open phase=host_open_begin guest='%s' host='%s' mode=%u\n",
+                path, HostPathText(hostPath).c_str(), mode);
+    }
+#endif
     FILE* file = NandFopen(hostPath, fopenMode);
 
     if (!file) {
         LogNandError("IOS_Open", "FAILED to open '%s'", HostPathText(hostPath).c_str());
+#if defined(MKW_TARGET_VITA)
+        if (wc24Trace) {
+            RT_LOGF(RT_TAG_NAND,
+                    "[WC24] IOS_Open phase=failed_return guest='%s' mode=%u result=%d\n",
+                    path, mode, static_cast<int>(ISFS_ENOENT));
+            std::fflush(stderr);
+        }
+#endif
         return ISFS_ENOENT;
     }
     
     int32_t fd = AllocateFd(hostPath, file, mode);
+#if defined(MKW_TARGET_VITA)
+    if (IsWc24TracePath(std::string_view(path))) {
+        RT_LOGF(RT_TAG_NAND, "[WC24] IOS_Open guest='%s' host='%s' mode=%u -> fd=%d\n",
+                path, HostPathText(hostPath).c_str(), mode, fd);
+    }
+#endif
     return fd;
 }
 PPC_NATIVE_OVERRIDE(801938F8, NAND_IOS_Open_HLE, int32_t, (uint32_t pathPtr, uint32_t mode), (pathPtr, mode));
@@ -455,7 +489,13 @@ extern "C" int32_t NAND_IOS_Close_HLE(uint32_t fd) {
         LogNandError("IOS_Close", "invalid fd=%d", fd);
         return ISFS_EINVAL;
     }
-    
+
+#if defined(MKW_TARGET_VITA)
+    if (IsWc24TracePath(handle->path)) {
+        RT_LOGF(RT_TAG_NAND, "[WC24] IOS_Close fd=%d host='%s' pos=%u\n",
+                static_cast<int32_t>(fd), HostPathText(handle->path).c_str(), handle->position);
+    }
+#endif
     CloseFd(fd);
     return ISFS_OK;
 }
@@ -480,7 +520,14 @@ extern "C" int32_t NAND_IOS_Read_HLE(uint32_t fd, uint32_t bufferPtr, uint32_t l
     
     size_t bytesRead = std::fread(buffer, 1, length, handle->file);
     handle->position += static_cast<uint32_t>(bytesRead);
-    
+
+#if defined(MKW_TARGET_VITA)
+    if (IsWc24TracePath(handle->path)) {
+        RT_LOGF(RT_TAG_NAND, "[WC24] IOS_Read fd=%d request=%u -> %u pos=%u host='%s'\n",
+                static_cast<int32_t>(fd), length, static_cast<uint32_t>(bytesRead),
+                handle->position, HostPathText(handle->path).c_str());
+    }
+#endif
     return static_cast<int32_t>(bytesRead);
 }
 PPC_NATIVE_OVERRIDE(80193C80, NAND_IOS_Read_HLE, int32_t, (uint32_t fd, uint32_t bufferPtr, uint32_t length), (fd, bufferPtr, length));

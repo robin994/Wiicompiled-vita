@@ -1,6 +1,7 @@
 #include "hle_stubs.h"
 
 #include "console_identity.h"
+#include <atomic>
 #include <cstdlib>
 #include <cstddef>
 #include <cstdint>
@@ -23,6 +24,16 @@ constexpr uint32_t kPalProductRegion = 2;
 // Returns: 0 = success, 1 = busy, 2 = error
 extern "C" uint32_t SCCheckStatus_HLE()
 {
+#if defined(MKW_TARGET_VITA)
+    // NWC24iPrepareShutdown polls SC immediately after registering its shutdown
+    // hook. Keep this bounded breadcrumb at the existing HLE boundary so a
+    // freeze before /dev/net/kd opens can be distinguished from the SC poll.
+    static std::atomic<uint32_t> s_traceCount{0};
+    const uint32_t traceIndex = s_traceCount.fetch_add(1, std::memory_order_relaxed);
+    if (traceIndex < 8u) {
+        RT_LOGF(RT_TAG_HLE, "[WC24] SCCheckStatus #%u -> 0\n", traceIndex);
+    }
+#endif
     // Return 0 (success) immediately to avoid infinite busy-wait in OSInit
     return 0;
 }

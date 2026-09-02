@@ -26,6 +26,10 @@
 #include <cryptopp/osrng.h>
 #include <cryptopp/sha.h>
 
+#if defined(MKW_TARGET_VITA)
+#include <psp2/kernel/rng.h>
+#endif
+
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -130,6 +134,17 @@ inline std::array<uint8_t, 20> Sha1(const uint8_t* data, size_t size) {
 
 using CryptoEcdsa = CryptoPP::ECDSA<CryptoPP::EC2N, CryptoPP::SHA1>;
 
+#if defined(MKW_TARGET_VITA)
+class VitaRandomNumberGenerator final : public CryptoPP::RandomNumberGenerator {
+public:
+    void GenerateBlock(CryptoPP::byte* output, size_t size) override {
+        if (sceKernelGetRandomNumber(output, size) < 0) {
+            throw std::runtime_error("sceKernelGetRandomNumber failed");
+        }
+    }
+};
+#endif
+
 inline CryptoEcdsa::PrivateKey MakePrivateKey(const uint8_t* key) {
     CryptoPP::DL_GroupParameters_EC<CryptoPP::EC2N> parameters(CryptoPP::ASN1::sect233r1());
     const CryptoPP::Integer exponent(key, 30);
@@ -149,7 +164,11 @@ inline EcSignature SignMessage(const uint8_t* key, const uint8_t* data, size_t s
         throw std::runtime_error("Crypto++ returned an unexpected sect233r1 signature size");
     }
 
+#if defined(MKW_TARGET_VITA)
+    thread_local VitaRandomNumberGenerator random;
+#else
     thread_local CryptoPP::AutoSeededRandomPool random;
+#endif
     EcSignature signature{};
     const size_t written = signer.SignMessage(random, data, size, signature.data());
     if (written != signature.size()) {

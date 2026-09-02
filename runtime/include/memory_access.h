@@ -234,7 +234,24 @@ MKW_MEMORY_FORCE_INLINE uint8_t* ResolveRangeHost(uint32_t base, int32_t minOffs
     if (needsWrite &&
         (FlatWriteNeedsPolicy(guestStart) || FlatWriteNeedsPolicy(guestStart + (length - 1))))
         [[unlikely]] return nullptr;
+#if defined(MKW_TARGET_VITA)
+    // Vita cannot reserve the desktop backend's 4 GiB flat guest window. Keep
+    // the resolved-range optimization only when one ordinary page-table entry
+    // proves the complete range contiguous and readable. Writes conservatively
+    // fall back so executable-write guards remain authoritative during bring-up.
+    if (needsWrite) return nullptr;
+    if (needsRead) {
+        const uint32_t firstPage = guestStart >> kPageShift;
+        const uint32_t lastPage =
+            (guestStart + static_cast<uint32_t>(length - 1)) >> kPageShift;
+        for (uint32_t page = firstPage; page <= lastPage; ++page) {
+            if (g_deferredReadCoveredPages[page] != 0) return nullptr;
+        }
+    }
+    return GetPointerFast(guestStart, length);
+#else
     return MKW_FLAT_GUEST_BASE + guestStart;
+#endif
 }
 
 // Guest-address byte order. Distinct from isa/big_endian.h, which is the
@@ -525,15 +542,27 @@ MKW_MEMORY_FORCE_INLINE void WriteResolvedFloat64(uint8_t* r, uint32_t o, uint32
 
 template <typename T>
 MKW_MEMORY_FORCE_INLINE T FlatLoad(uint32_t address) {
+#if defined(MKW_TARGET_VITA)
+    T value{};
+    if (TryReadGuestScalar(address, value)) return value;
+    [[unlikely]] return ReadResolvedFallback<T>(address);
+#else
     T value{};
     std::memcpy(&value, MKW_FLAT_GUEST_BASE + address, sizeof(T));
     return MaybeByteSwap(value);
+#endif
 }
 
 template <typename T>
 MKW_MEMORY_FORCE_INLINE void FlatStore(uint32_t address, T value) {
+#if defined(MKW_TARGET_VITA)
+    if (!TryWriteGuestScalar(address, value)) [[unlikely]] {
+        WriteResolvedFallback<T>(address, value);
+    }
+#else
     const T swapped = MaybeByteSwap(value);
     std::memcpy(MKW_FLAT_GUEST_BASE + address, &swapped, sizeof(T));
+#endif
 }
 
 MKW_MEMORY_FORCE_INLINE uint8_t FlatRead8(uint32_t address) { return FlatLoad<uint8_t>(address); }

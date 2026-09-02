@@ -1,8 +1,12 @@
 #include "gx.hpp"
 #include "__gx.h"
 
+#if defined(MKW_TARGET_VITA)
+#include "../../vita/gfx_frontend.hpp"
+#else
 #include "../../gfx/common.hpp"
 #include "../../gfx/texture.hpp"
+#endif
 
 extern "C" {
 

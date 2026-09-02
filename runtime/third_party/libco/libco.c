@@ -7,7 +7,12 @@
 #endif
 
 #if defined(__clang__) || defined(__GNUC__)
-  #if defined(__i386__)
+  #if defined(__vita__)
+    /* Vita's kernel must know about coroutine stacks before code running on
+       them enters syscalls/newlib. The raw ARM stack-swap backend violates
+       that contract; use Sony's supported SceFiber primitive instead. */
+    #include "scefiber.c"
+  #elif defined(__i386__)
     #include "x86.c"
   #elif defined(__amd64__)
     #include "amd64.c"
