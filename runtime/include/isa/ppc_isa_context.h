@@ -62,11 +62,7 @@ public:
     {
         g_currentCpuContext = ctx;
 
-<<<<<<< HEAD
-        savedMxcsr_ = MkwGetHostFpControl();
-=======
         savedFpControl_ = MkwReadHostFpControl();
->>>>>>> 577dc0e (checkpoint: add PS Vita port and Aurora backend)
         if (ctx != nullptr)
             MkwApplyHostNiMode(ctx->fpscr);
     }
