@@ -26,6 +26,7 @@ public:
   // GPU-resident framebuffer copy used for GXCopyTex. Source coordinates are top-left Aurora/GX coordinates.
   Handle capture_current(Handle existing,const Scissor& src,uint32_t dstWidth,uint32_t dstHeight,
                          EfbCopyFormat format=EfbCopyFormat::Passthrough) noexcept;
+  Handle upload_efb_rgba(Handle existing,uint32_t width,uint32_t height,const void* rgba) noexcept;
   void clear_current(const Color& color,float depth,bool clearRgb,bool clearAlpha,bool clearDepth) noexcept;
   void execute(const CommandStream& stream) noexcept;void draw(const DrawPacket& d) noexcept;
   const FrameStats& stats()const noexcept{return stats_;}uint64_t frame()const noexcept{return frame_;}

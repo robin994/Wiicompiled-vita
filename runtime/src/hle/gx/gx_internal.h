@@ -78,15 +78,29 @@ struct GxCpuPerfSnapshot {
     uint64_t lytUs = 0;
     uint64_t lytDirect = 0;
     uint64_t lytPacket = 0;
+    uint64_t lytFaithful = 0;
     uint64_t dlCalls = 0;
     uint64_t dlUs = 0;
     uint64_t dlBytes = 0;
     uint64_t dlCacheHits = 0;
     uint64_t dlCacheMisses = 0;
     uint64_t dlFallbacks = 0;
+    uint64_t glyphFastCalls = 0;
+    uint64_t glyphSetupCalls = 0;
+    uint64_t glyphTextureLoads = 0;
+    uint32_t gxBeginCalls = 0;
+    uint32_t gxBeginCallerCount = 0;
+    struct GxBeginCaller {
+        uint32_t lr = 0;
+        uint32_t count = 0;
+    };
+    static constexpr size_t kGxBeginCallerCapacity = 64;
+    std::array<GxBeginCaller, kGxBeginCallerCapacity> gxBeginCallers{};
 };
 
 GxCpuPerfSnapshot GX_HLE_TakeCpuPerfSnapshot() noexcept;
+void GX_HLE_RecordBeginCaller(uint32_t lr) noexcept;
+void GX_HLE_RecordGlyphFast(bool setupCalled, bool textureLoaded) noexcept;
 
 extern std::atomic_bool g_auroraFrameActive;
 extern std::atomic_bool g_auroraFrameHadWork;

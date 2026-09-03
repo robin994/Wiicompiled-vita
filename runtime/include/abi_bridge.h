@@ -435,10 +435,23 @@ MKW_PPC_FORCE_INLINE bool TryDispatchResolvedCpuTarget(const TranslatedFunctionI
     return true;
 }
 
-inline bool TryDispatchRawCpuTarget(const RawDispatchRecord* record, CpuContext* cpu) {
+MKW_PPC_FORCE_INLINE bool TryDispatchRawCpuTarget(const RawDispatchRecord* record, CpuContext* cpu) {
     if (!record || !record->entry) {
         return false;
     }
+#if defined(MKW_TARGET_VITA)
+    // The generated static indirect-dispatch table is dominated by ordinary
+    // translated C++ targets. When the call stays inside the current guest
+    // CpuContext and the ABI analysis says no nonvolatile register guard is
+    // required, the scope below is diagnostic-only overhead: direct translated
+    // calls already elide the same execution-address scope on their hot path.
+    // Keep native/mod/guarded and cross-context calls on the conservative path.
+    if (!record->preserveNonvolatileGprs && record->nonvolatileFprWriteMask == 0 &&
+        TryGetCpuContext() == cpu) {
+        record->entry(cpu);
+        return true;
+    }
+#endif
     RecompMod::ScopedTranslatedExecutionAddress translatedExecution(record->address);
     PpcNonvolatileGprGuard gprGuard(cpu, record->preserveNonvolatileGprs);
     PpcNonvolatileFprGuard fprGuard(cpu, record->nonvolatileFprWriteMask);
@@ -541,6 +554,23 @@ inline bool IsBaseTranslatedCpuTargetActive() {
 }
 
 template <uint32_t Target>
+MKW_PPC_FORCE_INLINE void TraceDirectCpuReturn(CpuContext* cpu) {
+#if defined(MKW_TARGET_VITA)
+    if constexpr (Target == 0x801A8A50u) {
+        RT_LOG(RT_TAG_OS) << "guest_after_OSGetResetCode target=0x801A8A50"
+                          << " r3=0x" << std::hex << cpu->gpr[3]
+                          << " pc=0x" << cpu->pc
+                          << " lr=0x" << cpu->lr
+                          << " sp=0x" << cpu->gpr[1]
+                          << std::dec << std::endl;
+        std::fflush(stderr);
+    }
+#else
+    (void)cpu;
+#endif
+}
+
+template <uint32_t Target>
 inline void InvokeDirectCpu(CpuContext* ctx) {
     static_assert(Target != 0, "InvokeDirectCpu cannot target address 0");
     CpuContext* cpu = ctx ? ctx : &GetPersistentCpuContext();
@@ -561,6 +591,7 @@ inline void InvokeDirectCpu(CpuContext* ctx) {
             PpcNonvolatileFprGuard fprGuard(cpu, KnownNativeCpuCall<Target>::kNonvolatileFprWriteMask);
             invokeKnownNative();
         }
+        TraceDirectCpuReturn<Target>(cpu);
         return;
     }
 
@@ -572,16 +603,19 @@ inline void InvokeDirectCpu(CpuContext* ctx) {
         } else {
             KnownTypedNativeCpuCall<Target>::Invoke(cpu);
         }
+        TraceDirectCpuReturn<Target>(cpu);
         return;
     }
 
     if constexpr (KnownTranslatedCpuCall<Target>::kAvailable) {
         DispatchKnownTranslatedCpuTargetStatic<Target>(cpu);
+        TraceDirectCpuReturn<Target>(cpu);
         return;
     }
 
     const auto* registeredInfo = ResolveDirectCpuTargetInfoCached<Target>();
     if (TryDispatchResolvedCpuTarget(registeredInfo, cpu)) {
+        TraceDirectCpuReturn<Target>(cpu);
         return;
     }
 

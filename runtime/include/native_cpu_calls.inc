@@ -8,6 +8,7 @@
 
 extern "C" void nw4r__lyt__detail__DrawQuad_800847c0(CpuContext* ctx);
 extern "C" void nw4r__lyt__detail__DrawQuad_80084d20(CpuContext* ctx);
+extern "C" void func_805CF598(CpuContext* ctx);
 
 extern "C" void GX__SetVtxDesc_8016d3a4(uint32_t a, uint32_t t);
 extern "C" void GX__ClearVtxDesc_8016dc34();
@@ -94,5 +95,6 @@ template <> struct KnownNativeCpuCall<addr> { \
 
 MKW_KNOWN_NATIVE_CPU_CALL(0x800847C0u, nw4r__lyt__detail__DrawQuad_800847c0);
 MKW_KNOWN_NATIVE_CPU_CALL(0x80084D20u, nw4r__lyt__detail__DrawQuad_80084d20);
+MKW_KNOWN_NATIVE_CPU_CALL(0x805CF598u, func_805CF598);
 
 #undef MKW_KNOWN_NATIVE_CPU_CALL

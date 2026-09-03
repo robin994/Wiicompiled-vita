@@ -55,6 +55,13 @@ struct VitaKpadSample {
 
 std::array<uint32_t, 4> g_previousCore{};
 std::array<uint32_t, 4> g_previousClassic{};
+// Preserve short Vita button presses until KPADRead has delivered them at least once.
+// This matters while the port is temporarily running below real-time: PeekBufferPositive
+// otherwise loses a complete press/release that occurs between two guest polls.
+uint32_t g_previousPhysicalCore = 0;
+uint32_t g_previousPhysicalClassic = 0;
+uint32_t g_latchedCorePress = 0;
+uint32_t g_latchedClassicPress = 0;
 
 float VitaAxis(uint8_t value)
 {
@@ -130,6 +137,15 @@ VitaKpadSample ReadVitaKpad()
     if (buttons & SCE_CTRL_RTRIGGER) {
         sample.classic |= kClassicButtonR | kClassicButtonZr;
     }
+
+    const uint32_t physicalCore = sample.core;
+    const uint32_t physicalClassic = sample.classic;
+    g_latchedCorePress |= physicalCore & ~g_previousPhysicalCore;
+    g_latchedClassicPress |= physicalClassic & ~g_previousPhysicalClassic;
+    g_previousPhysicalCore = physicalCore;
+    g_previousPhysicalClassic = physicalClassic;
+    sample.core |= g_latchedCorePress;
+    sample.classic |= g_latchedClassicPress;
     return sample;
 }
 
@@ -210,6 +226,10 @@ extern "C" int32_t KPAD__Read_HLE(uint32_t chan, uint32_t statusPtr, uint32_t co
     try {
         WriteKpadStatus(statusPtr, sample, coreTrigger, coreRelease,
                         classicTrigger, classicRelease);
+        // KPAD has now observed every pending edge. Held buttons remain present through
+        // the physical state on the next poll; released taps produce a release then.
+        g_latchedCorePress = 0;
+        g_latchedClassicPress = 0;
     } catch (const Memory::AccessViolation& e) {
         LogMemoryError(RT_TAG_HLE, "input KPADRead", e);
         return 0;

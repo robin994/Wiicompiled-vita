@@ -20,6 +20,41 @@ std::mutex g_efbCopyDestinationsMutex;
 std::map<uint32_t, uint32_t> g_efbCopyDestinations;
 uint32_t g_largestEfbCopyDestination = 0;
 
+#if defined(MKW_TARGET_VITA)
+void LogGxBeginHot(const GxCpuPerfSnapshot& snapshot, int frame) {
+    if (frame > 8 && (frame % 120) != 0 && snapshot.gxBeginCalls <= 300) {
+        return;
+    }
+
+    std::array<uint8_t, 8> topIndices{};
+    std::array<bool, GxCpuPerfSnapshot::kGxBeginCallerCapacity> selected{};
+    uint32_t topCount = 0;
+    for (uint32_t rank = 0; rank < 8; ++rank) {
+        uint32_t best = GxCpuPerfSnapshot::kGxBeginCallerCapacity;
+        uint32_t bestCount = 0;
+        for (uint32_t i = 0; i < snapshot.gxBeginCallerCount; ++i) {
+            if (selected[i] || snapshot.gxBeginCallers[i].count <= bestCount) {
+                continue;
+            }
+            best = i;
+            bestCount = snapshot.gxBeginCallers[i].count;
+        }
+        if (best == GxCpuPerfSnapshot::kGxBeginCallerCapacity) {
+            break;
+        }
+        selected[best] = true;
+        topIndices[topCount++] = static_cast<uint8_t>(best);
+    }
+
+    for (uint32_t rank = 0; rank < topCount; ++rank) {
+        const auto& caller = snapshot.gxBeginCallers[topIndices[rank]];
+        RT_LOGF(RT_TAG_GX,
+                "gx_begin_hot frame=%d rank=%u lr=%08x count=%u total=%u\n",
+                frame, rank, caller.lr, caller.count, snapshot.gxBeginCalls);
+    }
+}
+#endif
+
 void RememberEfbCopyDestination(uint32_t addr, uint32_t size) {
     if (size == 0) {
         return;
@@ -136,21 +171,27 @@ extern "C" void GX__CopyDisp_8016fc38(uint32_t da, uint32_t c) {
     const GxCpuPerfSnapshot cpuPerf = GX_HLE_TakeCpuPerfSnapshot();
     if (g_gxFrameCount <= 8 || (g_gxFrameCount % 120) == 0) {
         RT_LOGF(RT_TAG_GX,
-                "gx_cpu_perf frame=%d lyt_calls=%llu lyt_us=%llu lyt_direct=%llu lyt_packet=%llu "
-                "dl_calls=%llu dl_us=%llu dl_bytes=%llu dl_cache=%llu/%llu dl_fallback=%llu copydisp_us=%llu\n",
+                "gx_cpu_perf frame=%d lyt_calls=%llu lyt_us=%llu lyt_direct=%llu lyt_packet=%llu lyt_faithful=%llu "
+                "dl_calls=%llu dl_us=%llu dl_bytes=%llu dl_cache=%llu/%llu dl_fallback=%llu "
+                "glyph_fast=%llu setup=%llu texload=%llu copydisp_us=%llu\n",
                 g_gxFrameCount,
                 static_cast<unsigned long long>(cpuPerf.lytCalls),
                 static_cast<unsigned long long>(cpuPerf.lytUs),
                 static_cast<unsigned long long>(cpuPerf.lytDirect),
                 static_cast<unsigned long long>(cpuPerf.lytPacket),
+                static_cast<unsigned long long>(cpuPerf.lytFaithful),
                 static_cast<unsigned long long>(cpuPerf.dlCalls),
                 static_cast<unsigned long long>(cpuPerf.dlUs),
                 static_cast<unsigned long long>(cpuPerf.dlBytes),
                 static_cast<unsigned long long>(cpuPerf.dlCacheHits),
                 static_cast<unsigned long long>(cpuPerf.dlCacheMisses),
                 static_cast<unsigned long long>(cpuPerf.dlFallbacks),
+                static_cast<unsigned long long>(cpuPerf.glyphFastCalls),
+                static_cast<unsigned long long>(cpuPerf.glyphSetupCalls),
+                static_cast<unsigned long long>(cpuPerf.glyphTextureLoads),
                 static_cast<unsigned long long>(copyUs > 0 ? copyUs : 0));
     }
+    LogGxBeginHot(cpuPerf, g_gxFrameCount);
 #endif
 }
 

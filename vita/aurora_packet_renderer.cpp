@@ -9,12 +9,14 @@
 
 #include <dolphin/gx/GXEnum.h>
 #include <psp2/kernel/processmgr.h>
+#include <vitaGL.h>
 
 #include <algorithm>
 #include <array>
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 namespace WiiCompiledVita {
@@ -31,6 +33,35 @@ gfx::Scissor g_scissor{};
 std::uint64_t g_lastPipelineHash = 0;
 std::uint64_t g_lastPipelineKey = 0;
 bool g_frameActive = false;
+
+struct EfbCopyTexture {
+    gfx::Handle handle = gfx::InvalidHandle;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    std::uint32_t revision = 0;
+};
+
+std::unordered_map<std::uint64_t, EfbCopyTexture> g_efbCopies;
+std::uint64_t g_efbSourceMissTraceCount = 0;
+std::vector<std::uint8_t> g_efbReadback;
+std::uint64_t g_efbCopyTraceCount = 0;
+std::vector<std::uint8_t> g_thpRgba;
+std::uint64_t g_thpConversionKey = 0;
+std::uint64_t g_thpConversionCount = 0;
+
+bool FlushQueuedDraws() noexcept {
+    if (!g_frameActive || !g_renderer || !g_arena) return false;
+    if (g_stream.commands().empty()) return true;
+    if (!g_arena->flush()) return false;
+    g_renderer->execute(g_stream);
+    g_stream.reset();
+    g_stream.reserve(193);
+    // capture/clear invalidates renderer bindings; force the next submit to
+    // resolve its cached pipeline binding again while retaining the pipeline object.
+    g_lastPipelineHash = 0;
+    g_lastPipelineKey = 0;
+    return true;
+}
 
 gfx::Compare MapCompare(std::uint32_t value) noexcept {
     switch (static_cast<GXCompare>(value)) {
@@ -236,6 +267,109 @@ std::uint32_t FoldTextureRevision(const AuroraPacketTexture& texture) noexcept {
     return texture.revision ^ (texture.globalEpoch * 0x9e3779b9u);
 }
 
+std::uint64_t MixThpKey(std::uint64_t key, std::uint64_t value) noexcept {
+    key ^= value + 0x9e3779b97f4a7c15ull + (key << 6u) + (key >> 2u);
+    return key;
+}
+
+std::uint64_t ThpPlaneRevision(std::uint64_t generation, std::uint32_t revision,
+                               std::uint32_t epoch) noexcept {
+    if (generation != std::numeric_limits<std::uint64_t>::max()) {
+        return generation;
+    }
+    return static_cast<std::uint64_t>(revision) ^
+           (static_cast<std::uint64_t>(epoch) << 32u);
+}
+
+std::uint8_t ReadTiledI8(const std::uint8_t* data, std::uint32_t width,
+                         std::uint32_t x, std::uint32_t y) noexcept {
+    const std::uint32_t blocksPerRow = (width + 7u) / 8u;
+    const std::size_t block = static_cast<std::size_t>(y / 4u) * blocksPerRow + x / 8u;
+    return data[block * 32u + static_cast<std::size_t>(y & 3u) * 8u + (x & 7u)];
+}
+
+std::uint8_t ClampThpColor(int value) noexcept {
+    return static_cast<std::uint8_t>(std::clamp(value, 0, 255));
+}
+
+bool PrepareThpYuv420(const AuroraPacketTexture& input, gfx::TextureDesc& output) noexcept {
+    if (!input.thpYuv420 || !input.data || !input.thpUData || !input.thpVData ||
+        input.width == 0u || input.height == 0u || input.thpChromaWidth == 0u ||
+        input.thpChromaHeight == 0u) {
+        return false;
+    }
+    const std::size_t yNeed = static_cast<std::size_t>((input.width + 7u) / 8u) *
+                              ((input.height + 3u) / 4u) * 32u;
+    const std::size_t cNeed = static_cast<std::size_t>((input.thpChromaWidth + 7u) / 8u) *
+                              ((input.thpChromaHeight + 3u) / 4u) * 32u;
+    if (input.dataBytes < yNeed || input.thpUBytes < cNeed || input.thpVBytes < cNeed) {
+        return false;
+    }
+
+    std::uint64_t key = 0xcbf29ce484222325ull;
+    key = MixThpKey(key, input.sourceId);
+    key = MixThpKey(key, reinterpret_cast<std::uintptr_t>(input.thpUData));
+    key = MixThpKey(key, reinterpret_cast<std::uintptr_t>(input.thpVData));
+    key = MixThpKey(key, ThpPlaneRevision(input.sourceGeneration, input.revision,
+                                          input.globalEpoch));
+    key = MixThpKey(key, ThpPlaneRevision(input.thpUGeneration, input.thpURevision,
+                                          input.globalEpoch));
+    key = MixThpKey(key, ThpPlaneRevision(input.thpVGeneration, input.thpVRevision,
+                                          input.globalEpoch));
+    key = MixThpKey(key, (static_cast<std::uint64_t>(input.width) << 48u) |
+                         (static_cast<std::uint64_t>(input.height) << 32u) |
+                         (static_cast<std::uint64_t>(input.thpChromaWidth) << 16u) |
+                         input.thpChromaHeight);
+
+    if (key != g_thpConversionKey) {
+        const std::size_t rgbaBytes = static_cast<std::size_t>(input.width) * input.height * 4u;
+        g_thpRgba.resize(rgbaBytes);
+        const auto* yPlane = static_cast<const std::uint8_t*>(input.data);
+        const auto* uPlane = static_cast<const std::uint8_t*>(input.thpUData);
+        const auto* vPlane = static_cast<const std::uint8_t*>(input.thpVData);
+        for (std::uint32_t y = 0; y < input.height; ++y) {
+            for (std::uint32_t x = 0; x < input.width; ++x) {
+                const int yy = static_cast<int>(ReadTiledI8(yPlane, input.width, x, y)) - 16;
+                const int uu = static_cast<int>(ReadTiledI8(
+                    uPlane, input.thpChromaWidth, x >> 1u, y >> 1u)) - 128;
+                const int vv = static_cast<int>(ReadTiledI8(
+                    vPlane, input.thpChromaWidth, x >> 1u, y >> 1u)) - 128;
+                const int c = std::max(0, yy);
+                const std::size_t offset =
+                    (static_cast<std::size_t>(y) * input.width + x) * 4u;
+                g_thpRgba[offset + 0u] = ClampThpColor((298 * c + 409 * vv + 128) >> 8);
+                g_thpRgba[offset + 1u] = ClampThpColor((298 * c - 100 * uu - 208 * vv + 128) >> 8);
+                g_thpRgba[offset + 2u] = ClampThpColor((298 * c + 516 * uu + 128) >> 8);
+                g_thpRgba[offset + 3u] = 255u;
+            }
+        }
+        g_thpConversionKey = key;
+        ++g_thpConversionCount;
+        if (g_thpConversionCount <= 24u) {
+            RT_LOGF(RT_TAG_GX,
+                    "thp_yuv420 n=%llu size=%ux%u y=0x%llX u=0x%llX v=0x%llX gen=%llu/%llu/%llu\n",
+                    static_cast<unsigned long long>(g_thpConversionCount),
+                    static_cast<unsigned>(input.width), static_cast<unsigned>(input.height),
+                    static_cast<unsigned long long>(input.sourceId),
+                    static_cast<unsigned long long>(reinterpret_cast<std::uintptr_t>(input.thpUData)),
+                    static_cast<unsigned long long>(reinterpret_cast<std::uintptr_t>(input.thpVData)),
+                    static_cast<unsigned long long>(input.sourceGeneration),
+                    static_cast<unsigned long long>(input.thpUGeneration),
+                    static_cast<unsigned long long>(input.thpVGeneration));
+        }
+    }
+
+    output.width = input.width;
+    output.height = input.height;
+    output.format = gfx::TextureFormat::RGBA8888;
+    output.data = g_thpRgba.data();
+    output.dataSize = g_thpRgba.size();
+    output.sourceId = input.sourceId;
+    output.revision = static_cast<std::uint32_t>(key) ^ static_cast<std::uint32_t>(key >> 32u);
+    output.mipCount = 1;
+    return true;
+}
+
 } // namespace
 
 bool AuroraPacketRendererInitialize() noexcept {
@@ -318,6 +452,8 @@ void AuroraPacketRendererShutdown() noexcept {
     g_frameActive = false;
     g_stream.reset();
     g_prepared = {};
+    g_efbCopies.clear();
+    g_efbReadback.clear();
     if (g_arena) g_arena->shutdown();
     if (g_renderer) g_renderer->shutdown();
     g_arena.reset();
@@ -396,37 +532,65 @@ AuroraPacketSubmitResult AuroraPacketRendererSubmit(const AuroraPacketDraw& draw
     std::array<gfx::TextureBinding, gfx::MaxTextures> bindings{};
     bool textured = false;
     if (draw.texture.enabled && draw.texture.data && draw.texture.width && draw.texture.height) {
-        gfx::TextureFormat textureFormat{};
-        if (!MapTextureFormat(draw.texture.format, textureFormat)) {
-            result.textureUnsupported = true;
+        const auto efbIt = g_efbCopies.find(draw.texture.sourceId);
+        if (efbIt != g_efbCopies.end() && efbIt->second.handle != gfx::InvalidHandle) {
+            bindings[0].texture = efbIt->second.handle;
+            bindings[0].source = gfx::TextureSource::Efb;
+            bindings[0].sampler.wrapS = MapWrap(draw.texture.wrapS);
+            bindings[0].sampler.wrapT = MapWrap(draw.texture.wrapT);
+            bindings[0].sampler.minFilter = MapFilter(draw.texture.minFilter);
+            bindings[0].sampler.magFilter = MapFilter(draw.texture.magFilter);
+            textured = true;
+            result.textureDrawn = true;
+            result.textureEfb = true;
         } else {
-            gfx::TextureDesc texture{};
-            texture.width = draw.texture.width;
-            texture.height = draw.texture.height;
-            texture.format = textureFormat;
-            texture.data = draw.texture.data;
-            texture.dataSize = draw.texture.dataBytes;
-            texture.sourceId = draw.texture.sourceId;
-            texture.revision = FoldTextureRevision(draw.texture);
-            texture.mipCount = 1;
-            const gfx::FrameStats before = g_renderer->stats();
-            bindings[0].texture = g_renderer->create_texture(texture);
-            const gfx::FrameStats after = g_renderer->stats();
-            result.textureHit = after.textureHits > before.textureHits;
-            result.textureMiss = after.textureMisses > before.textureMisses;
-            result.textureUploaded = after.textureUploads > before.textureUploads;
-            result.textureUploadFailed = bindings[0].texture == gfx::InvalidHandle;
-            if (result.textureUploaded) {
-                result.textureBytesUploaded = static_cast<std::uint64_t>(draw.texture.width) *
-                                              draw.texture.height * 4u;
+            if (!g_efbCopies.empty() && g_efbSourceMissTraceCount < 24u) {
+                const auto& sample = *g_efbCopies.begin();
+                ++g_efbSourceMissTraceCount;
+                RT_LOGF(RT_TAG_GX,
+                        "efb_source_miss n=%llu source=0x%llX known=%u sample=0x%llX size=%ux%u\n",
+                        static_cast<unsigned long long>(g_efbSourceMissTraceCount),
+                        static_cast<unsigned long long>(draw.texture.sourceId),
+                        static_cast<unsigned>(g_efbCopies.size()),
+                        static_cast<unsigned long long>(sample.first),
+                        static_cast<unsigned>(sample.second.width),
+                        static_cast<unsigned>(sample.second.height));
             }
-            if (bindings[0].texture != gfx::InvalidHandle) {
-                bindings[0].sampler.wrapS = MapWrap(draw.texture.wrapS);
-                bindings[0].sampler.wrapT = MapWrap(draw.texture.wrapT);
-                bindings[0].sampler.minFilter = MapFilter(draw.texture.minFilter);
-                bindings[0].sampler.magFilter = MapFilter(draw.texture.magFilter);
-                textured = true;
-                result.textureDrawn = true;
+            gfx::TextureFormat textureFormat{};
+            gfx::TextureDesc texture{};
+            const bool thpPrepared = PrepareThpYuv420(draw.texture, texture);
+            if (!thpPrepared && !MapTextureFormat(draw.texture.format, textureFormat)) {
+                result.textureUnsupported = true;
+            } else {
+                if (!thpPrepared) {
+                    texture.width = draw.texture.width;
+                    texture.height = draw.texture.height;
+                    texture.format = textureFormat;
+                    texture.data = draw.texture.data;
+                    texture.dataSize = draw.texture.dataBytes;
+                    texture.sourceId = draw.texture.sourceId;
+                    texture.revision = FoldTextureRevision(draw.texture);
+                    texture.mipCount = 1;
+                }
+                const gfx::FrameStats before = g_renderer->stats();
+                bindings[0].texture = g_renderer->create_texture(texture);
+                const gfx::FrameStats after = g_renderer->stats();
+                result.textureHit = after.textureHits > before.textureHits;
+                result.textureMiss = after.textureMisses > before.textureMisses;
+                result.textureUploaded = after.textureUploads > before.textureUploads;
+                result.textureUploadFailed = bindings[0].texture == gfx::InvalidHandle;
+                if (result.textureUploaded) {
+                    result.textureBytesUploaded = static_cast<std::uint64_t>(draw.texture.width) *
+                                                  draw.texture.height * 4u;
+                }
+                if (bindings[0].texture != gfx::InvalidHandle) {
+                    bindings[0].sampler.wrapS = MapWrap(draw.texture.wrapS);
+                    bindings[0].sampler.wrapT = MapWrap(draw.texture.wrapT);
+                    bindings[0].sampler.minFilter = MapFilter(draw.texture.minFilter);
+                    bindings[0].sampler.magFilter = MapFilter(draw.texture.magFilter);
+                    textured = true;
+                    result.textureDrawn = true;
+                }
             }
         }
     }
@@ -451,6 +615,156 @@ AuroraPacketSubmitResult AuroraPacketRendererSubmit(const AuroraPacketDraw& draw
         gfx::enqueue_draw(*g_renderer, *g_arena, g_stream, prepared, pipeline, uniforms,
                           g_viewport, g_scissor, bindings, &error, nullptr, g_lastPipelineKey);
     return result;
+}
+
+bool AuroraPacketRendererCopyEfb(const AuroraPacketEfbCopy& copy) noexcept {
+    if (!g_frameActive || !g_renderer || !g_arena || copy.destinationId == 0 ||
+        copy.srcWidth <= 0 || copy.srcHeight <= 0 || copy.dstWidth == 0 || copy.dstHeight == 0) {
+        return false;
+    }
+    if (!FlushQueuedDraws()) return false;
+
+    const gfx::EfbCopyFormat format = gfx::efb_copy_format_from_gx_raw(copy.format);
+    if (!gfx::is_supported_color_copy_format(format)) return false;
+
+    const std::int32_t targetW = static_cast<std::int32_t>(g_renderer->target_width());
+    const std::int32_t targetH = static_cast<std::int32_t>(g_renderer->target_height());
+    if (targetW <= 0 || targetH <= 0) return false;
+
+    const std::int64_t requestedX1 = static_cast<std::int64_t>(copy.srcX) + copy.srcWidth;
+    const std::int64_t requestedY1 = static_cast<std::int64_t>(copy.srcY) + copy.srcHeight;
+    const std::int32_t x0 = std::clamp(copy.srcX, 0, targetW);
+    const std::int32_t y0 = std::clamp(copy.srcY, 0, targetH);
+    const std::int32_t x1 = static_cast<std::int32_t>(
+        std::clamp<std::int64_t>(requestedX1, 0, targetW));
+    const std::int32_t y1 = static_cast<std::int32_t>(
+        std::clamp<std::int64_t>(requestedY1, 0, targetH));
+    if (x1 <= x0 || y1 <= y0) return false;
+
+    const std::uint32_t srcW = static_cast<std::uint32_t>(x1 - x0);
+    const std::uint32_t srcH = static_cast<std::uint32_t>(y1 - y0);
+    // Dynamic GXCopyTex results are sampled with normalized UVs in the menu path. Never upscale
+    // the physical copy beyond the source: it wastes the Vita's very limited mapped memory and
+    // provides no visual benefit. Common 960x544 rendering therefore downsamples to Wii-logical size.
+    const std::uint32_t outW = std::max<std::uint32_t>(1u, std::min(copy.dstWidth, srcW));
+    const std::uint32_t outH = std::max<std::uint32_t>(1u, std::min(copy.dstHeight, srcH));
+    if (srcW > 2048u || srcH > 2048u || outW > 2048u || outH > 2048u) return false;
+    const std::size_t srcPixels = static_cast<std::size_t>(srcW) * srcH;
+    if (srcPixels > SIZE_MAX / 4u) return false;
+    const std::size_t srcBytes = srcPixels * 4u;
+
+    // Prefer the GPU-resident framebuffer blit. This avoids one synchronous readback per
+    // preview (the main menu can issue 20+ GXCopyTex operations in one logical frame).
+    {
+        auto gpuIt = g_efbCopies.find(copy.destinationId);
+        const gfx::Handle gpuExisting = gpuIt == g_efbCopies.end() ? gfx::InvalidHandle : gpuIt->second.handle;
+        const std::uint32_t gpuRevision = gpuIt == g_efbCopies.end() ? 0u : gpuIt->second.revision;
+        const gfx::Scissor gpuSrc{x0, y0, static_cast<std::int32_t>(srcW), static_cast<std::int32_t>(srcH)};
+        const gfx::Handle gpuCaptured =
+            g_renderer->capture_current(gpuExisting, gpuSrc, outW, outH, format);
+        if (gpuCaptured != gfx::InvalidHandle) {
+            g_efbCopies[copy.destinationId] = EfbCopyTexture{gpuCaptured, outW, outH, gpuRevision + 1u};
+            if (copy.clear) {
+                g_renderer->clear_current({copy.clearR, copy.clearG, copy.clearB, copy.clearA},
+                                          copy.clearDepthValue, copy.clearColor, copy.clearAlpha, copy.clearDepth);
+            }
+            const std::uint64_t trace = ++g_efbCopyTraceCount;
+            if (trace <= 32u) {
+                RT_LOGF(RT_TAG_GX,
+                        "efb_copy_exec n=%llu path=gpu dest=0x%llX src=%d,%d %ux%u dst=%ux%u fmt=0x%X clear=%u\n",
+                        static_cast<unsigned long long>(trace),
+                        static_cast<unsigned long long>(copy.destinationId), x0, y0,
+                        static_cast<unsigned>(srcW), static_cast<unsigned>(srcH),
+                        static_cast<unsigned>(outW), static_cast<unsigned>(outH),
+                        static_cast<unsigned>(copy.format), static_cast<unsigned>(copy.clear));
+            }
+            g_lastPipelineHash = 0;
+            g_lastPipelineKey = 0;
+            return true;
+        }
+    }
+
+    // Conservative fallback for any vitaGL/GXM combination that cannot blit the requested
+    // rectangle. This path is correct but synchronous and should normally stay unused.
+    const std::uint64_t trace = ++g_efbCopyTraceCount;
+    if (trace <= 32u) {
+        RT_LOGF(RT_TAG_GX,
+                "efb_copy_exec n=%llu path=readback dest=0x%llX src=%d,%d %ux%u dst=%ux%u fmt=0x%X clear=%u\n",
+                static_cast<unsigned long long>(trace),
+                static_cast<unsigned long long>(copy.destinationId), x0, y0,
+                static_cast<unsigned>(srcW), static_cast<unsigned>(srcH),
+                static_cast<unsigned>(outW), static_cast<unsigned>(outH),
+                static_cast<unsigned>(copy.format), static_cast<unsigned>(copy.clear));
+    }
+
+    // glReadPixels uses a bottom-left origin. copy.srcY is top-left GX/Aurora space.
+    const std::int32_t glY = targetH - y1;
+    try {
+        if (g_efbReadback.size() < srcBytes) g_efbReadback.resize(srcBytes);
+    } catch (...) {
+        return false;
+    }
+    glReadPixels(x0, glY, srcW, srcH, GL_RGBA, GL_UNSIGNED_BYTE, g_efbReadback.data());
+    if (glGetError() != GL_NO_ERROR) return false;
+
+    // Nearest downscale in-place. Since outW/outH never exceed srcW/srcH, each destination
+    // pixel lies at or before the source pixel it reads, so forward compaction cannot destroy
+    // data required by a later sample. Copy through a scalar to make overlap semantics explicit.
+    if (outW != srcW || outH != srcH) {
+        for (std::uint32_t y = 0; y < outH; ++y) {
+            const std::uint32_t sy = static_cast<std::uint32_t>(
+                (static_cast<std::uint64_t>(y) * srcH) / outH);
+            for (std::uint32_t x = 0; x < outW; ++x) {
+                const std::uint32_t sx = static_cast<std::uint32_t>(
+                    (static_cast<std::uint64_t>(x) * srcW) / outW);
+                const std::size_t srcOffset = (static_cast<std::size_t>(sy) * srcW + sx) * 4u;
+                const std::size_t dstOffset = (static_cast<std::size_t>(y) * outW + x) * 4u;
+                std::uint32_t pixel = 0;
+                std::memcpy(&pixel, g_efbReadback.data() + srcOffset, sizeof(pixel));
+                std::memcpy(g_efbReadback.data() + dstOffset, &pixel, sizeof(pixel));
+            }
+        }
+    }
+
+    // The UI copies observed so far are color previews. Preserve the rendered RGBA directly;
+    // format-specific Wii RAM packing is unnecessary because this GPU-only result is consumed
+    // as a sampled texture and is never exposed to guest CPU reads on this path.
+    auto it = g_efbCopies.find(copy.destinationId);
+    const gfx::Handle existing = it == g_efbCopies.end() ? gfx::InvalidHandle : it->second.handle;
+    const std::uint32_t revision = it == g_efbCopies.end() ? 0u : it->second.revision;
+    const gfx::Handle captured =
+        g_renderer->upload_efb_rgba(existing, outW, outH, g_efbReadback.data());
+    if (captured == gfx::InvalidHandle) {
+        if (it != g_efbCopies.end()) {
+            if (it->second.handle != gfx::InvalidHandle) g_renderer->efb().destroy(it->second.handle);
+            g_efbCopies.erase(it);
+        }
+        return false;
+    }
+    g_efbCopies[copy.destinationId] = EfbCopyTexture{captured, outW, outH, revision + 1u};
+
+    if (copy.clear) {
+        g_renderer->clear_current({copy.clearR, copy.clearG, copy.clearB, copy.clearA},
+                                  copy.clearDepthValue, copy.clearColor, copy.clearAlpha, copy.clearDepth);
+    }
+    g_lastPipelineHash = 0;
+    g_lastPipelineKey = 0;
+    return true;
+}
+
+void AuroraPacketRendererDestroyEfbCopy(std::uint64_t destinationId) noexcept {
+    if (destinationId == 0) return;
+    auto it = g_efbCopies.find(destinationId);
+    if (it == g_efbCopies.end()) return;
+    // Draws queued before the guest invalidation may still reference this handle.
+    // Execute them before retiring it so FIFO ordering remains intact.
+    if (g_frameActive && !FlushQueuedDraws()) return;
+    if (g_renderer && it->second.handle != gfx::InvalidHandle) {
+        g_renderer->efb().destroy(it->second.handle);
+    }
+    g_efbCopies.erase(it);
+    g_lastPipelineHash = 0;
+    g_lastPipelineKey = 0;
 }
 
 AuroraPacketFrameStats AuroraPacketRendererEndFrame() noexcept {

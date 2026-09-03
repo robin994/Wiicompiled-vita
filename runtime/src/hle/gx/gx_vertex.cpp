@@ -275,6 +275,14 @@ void ServiceDeferredTimingDuringGxWork() {
 }
 
 extern "C" void GX__Begin_8016f0f0(uint32_t t, uint32_t vf, uint32_t nv) {
+    // HLE is entered after the guest BL, so CpuContext::lr identifies the
+    // guest call site. Avoid CurrentTranslatedExecutionAddress(): nested
+    // translated calls do not update that scope.
+    if (const CpuContext* cpu = TryGetCpuContext()) {
+        GX_HLE_RecordBeginCaller(cpu->lr);
+    } else {
+        GX_HLE_RecordBeginCaller(0);
+    }
     if(IsDisplayListActive()){
         WriteDisplayListData((u8)(t|vf), 1);
         WriteDisplayListData((u16)nv, 2);

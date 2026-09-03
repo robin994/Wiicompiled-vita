@@ -1,5 +1,18 @@
 #include "discord_presence.h"
 
+#if defined(MKW_TARGET_VITA)
+// Discord IPC is a desktop integration. /dev/dolphin may still issue the
+// corresponding commands in the guest, so keep the host contract linked on
+// Vita but make it deliberately inert instead of depending on AF_UNIX/sys/un.h.
+namespace DiscordPresence {
+void Initialize(const std::string&, const std::string&) {}
+void SetClient(const std::string&) {}
+void SetActivity(Activity) {}
+void Reset() {}
+void Shutdown() {}
+} // namespace DiscordPresence
+#else
+
 #include "runtime_log.h"
 
 #include <algorithm>
@@ -464,3 +477,5 @@ void Shutdown() {
 }
 
 } // namespace DiscordPresence
+
+#endif // defined(MKW_TARGET_VITA)

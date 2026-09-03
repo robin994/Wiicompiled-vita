@@ -66,10 +66,14 @@ constexpr uint32_t kSurfaceWidth = 960;
 constexpr uint32_t kSurfaceHeight = 544;
 constexpr size_t kRenderWorkerStack = 128 * 1024;
 constexpr int kVitaGlUserRamReserve = 8 * 1024 * 1024;
-constexpr size_t kMaxFrameVertices = 1024;
-// Real MKW menu scenes already exceed 160 GX draw calls per submitted frame.
-// Keep enough headroom that capacity loss is not mistaken for a decoder error.
-constexpr size_t kMaxFrameDraws = 192;
+constexpr size_t kMaxFrameVertices = 16384;
+// MKW's main-menu compositor performs many offscreen preview passes before the
+// final NW4R layout. The old 192-draw cap was reached before the preview textures
+// were sampled, so the visible four-card composition was silently truncated.
+// 512 draws / 4096 vertices keeps the packet bounded while covering the observed
+// compositor with substantial headroom.
+constexpr size_t kMaxFrameDraws = 2048;
+constexpr size_t kMaxFrameEfbCommands = 64;
 constexpr size_t kPnMtxCount = 10;
 constexpr u8 kPnMtxExplicitBit = 0x80u;
 constexpr size_t kTextureCacheCapacity = 32;
@@ -197,6 +201,10 @@ struct FrameCounters {
     uint64_t textureStateCustomPresetUnknown = 0;
     uint64_t textureStateCustomSignatureOverflow = 0;
     uint64_t textureInvalidateAllCalls = 0;
+    uint64_t efbCopyCalls = 0;
+    uint64_t efbCopyRecorded = 0;
+    uint64_t efbCopyCapacityFailures = 0;
+    uint64_t efbDestroyRecorded = 0;
     std::array<TevSignature, kMaxTevSignaturesPerFrame> customTevSignatures{};
     uint64_t rawDirectAttributesDecoded = 0;
     uint64_t rawIndexedAttributesDecoded = 0;
@@ -587,6 +595,15 @@ struct DrawTextureState {
     u8 texGenNormalize = 0;
     std::array<f32, 12> texGenMtx{};
     std::array<f32, 12> texGenPostMtx{};
+    const void* thpUData = nullptr;
+    const void* thpVData = nullptr;
+    uint64_t thpUGeneration = AURORA_GUEST_WRITE_UNTRACKED;
+    uint64_t thpVGeneration = AURORA_GUEST_WRITE_UNTRACKED;
+    u32 thpURevision = 0;
+    u32 thpVRevision = 0;
+    u16 thpChromaWidth = 0;
+    u16 thpChromaHeight = 0;
+    u8 thpYuv420 = 0;
 };
 
 struct GeometryDraw {
@@ -598,12 +615,35 @@ struct GeometryDraw {
     DrawTextureState texture{};
 };
 
+enum class EfbFrameCommandType : u8 { Copy = 0, Destroy = 1 };
+
+struct EfbFrameCommand {
+    EfbFrameCommandType type = EfbFrameCommandType::Copy;
+    u16 afterDrawCount = 0;
+    uintptr_t destination = 0;
+    u16 srcLeft = 0;
+    u16 srcTop = 0;
+    u16 srcWidth = 0;
+    u16 srcHeight = 0;
+    u16 dstWidth = 0;
+    u16 dstHeight = 0;
+    u32 format = GX_TF_RGBA8;
+    GXColor clearColor{0, 0, 0, 255};
+    u32 clearDepth = 0x00ffffffu;
+    u8 clear = 0;
+    u8 clearColorEnable = 1;
+    u8 clearAlphaEnable = 1;
+    u8 clearDepthEnable = 1;
+};
+
 struct FrameGeometry {
     std::array<RenderVertex, kMaxFrameVertices> vertices{};
     std::array<u8, kMaxFrameVertices> pnMtxRefs{};
     std::array<GeometryDraw, kMaxFrameDraws> draws{};
+    std::array<EfbFrameCommand, kMaxFrameEfbCommands> efbCommands{};
     u16 vertexCount = 0;
     u16 drawCount = 0;
+    u8 efbCommandCount = 0;
     uint32_t droppedVertices = 0;
 };
 
@@ -613,8 +653,8 @@ struct FramePacket {
     std::array<f32, 6> viewport{0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 1.0f};
     std::array<u32, 4> scissor{0, 0, 640, 480};
 };
-static_assert(sizeof(FramePacket) < 192 * 1024,
-              "Vita GX frame packet must stay bounded below 192 KiB");
+static_assert(sizeof(FramePacket) < 2 * 1024 * 1024,
+              "Vita GX frame packet must stay bounded below 2 MiB");
 
 struct GxState {
     std::array<GXAttrType, GX_VA_MAX_ATTR> vtxDesc{};
@@ -692,6 +732,8 @@ struct GxState {
     u16 texCopySrcHeight = 0;
     GXTexFmt texCopyFmt = GX_TF_RGBA8;
     GXBool texCopyMipmap = GX_FALSE;
+    GXColor copyClearColor{0, 0, 0, 255};
+    u32 copyClearDepth = 0x00ffffffu;
     GXGamma dispGamma = GX_GM_1_0;
     GXFBClamp copyClamp = GX_CLAMP_NONE;
     u32 frame2Field = 0;
@@ -725,10 +767,6 @@ uint64_t g_lastProducerSubmitUs = 0;
 uint64_t g_guestWaitRenderCallsSinceSubmit = 0;
 uint64_t g_guestWaitRenderUsSinceSubmit = 0;
 FramePacket g_pendingFrame{};
-// Keep the worker copy out of the 128 KiB Vita render-thread stack. The packet
-// is intentionally larger than that now that real MKW scenes are no longer
-// truncated at 64 draws.
-FramePacket g_renderFrame{};
 WiiCompiledVita::GxBackend::Stats g_stats{};
 AuroraFrameWorkerWaitCallback g_waitCallback = nullptr;
 AuroraGuestWriteGenerationCallback g_guestWriteGeneration = nullptr;
@@ -1302,6 +1340,44 @@ void CaptureDrawTextureState(GeometryDraw& draw) {
         const uint32_t sourceBytes = TextureLevelSize(texture.width, texture.height, texture.format);
         if (sourceBytes != 0) {
             draw.texture.sourceGeneration = g_guestWriteGeneration(texture.data, sourceBytes);
+        }
+    }
+
+    // THP's MoviePaneHandler binds three tiled I8 planes to TEXMAP0/1/2 and
+    // combines them with an 11-stage YUV TEV program. The Vita packet bridge
+    // currently represents one sampled texture, so retain the chroma planes
+    // and let the render worker produce the equivalent RGBA texture once per
+    // decoded frame.
+    if (g_gx.numTevStages >= 3u && g_gx.textures[0] && g_gx.textures[1] &&
+        g_gx.textures[2]) {
+        const TexMeta& y = Tex(g_gx.textures[0]);
+        const TexMeta& u = Tex(g_gx.textures[1]);
+        const TexMeta& v = Tex(g_gx.textures[2]);
+        const bool dimensionsMatch = y.width != 0u && y.height != 0u &&
+            u.width == v.width && u.height == v.height &&
+            u.width == static_cast<u16>((y.width + 1u) / 2u) &&
+            u.height == static_cast<u16>((y.height + 1u) / 2u);
+        if (y.data && u.data && v.data && y.format == GX_TF_I8 &&
+            u.format == GX_TF_I8 && v.format == GX_TF_I8 && dimensionsMatch) {
+            draw.texture.data = y.data;
+            draw.texture.dataRevision = y.dataRevision;
+            draw.texture.format = y.format;
+            draw.texture.width = y.width;
+            draw.texture.height = y.height;
+            draw.texture.thpUData = u.data;
+            draw.texture.thpVData = v.data;
+            draw.texture.thpURevision = u.dataRevision;
+            draw.texture.thpVRevision = v.dataRevision;
+            draw.texture.thpChromaWidth = u.width;
+            draw.texture.thpChromaHeight = u.height;
+            draw.texture.thpYuv420 = 1u;
+            const uint32_t yBytes = TextureLevelSize(y.width, y.height, y.format);
+            const uint32_t uBytes = TextureLevelSize(u.width, u.height, u.format);
+            if (g_guestWriteGeneration) {
+                draw.texture.sourceGeneration = g_guestWriteGeneration(y.data, yBytes);
+                draw.texture.thpUGeneration = g_guestWriteGeneration(u.data, uBytes);
+                draw.texture.thpVGeneration = g_guestWriteGeneration(v.data, uBytes);
+            }
         }
     }
 }
@@ -2636,7 +2712,10 @@ void RenderWorkerMain() {
     bool bootConsoleActive = true;
     uint32_t renderableTraceCount = 0;
     for (;;) {
-        FramePacket& packet = g_renderFrame;
+        // SubmitFrame waits for !g_renderPending && !g_renderBusy before reusing this
+        // storage, so the worker can consume g_pendingFrame directly. This avoids a
+        // redundant ~MiB-scale packet copy and one whole duplicate geometry buffer.
+        FramePacket& packet = g_pendingFrame;
         uint64_t serial = 0;
         {
             std::unique_lock<std::mutex> lock(g_renderMutex);
@@ -2651,7 +2730,6 @@ void RenderWorkerMain() {
             if (g_renderStop) {
                 break;
             }
-            packet = g_pendingFrame;
             serial = g_submittedSerial;
             g_renderPending = false;
             g_renderBusy = true;
@@ -2794,8 +2872,47 @@ void RenderWorkerMain() {
         f32 geometryMaxNdcSpanX = 0.0f;
         f32 geometryMaxNdcSpanY = 0.0f;
         TextureRenderCounters textureCounters{};
+        uint64_t efbCopiesExecuted = 0;
+        uint64_t efbCopyFailures = 0;
+        uint64_t efbTexturesSampled = 0;
 #if defined(MKW_VITA_AURORA_RENDERER)
         WiiCompiledVita::AuroraPacketFrameStats auroraFrameStats{};
+        size_t nextEfbCommand = 0;
+        const auto ExecuteEfbCommandsAt = [&](u16 drawBoundary) {
+            while (nextEfbCommand < packet.geometry.efbCommandCount) {
+                const EfbFrameCommand& command = packet.geometry.efbCommands[nextEfbCommand];
+                if (command.afterDrawCount > drawBoundary) break;
+                ++nextEfbCommand;
+                if (command.type == EfbFrameCommandType::Destroy) {
+                    WiiCompiledVita::AuroraPacketRendererDestroyEfbCopy(
+                        static_cast<std::uint64_t>(command.destination));
+                    continue;
+                }
+                WiiCompiledVita::AuroraPacketEfbCopy copy{};
+                copy.destinationId = static_cast<std::uint64_t>(command.destination);
+                copy.srcX = static_cast<std::int32_t>(std::lround(command.srcLeft * scaleX));
+                copy.srcY = static_cast<std::int32_t>(std::lround(command.srcTop * scaleY));
+                copy.srcWidth = std::max<std::int32_t>(1, static_cast<std::int32_t>(std::lround(command.srcWidth * scaleX)));
+                copy.srcHeight = std::max<std::int32_t>(1, static_cast<std::int32_t>(std::lround(command.srcHeight * scaleY)));
+                copy.dstWidth = std::max<std::uint32_t>(1u, static_cast<std::uint32_t>(command.dstWidth));
+                copy.dstHeight = std::max<std::uint32_t>(1u, static_cast<std::uint32_t>(command.dstHeight));
+                copy.format = command.format;
+                copy.clearR = static_cast<float>(command.clearColor.r) / 255.0f;
+                copy.clearG = static_cast<float>(command.clearColor.g) / 255.0f;
+                copy.clearB = static_cast<float>(command.clearColor.b) / 255.0f;
+                copy.clearA = static_cast<float>(command.clearColor.a) / 255.0f;
+                copy.clearDepthValue = static_cast<float>(command.clearDepth & 0x00ffffffu) / 16777215.0f;
+                copy.clear = command.clear != 0;
+                copy.clearColor = command.clearColorEnable != 0;
+                copy.clearAlpha = command.clearAlphaEnable != 0;
+                copy.clearDepth = command.clearDepthEnable != 0;
+                if (WiiCompiledVita::AuroraPacketRendererCopyEfb(copy)) {
+                    ++efbCopiesExecuted;
+                } else {
+                    ++efbCopyFailures;
+                }
+            }
+        };
 #endif
         if (packet.geometry.vertexCount != 0) {
 #if !defined(MKW_VITA_AURORA_RENDERER)
@@ -2839,6 +2956,9 @@ void RenderWorkerMain() {
 #endif
 
             for (u16 i = 0; i < packet.geometry.drawCount; ++i) {
+#if defined(MKW_VITA_AURORA_RENDERER)
+                ExecuteEfbCommandsAt(i);
+#endif
                 const GeometryDraw& draw = packet.geometry.draws[i];
                 const uint32_t endVertex = static_cast<uint32_t>(draw.firstVertex) + draw.vertexCount;
                 if (draw.vertexCount == 0 || endVertex > packet.geometry.vertexCount) {
@@ -3128,6 +3248,18 @@ void RenderWorkerMain() {
                 auroraDraw.texture.magFilter = draw.texture.magFilter;
                 auroraDraw.texture.tevMode = draw.texture.tevMode;
                 auroraDraw.texture.enabled = draw.texture.enabled != 0;
+                auroraDraw.texture.thpUData = draw.texture.thpUData;
+                auroraDraw.texture.thpVData = draw.texture.thpVData;
+                auroraDraw.texture.thpUBytes = TextureLevelSize(
+                    draw.texture.thpChromaWidth, draw.texture.thpChromaHeight, GX_TF_I8);
+                auroraDraw.texture.thpVBytes = auroraDraw.texture.thpUBytes;
+                auroraDraw.texture.thpUGeneration = draw.texture.thpUGeneration;
+                auroraDraw.texture.thpVGeneration = draw.texture.thpVGeneration;
+                auroraDraw.texture.thpURevision = draw.texture.thpURevision;
+                auroraDraw.texture.thpVRevision = draw.texture.thpVRevision;
+                auroraDraw.texture.thpChromaWidth = draw.texture.thpChromaWidth;
+                auroraDraw.texture.thpChromaHeight = draw.texture.thpChromaHeight;
+                auroraDraw.texture.thpYuv420 = draw.texture.thpYuv420 != 0;
                 if (auroraDraw.texture.enabled) {
                     if (auroraDraw.texture.sourceGeneration == AURORA_GUEST_WRITE_UNTRACKED) {
                         ++textureCounters.untrackedDraws;
@@ -3152,6 +3284,7 @@ void RenderWorkerMain() {
                 textureCounters.bytesUploaded += auroraResult.textureBytesUploaded;
                 if (auroraResult.textureDrawn) {
                     ++textureCounters.draws;
+                    if (auroraResult.textureEfb) ++efbTexturesSampled;
                     if (draw.texture.mipmap || draw.texture.minFilter > static_cast<u8>(GX_LINEAR)) {
                         ++textureCounters.mipFallbackDraws;
                     }
@@ -3202,6 +3335,7 @@ void RenderWorkerMain() {
             }
 
 #if defined(MKW_VITA_AURORA_RENDERER)
+            ExecuteEfbCommandsAt(packet.geometry.drawCount);
             auroraSubmitEndUs = sceKernelGetProcessTimeWide();
             auroraFrameStats = WiiCompiledVita::AuroraPacketRendererEndFrame();
             auroraEndFrameEndUs = sceKernelGetProcessTimeWide();
@@ -3219,6 +3353,14 @@ void RenderWorkerMain() {
             glDisableClientState(GL_VERTEX_ARRAY);
 #endif
         }
+#if defined(MKW_VITA_AURORA_RENDERER)
+        if (packet.geometry.vertexCount == 0 && packet.geometry.efbCommandCount != 0) {
+            ExecuteEfbCommandsAt(packet.geometry.drawCount);
+            auroraSubmitEndUs = sceKernelGetProcessTimeWide();
+            auroraFrameStats = WiiCompiledVita::AuroraPacketRendererEndFrame();
+            auroraEndFrameEndUs = sceKernelGetProcessTimeWide();
+        }
+#endif
         const uint64_t swapBeginUs = sceKernelGetProcessTimeWide();
         if (traceGpu) {
             RT_LOGF(RT_TAG_GX, "gpu_trace frame=%llu phase=swap_begin\n",
@@ -3333,6 +3475,17 @@ void RenderWorkerMain() {
                 static_cast<unsigned long long>(textureCounters.uploads),
                 static_cast<unsigned long long>(textureCounters.bytesUploaded),
                 static_cast<unsigned long long>(packet.counters.textureInvalidateAllCalls));
+#endif
+#if defined(MKW_VITA_AURORA_RENDERER)
+            RT_LOGF(RT_TAG_GX,
+                    "efb_frame=%llu recorded=%llu capacity_fail=%llu commands=%u executed=%llu failed=%llu sampled=%llu\n",
+                    static_cast<unsigned long long>(serial),
+                    static_cast<unsigned long long>(packet.counters.efbCopyRecorded),
+                    static_cast<unsigned long long>(packet.counters.efbCopyCapacityFailures),
+                    static_cast<unsigned>(packet.geometry.efbCommandCount),
+                    static_cast<unsigned long long>(efbCopiesExecuted),
+                    static_cast<unsigned long long>(efbCopyFailures),
+                    static_cast<unsigned long long>(efbTexturesSampled));
 #endif
             for (size_t signatureIndex = 0;
                  signatureIndex < packet.counters.customTevSignatures.size();
@@ -3510,6 +3663,7 @@ void SubmitFrame() {
         g_gx.frame = {};
         g_gx.geometry.vertexCount = 0;
         g_gx.geometry.drawCount = 0;
+        g_gx.geometry.efbCommandCount = 0;
         g_gx.geometry.droppedVertices = 0;
         g_gx.activeDraw = -1;
         return;
@@ -3521,13 +3675,28 @@ void SubmitFrame() {
     const uint64_t queueWaitEndUs = sceKernelGetProcessTimeWide();
     const uint64_t packetCopyBeginUs = queueWaitEndUs;
     g_pendingFrame.counters = g_gx.frame;
-    g_pendingFrame.geometry = g_gx.geometry;
+    // Copy only the active prefixes. FrameGeometry is capacity-sized for worst-case
+    // G3D scenes, so assigning the whole object would memcpy ~1.9 MiB even for a
+    // 12-draw menu transition. Counts make the unused tail semantically irrelevant.
+    g_pendingFrame.geometry.vertexCount = g_gx.geometry.vertexCount;
+    g_pendingFrame.geometry.drawCount = g_gx.geometry.drawCount;
+    g_pendingFrame.geometry.efbCommandCount = g_gx.geometry.efbCommandCount;
+    g_pendingFrame.geometry.droppedVertices = g_gx.geometry.droppedVertices;
+    std::copy_n(g_gx.geometry.vertices.begin(), g_gx.geometry.vertexCount,
+                g_pendingFrame.geometry.vertices.begin());
+    std::copy_n(g_gx.geometry.pnMtxRefs.begin(), g_gx.geometry.vertexCount,
+                g_pendingFrame.geometry.pnMtxRefs.begin());
+    std::copy_n(g_gx.geometry.draws.begin(), g_gx.geometry.drawCount,
+                g_pendingFrame.geometry.draws.begin());
+    std::copy_n(g_gx.geometry.efbCommands.begin(), g_gx.geometry.efbCommandCount,
+                g_pendingFrame.geometry.efbCommands.begin());
     g_pendingFrame.viewport = g_gx.viewport;
     g_pendingFrame.scissor = g_gx.scissor;
     AccumulateFrameStats(g_pendingFrame.counters);
     g_gx.frame = {};
     g_gx.geometry.vertexCount = 0;
     g_gx.geometry.drawCount = 0;
+    g_gx.geometry.efbCommandCount = 0;
     g_gx.geometry.droppedVertices = 0;
     g_gx.activeDraw = -1;
     ++g_submittedSerial;
@@ -3539,17 +3708,29 @@ void SubmitFrame() {
     g_renderWake.notify_one();
 
 #if defined(MKW_TARGET_VITA)
-    if (submittedSerial <= 8u || (submittedSerial % 120u) == 0u) {
+    static std::uint32_t capacitySummaryCount = 0;
+    if (g_pendingFrame.counters.immediateDrawCapacityFailures != 0 && capacitySummaryCount < 12u) {
+        ++capacitySummaryCount;
+        RT_LOGF(RT_TAG_GX,
+                "frame_capacity_summary serial=%llu stored_draws=%u stored_vertices=%u requested_draws=%llu begin_cap=%llu dropped=%u\n",
+                static_cast<unsigned long long>(submittedSerial),
+                static_cast<unsigned>(producerDraws), static_cast<unsigned>(producerVertices),
+                static_cast<unsigned long long>(g_pendingFrame.counters.drawCalls),
+                static_cast<unsigned long long>(g_pendingFrame.counters.immediateDrawCapacityFailures),
+                g_pendingFrame.geometry.droppedVertices);
+    }
+    if (submittedSerial <= 8u || (submittedSerial % 120u) == 0u || producerDraws > 300u) {
         RT_LOGF(RT_TAG_GX,
                 "producer_frame=%llu interval_us=%llu queue_wait_us=%llu packet_copy_us=%llu "
-                "prior_wait_calls=%llu prior_wait_us=%llu draws=%u vertices=%u\n",
+                "prior_wait_calls=%llu prior_wait_us=%llu draws=%u vertices=%u efb_cmds=%u\n",
                 static_cast<unsigned long long>(submittedSerial),
                 static_cast<unsigned long long>(producerIntervalUs),
                 static_cast<unsigned long long>(queueWaitEndUs - queueWaitBeginUs),
                 static_cast<unsigned long long>(packetCopyEndUs - packetCopyBeginUs),
                 static_cast<unsigned long long>(priorWaitCalls),
                 static_cast<unsigned long long>(priorWaitUs),
-                producerDraws, producerVertices);
+                producerDraws, producerVertices,
+                static_cast<unsigned>(g_pendingFrame.geometry.efbCommandCount));
     }
 #endif
 }
@@ -3812,6 +3993,17 @@ void GXBegin(GXPrimitive primitive, GXVtxFmt fmt, u16 nverts) {
         g_gx.activeDraw = drawIndex;
     } else {
         ++g_gx.frame.immediateDrawCapacityFailures;
+        static std::uint32_t capacityTraceCount = 0;
+        if (capacityTraceCount < 8u) {
+            ++capacityTraceCount;
+            RT_LOGF(RT_TAG_GX,
+                    "frame_draw_capacity trace=%u frame_hits=%llu cap=%u vertices=%u declared=%u primitive=0x%X\n",
+                    capacityTraceCount,
+                    static_cast<unsigned long long>(g_gx.frame.immediateDrawCapacityFailures),
+                    static_cast<unsigned>(g_gx.geometry.draws.size()),
+                    static_cast<unsigned>(g_gx.geometry.vertexCount),
+                    static_cast<unsigned>(nverts), static_cast<unsigned>(primitive));
+        }
     }
     ++g_gx.frame.drawCalls;
     g_gx.frame.vertices += nverts;
@@ -3977,6 +4169,17 @@ void GXApplyBPReg(u8 reg, u32 value) {
             : logicEnabled ? GX_BM_LOGIC : GX_BM_NONE;
         break;
     }
+    case 0x4F:
+        g_gx.copyClearColor.r = static_cast<u8>(value & 0xFFu);
+        g_gx.copyClearColor.a = static_cast<u8>((value >> 8u) & 0xFFu);
+        break;
+    case 0x50:
+        g_gx.copyClearColor.b = static_cast<u8>(value & 0xFFu);
+        g_gx.copyClearColor.g = static_cast<u8>((value >> 8u) & 0xFFu);
+        break;
+    case 0x51:
+        g_gx.copyClearDepth = value & 0x00ffffffu;
+        break;
     case 0xF3:
         g_gx.alphaRef0 = static_cast<u8>(value & 0xFFu);
         g_gx.alphaRef1 = static_cast<u8>((value >> 8u) & 0xFFu);
@@ -4278,7 +4481,15 @@ void GXLoadTlut(const GXTlutObj* obj, u32 idx) {
     if (idx < g_gx.tluts.size()) g_gx.tluts[idx] = const_cast<GXTlutObj*>(obj);
 }
 void GXDestroyTlutObj(GXTlutObj* obj) { if (obj) std::memset(obj, 0, sizeof(*obj)); }
-void GXDestroyCopyTex(void*) {}
+void GXDestroyCopyTex(void* destination) {
+    if (!destination || g_gx.geometry.efbCommandCount >= kMaxFrameEfbCommands) return;
+    EfbFrameCommand& command = g_gx.geometry.efbCommands[g_gx.geometry.efbCommandCount++];
+    command = {};
+    command.type = EfbFrameCommandType::Destroy;
+    command.afterDrawCount = g_gx.geometry.drawCount;
+    command.destination = reinterpret_cast<uintptr_t>(destination);
+    ++g_gx.frame.efbDestroyRecorded;
+}
 
 void GXSetDispCopySrc(u16 left, u16 top, u16 width, u16 height) {
     g_gx.dispCopyLeft = left; g_gx.dispCopyTop = top; g_gx.dispCopySrcWidth = width; g_gx.dispCopySrcHeight = height;
@@ -4295,7 +4506,48 @@ void GXSetDispCopyGamma(GXGamma gamma) { g_gx.dispGamma = gamma; }
 void GXSetDispCopyFrame2Field(u32 mode) { g_gx.frame2Field = mode; }
 void GXSetCopyClamp(GXFBClamp clamp) { g_gx.copyClamp = clamp; }
 void GXCopyDisp(void*, GXBool) {}
-void GXCopyTex(void*, GXBool) {}
+void GXCopyTex(void* destination, GXBool clear) {
+    ++g_gx.frame.efbCopyCalls;
+    if (!destination || g_gx.texCopySrcWidth == 0 || g_gx.texCopySrcHeight == 0 ||
+        g_gx.texCopyWidth == 0 || g_gx.texCopyHeight == 0) {
+        return;
+    }
+    if (g_gx.geometry.efbCommandCount >= kMaxFrameEfbCommands) {
+        ++g_gx.frame.efbCopyCapacityFailures;
+        return;
+    }
+    EfbFrameCommand& command = g_gx.geometry.efbCommands[g_gx.geometry.efbCommandCount++];
+    command = {};
+    command.type = EfbFrameCommandType::Copy;
+    command.afterDrawCount = g_gx.geometry.drawCount;
+    command.destination = reinterpret_cast<uintptr_t>(destination);
+    command.srcLeft = g_gx.texCopyLeft;
+    command.srcTop = g_gx.texCopyTop;
+    command.srcWidth = g_gx.texCopySrcWidth;
+    command.srcHeight = g_gx.texCopySrcHeight;
+    command.dstWidth = g_gx.texCopyWidth;
+    command.dstHeight = g_gx.texCopyHeight;
+    command.format = static_cast<u32>(g_gx.texCopyFmt);
+    command.clearColor = g_gx.copyClearColor;
+    command.clearDepth = g_gx.copyClearDepth;
+    command.clear = clear ? 1u : 0u;
+    command.clearColorEnable = g_gx.colorUpdate ? 1u : 0u;
+    command.clearAlphaEnable = g_gx.alphaUpdate ? 1u : 0u;
+    command.clearDepthEnable = g_gx.depthUpdate ? 1u : 0u;
+    ++g_gx.frame.efbCopyRecorded;
+    static std::uint64_t s_efbRecordTrace = 0;
+    const std::uint64_t trace = ++s_efbRecordTrace;
+    if (trace <= 32u) {
+        RT_LOGF(RT_TAG_GX,
+                "efb_record n=%llu after_draw=%u dest=%p src=%u,%u %ux%u dst=%ux%u fmt=0x%X clear=%u\n",
+                static_cast<unsigned long long>(trace),
+                static_cast<unsigned>(command.afterDrawCount), destination,
+                static_cast<unsigned>(command.srcLeft), static_cast<unsigned>(command.srcTop),
+                static_cast<unsigned>(command.srcWidth), static_cast<unsigned>(command.srcHeight),
+                static_cast<unsigned>(command.dstWidth), static_cast<unsigned>(command.dstHeight),
+                static_cast<unsigned>(command.format), static_cast<unsigned>(command.clear));
+    }
+}
 void GXClearBoundingBox() { g_gx.boundingBox = {1023, 0, 1023, 0}; }
 
 } // extern "C"

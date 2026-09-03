@@ -7,6 +7,7 @@
 #define MKW_RESTRICT __restrict
 #if defined(MKW_TARGET_VITA)
 #include "vita_sse_compat.h"
+#include <arm_neon.h>
 #elif defined(__x86_64__)
 #include <immintrin.h>
 #elif defined(__aarch64__)

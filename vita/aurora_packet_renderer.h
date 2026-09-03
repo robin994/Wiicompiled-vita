@@ -33,6 +33,17 @@ struct AuroraPacketTexture {
     std::uint8_t magFilter = 0;
     std::uint8_t tevMode = 0;
     bool enabled = false;
+    const void* thpUData = nullptr;
+    const void* thpVData = nullptr;
+    std::size_t thpUBytes = 0;
+    std::size_t thpVBytes = 0;
+    std::uint64_t thpUGeneration = 0;
+    std::uint64_t thpVGeneration = 0;
+    std::uint32_t thpURevision = 0;
+    std::uint32_t thpVRevision = 0;
+    std::uint16_t thpChromaWidth = 0;
+    std::uint16_t thpChromaHeight = 0;
+    bool thpYuv420 = false;
 };
 
 struct AuroraPacketDraw {
@@ -60,12 +71,33 @@ struct AuroraPacketDraw {
 struct AuroraPacketSubmitResult {
     bool submitted = false;
     bool textureDrawn = false;
+    bool textureEfb = false;
     bool textureHit = false;
     bool textureMiss = false;
     bool textureUploaded = false;
     bool textureUploadFailed = false;
     bool textureUnsupported = false;
     std::uint64_t textureBytesUploaded = 0;
+};
+
+struct AuroraPacketEfbCopy {
+    std::uint64_t destinationId = 0;
+    std::int32_t srcX = 0;
+    std::int32_t srcY = 0;
+    std::int32_t srcWidth = 0;
+    std::int32_t srcHeight = 0;
+    std::uint32_t dstWidth = 0;
+    std::uint32_t dstHeight = 0;
+    std::uint32_t format = 0;
+    float clearR = 0.0f;
+    float clearG = 0.0f;
+    float clearB = 0.0f;
+    float clearA = 1.0f;
+    float clearDepthValue = 1.0f;
+    bool clear = false;
+    bool clearColor = true;
+    bool clearAlpha = true;
+    bool clearDepth = true;
 };
 
 struct AuroraPacketFrameStats {
@@ -93,6 +125,8 @@ bool AuroraPacketRendererBeginFrame(std::uint64_t serial,
                                     std::int32_t scissorX, std::int32_t scissorY,
                                     std::int32_t scissorWidth, std::int32_t scissorHeight) noexcept;
 AuroraPacketSubmitResult AuroraPacketRendererSubmit(const AuroraPacketDraw& draw) noexcept;
+bool AuroraPacketRendererCopyEfb(const AuroraPacketEfbCopy& copy) noexcept;
+void AuroraPacketRendererDestroyEfbCopy(std::uint64_t destinationId) noexcept;
 AuroraPacketFrameStats AuroraPacketRendererEndFrame() noexcept;
 
 } // namespace WiiCompiledVita

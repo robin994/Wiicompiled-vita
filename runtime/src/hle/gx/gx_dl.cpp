@@ -25,6 +25,14 @@ bool submit_raw_draw(GXPrimitive prim, GXVtxFmt fmt, const uint8_t* vertices, ui
                      uint32_t vertexBytes);
 }
 
+// The translated nw4r::lyt::detail::DrawQuad functions call GXBegin and then
+// write their vertex payload through the Wii FIFO. The faithful Vita fast path below
+// intentionally uses those same HLE entry points so all GXBegin/FIFO side effects are
+// preserved while avoiding hundreds of translated PPC instructions per quad.
+extern "C" void GX__Begin_8016f0f0(uint32_t primitive, uint32_t vtxFmt, uint32_t vertexCount);
+extern "C" void GX_HLE_FIFO_WriteFloat(float value);
+extern "C" void GX_HLE_FIFO_Write32(uint32_t value);
+
 namespace {
 
 thread_local GxCpuPerfSnapshot g_cpuPerf{};
@@ -175,7 +183,49 @@ static inline void AppendLytQuadVertices(uint8_t* packet, uint32_t& pos, float x
     AppendLytQuadVertex(packet, pos, x0, y1, texCoordAddr, texCoordCount, 16, colors, 2);
 }
 
+static inline void WriteLytTexCoordsFaithful(uint32_t texCoordAddr, int texCoordCount,
+                                                   uint32_t cornerOffset) {
+    for (int i = 0; i < texCoordCount; ++i) {
+        const uint32_t coordAddr = texCoordAddr + static_cast<uint32_t>(i * 32) + cornerOffset;
+        GX_HLE_FIFO_WriteFloat(Memory::ReadFloat32(coordAddr));
+        GX_HLE_FIFO_WriteFloat(Memory::ReadFloat32(coordAddr + 4));
+    }
+}
+
+static inline void WriteLytVertexFaithful(float x, float y, uint32_t texCoordAddr,
+                                           int texCoordCount, uint32_t cornerOffset,
+                                           const uint32_t* colors, int colorIndex) {
+    GX_HLE_FIFO_WriteFloat(x);
+    GX_HLE_FIFO_WriteFloat(y);
+    if (colors != nullptr) {
+        GX_HLE_FIFO_Write32(colors[colorIndex]);
+    }
+    WriteLytTexCoordsFaithful(texCoordAddr, texCoordCount, cornerOffset);
+}
+
+static bool SubmitLytDrawFaithful(float x0, float y0, float x1, float y1, int texCoordCount,
+                                  uint32_t texCoordAddr, const uint32_t* colors) {
+    if (texCoordCount < 0 || texCoordCount > 8) {
+        return false;
+    }
+
+    // This mirrors func_800847C0 exactly at the GX boundary: GXBegin first,
+    // then TL/TR/BR/BL vertex payload. Do not call GXEnd here; HleFifoWrite
+    // closes the draw when vertsRemaining reaches zero, just like the original.
+    GX__Begin_8016f0f0(GX_QUADS, GX_VTXFMT0, 4);
+    WriteLytVertexFaithful(x0, y0, texCoordAddr, texCoordCount, 0, colors, 0);
+    WriteLytVertexFaithful(x1, y0, texCoordAddr, texCoordCount, 8, colors, 1);
+    WriteLytVertexFaithful(x1, y1, texCoordAddr, texCoordCount, 24, colors, 3);
+    WriteLytVertexFaithful(x0, y1, texCoordAddr, texCoordCount, 16, colors, 2);
+    return true;
+}
+
 static bool CanSubmitLytDrawDirect(int texCoordCount, const uint32_t* colors) {
+#if defined(MKW_TARGET_VITA) && defined(MKW_VITA_LYT_DIRECT) && !MKW_VITA_LYT_DIRECT
+    (void)texCoordCount;
+    (void)colors;
+    return false;
+#endif
     if (texCoordCount < 0 || texCoordCount > 8) {
         return false;
     }
@@ -265,6 +315,13 @@ static inline void EmitLytDrawQuad(uint32_t posAddr, uint32_t sizeAddr, int texC
     // host's FLT_EVAL_METHOD.
     const float x1 = static_cast<float>(x0 + Memory::ReadFloat32(sizeAddr));
     const float y1 = static_cast<float>(y0 - Memory::ReadFloat32(sizeAddr + 4));
+
+#if defined(MKW_TARGET_VITA) && defined(MKW_VITA_LYT_FAITHFUL) && MKW_VITA_LYT_FAITHFUL
+    if (SubmitLytDrawFaithful(x0, y0, x1, y1, texCoordCount, texCoordAddr, colors)) {
+        ++g_cpuPerf.lytFaithful;
+        return;
+    }
+#endif
 
     if (SubmitLytDrawDirect(x0, y0, x1, y1, texCoordCount, texCoordAddr, colors)) {
         ++g_cpuPerf.lytDirect;
@@ -1375,6 +1432,31 @@ GxCpuPerfSnapshot GX_HLE_TakeCpuPerfSnapshot() noexcept {
     const GxCpuPerfSnapshot snapshot = g_cpuPerf;
     g_cpuPerf = {};
     return snapshot;
+}
+
+void GX_HLE_RecordBeginCaller(uint32_t lr) noexcept {
+    ++g_cpuPerf.gxBeginCalls;
+    if (lr == 0 || g_cpuPerf.gxBeginCallerCount >= GxCpuPerfSnapshot::kGxBeginCallerCapacity) {
+        return;
+    }
+
+    for (uint32_t i = 0; i < g_cpuPerf.gxBeginCallerCount; ++i) {
+        auto& entry = g_cpuPerf.gxBeginCallers[i];
+        if (entry.lr == lr) {
+            ++entry.count;
+            return;
+        }
+    }
+
+    auto& entry = g_cpuPerf.gxBeginCallers[g_cpuPerf.gxBeginCallerCount++];
+    entry.lr = lr;
+    entry.count = 1;
+}
+
+void GX_HLE_RecordGlyphFast(bool setupCalled, bool textureLoaded) noexcept {
+    ++g_cpuPerf.glyphFastCalls;
+    g_cpuPerf.glyphSetupCalls += setupCalled ? 1u : 0u;
+    g_cpuPerf.glyphTextureLoads += textureLoaded ? 1u : 0u;
 }
 
 extern "C" void GxNotifyDisplayListMemoryWrite(uint32_t addr, uint32_t size) {

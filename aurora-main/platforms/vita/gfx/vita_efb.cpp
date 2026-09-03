@@ -133,7 +133,19 @@ Handle EfbManager::create(uint32_t w, uint32_t h, bool depth) noexcept {
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+  // vitaGL speedhack's RGBA upload callback dereferences the source pointer even for
+  // storage-only render textures. Seed the allocation with real zeroed pixels instead
+  // of glTexImage2D(..., nullptr); this is paid only when an EFB destination is created.
+  std::vector<uint8_t> initialPixels;
+  try {
+    initialPixels.assign(static_cast<size_t>(w) * static_cast<size_t>(h) * 4u, 0u);
+  } catch (...) {
+    if (tex) glDeleteTextures(1, &tex);
+    if (fbo) glDeleteFramebuffers(1, &fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, previousFbo);
+    return InvalidHandle;
+  }
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, initialPixels.data());
   glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
   if (depth) {
     glGenRenderbuffers(1, &rb);
@@ -265,33 +277,94 @@ Handle EfbManager::capture_from_bound(Handle existing, int32_t srcX, int32_t src
   if (!dst) return InvalidHandle;
 #if defined(__vita__)
   const GLuint sourceFbo = boundFbo_;
-  GLuint capture = 0;
-  glGenTextures(1, &capture);
-  if (!capture) { destroy(dst); return InvalidHandle; }
-  // Creating/reusing the destination is allowed to bind helper FBOs, but the copy must always
-  // read from the framebuffer that was active when GXCopyTex reached the ordering boundary.
-  glBindFramebuffer(GL_FRAMEBUFFER, sourceFbo);
-  boundFbo_ = sourceFbo;
-  glBindTexture(GL_TEXTURE_2D, capture);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, srcX, srcY, srcWidth, srcHeight, 0);
-  if (!bind(dst)) {
-    glDeleteTextures(1, &capture);
+  const auto dstIt = map_.find(dst);
+  if (dstIt == map_.end() || !dstIt->second.fbo) {
     destroy(dst);
     return InvalidHandle;
   }
-  const bool ok = draw_texture(capture, dstWidth, dstHeight, format);
-  glDeleteTextures(1, &capture);
-  if (!ok) { destroy(dst); return InvalidHandle; }
+
+  // GPU-only GXCopyTex path. glBlitFramebuffer in vitaGL uses the GXM blit shader and
+  // supports scaling, so no glReadPixels/sceGxmTransferFinish round-trip is needed.
+  // Keep READ on the target that was active at the FIFO ordering boundary and DRAW on
+  // the sampled EFB texture, then restore both bindings to the original target.
+  glBindFramebuffer(GL_READ_FRAMEBUFFER, sourceFbo);
+  glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dstIt->second.fbo);
+  while (glGetError() != GL_NO_ERROR) {}
+  glBlitFramebuffer(srcX, srcY, srcX + static_cast<GLint>(srcWidth),
+                    srcY + static_cast<GLint>(srcHeight),
+                    0, 0, static_cast<GLint>(dstWidth), static_cast<GLint>(dstHeight),
+                    GL_COLOR_BUFFER_BIT, GL_LINEAR);
+  const GLenum blitError = glGetError();
+  glBindFramebuffer(GL_READ_FRAMEBUFFER, sourceFbo);
+  glBindFramebuffer(GL_DRAW_FRAMEBUFFER, sourceFbo);
+  boundFbo_ = sourceFbo;
+  if (blitError != GL_NO_ERROR) {
+    destroy(dst);
+    return InvalidHandle;
+  }
 #else
   (void)srcX;
   (void)srcY;
   (void)format;
 #endif
   return dst;
+}
+
+Handle EfbManager::upload_rgba(Handle existing, uint32_t w, uint32_t h, const void* rgba) noexcept {
+  if (!w || !h || !rgba) return InvalidHandle;
+  if (w > 2048u || h > 2048u || static_cast<size_t>(w) > SIZE_MAX / (static_cast<size_t>(h) * 4u)) {
+    return InvalidHandle;
+  }
+
+  Handle handle = existing;
+  auto it = handle ? map_.find(handle) : map_.end();
+  if (it != map_.end() && (it->second.width != w || it->second.height != h || it->second.fbo != 0)) {
+    destroy(handle);
+    handle = InvalidHandle;
+    it = map_.end();
+  }
+
+#if defined(__vita__)
+  if (it != map_.end()) {
+    glBindTexture(GL_TEXTURE_2D, it->second.color);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    if (glGetError() != GL_NO_ERROR) return InvalidHandle;
+    return handle;
+  }
+
+  GLuint tex = 0;
+  glGenTextures(1, &tex);
+  if (!tex) return InvalidHandle;
+  glBindTexture(GL_TEXTURE_2D, tex);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  // vitaGL speedhack can fault while allocating an empty RGBA render texture through
+  // glTexImage2D(..., nullptr). Supplying the already-read pixels takes the normal,
+  // hardware-tested texture upload path and removes the extra FBO/capture allocation.
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+  if (glGetError() != GL_NO_ERROR) {
+    glDeleteTextures(1, &tex);
+    return InvalidHandle;
+  }
+#else
+  if (it != map_.end()) return handle;
+  const unsigned tex = next_;
+#endif
+
+  Entry e{};
+  e.fbo = 0;
+  e.color = tex;
+  e.depth = 0;
+  e.width = w;
+  e.height = h;
+  e.bytes = static_cast<size_t>(w) * h * 4u;
+  handle = next_++;
+  map_[handle] = e;
+  bytes_ += e.bytes;
+  highWaterBytes_ = std::max(highWaterBytes_, bytes_);
+  return handle;
 }
 
 bool EfbManager::bind_texture(Handle h, unsigned unit, const SamplerDesc& s) noexcept {
@@ -338,7 +411,7 @@ void EfbManager::destroy(Handle h) noexcept {
   if (it == map_.end()) return;
 #if defined(__vita__)
   GLuint depth = it->second.depth, color = it->second.color, fbo = it->second.fbo;
-  if (boundFbo_ == fbo) {
+  if (fbo != 0 && boundFbo_ == fbo) {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     boundFbo_ = 0;
   }

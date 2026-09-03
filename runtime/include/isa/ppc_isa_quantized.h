@@ -46,13 +46,16 @@ inline uint64_t PpcLoadPairPsqFloatBitsPackedInline(uint64_t value)
     const __m128i result = _mm_or_si128(
         lanes, _mm_and_si128(nanMask, _mm_set1_epi32(0x00400000)));
     return static_cast<uint64_t>(_mm_cvtsi128_si64(result));
-#elif defined(__aarch64__)
-    // Equivalent to applying PpcLoadPsqFloatBitsInline to each 32-bit lane: the
-    // x86 body above only ever acts on these same two lanes (the upper 64 bits
-    // _mm_cvtsi64_si128 zero-fills never survive the final truncating extract).
-    const uint32_t lo = PpcLoadPsqFloatBitsInline(static_cast<uint32_t>(value));
-    const uint32_t hi = PpcLoadPsqFloatBitsInline(static_cast<uint32_t>(value >> 32));
-    return (static_cast<uint64_t>(hi) << 32) | lo;
+#elif defined(MKW_TARGET_VITA) || defined(__aarch64__)
+    // Keep both PPC paired-single lanes in one NEON D register.  This exactly
+    // mirrors the x86 integer-lane quieting rule without splitting the packed
+    // value through two scalar GPR operations.
+    const uint32x2_t lanes = vreinterpret_u32_u64(vcreate_u64(value));
+    const uint32x2_t magnitude = vand_u32(lanes, vdup_n_u32(0x7FFFFFFFu));
+    const uint32x2_t nanMask = vcgt_u32(magnitude, vdup_n_u32(0x7F800000u));
+    const uint32x2_t result = vorr_u32(
+        lanes, vand_u32(nanMask, vdup_n_u32(0x00400000u)));
+    return vget_lane_u64(vreinterpret_u64_u32(result), 0);
 #endif
 }
 
@@ -71,12 +74,16 @@ inline uint64_t PpcStorePairPsqFloatBitsPackedInline(uint64_t value)
         _mm_and_si128(subnormalMask, signedZero),
         _mm_andnot_si128(subnormalMask, quieted));
     return static_cast<uint64_t>(_mm_cvtsi128_si64(result));
-#elif defined(__aarch64__)
-    // Equivalent to applying PpcStorePsqFloatBitsInline to each 32-bit lane;
-    // same reasoning as the load-side port above.
-    const uint32_t lo = PpcStorePsqFloatBitsInline(static_cast<uint32_t>(value));
-    const uint32_t hi = PpcStorePsqFloatBitsInline(static_cast<uint32_t>(value >> 32));
-    return (static_cast<uint64_t>(hi) << 32) | lo;
+#elif defined(MKW_TARGET_VITA) || defined(__aarch64__)
+    const uint32x2_t lanes = vreinterpret_u32_u64(vcreate_u64(value));
+    const uint32x2_t magnitude = vand_u32(lanes, vdup_n_u32(0x7FFFFFFFu));
+    const uint32x2_t subnormalMask = vclt_u32(magnitude, vdup_n_u32(0x00800000u));
+    const uint32x2_t nanMask = vcgt_u32(magnitude, vdup_n_u32(0x7F800000u));
+    const uint32x2_t quieted = vorr_u32(
+        lanes, vand_u32(nanMask, vdup_n_u32(0x00400000u)));
+    const uint32x2_t signedZero = vand_u32(lanes, vdup_n_u32(0x80000000u));
+    const uint32x2_t result = vbsl_u32(subnormalMask, signedZero, quieted);
+    return vget_lane_u64(vreinterpret_u64_u32(result), 0);
 #endif
 }
 
@@ -123,16 +130,16 @@ inline double PpcLoadPairPsqFloatFromHostInline(const uint8_t* host)
     const __m128i raw = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(host));
     return PpcM128ToPsInline(_mm_castsi128_ps(
         PpcLoadPairPsqFloatBitsLanesInline(PpcPsqSwapPairBytesInline(raw))));
-#elif defined(__aarch64__)
-    // The x86 path's full 8-byte pshufb reversal plus a same-endian load is,
-    // taken together, exactly a 64-bit byteswap of a plain little-endian load:
-    // it turns the on-disk [ps0 big-endian][ps1 big-endian] byte layout into a
-    // native uint64 with low 32 bits = ps1, high 32 bits = ps0 (this file's
-    // documented packed-double lane convention).
-    uint64_t raw = 0;
-    std::memcpy(&raw, host, sizeof(raw));
-    const uint64_t swapped = __builtin_bswap64(raw);
-    return PpcBitCastToDoubleInline(PpcLoadPairPsqFloatBitsPackedInline(swapped));
+#elif defined(MKW_TARGET_VITA) || defined(__aarch64__)
+    // Guest memory is [ps0 big-endian][ps1 big-endian].  Reversing the whole
+    // 64-bit D register produces lane0=ps1, lane1=ps0, exactly the packed FPR
+    // convention used by the paired-single helpers, without a GPR round-trip.
+    const uint8x8_t rawBytes = vld1_u8(host);
+    uint32x2_t lanes = vreinterpret_u32_u8(vrev64_u8(rawBytes));
+    const uint32x2_t magnitude = vand_u32(lanes, vdup_n_u32(0x7FFFFFFFu));
+    const uint32x2_t nanMask = vcgt_u32(magnitude, vdup_n_u32(0x7F800000u));
+    lanes = vorr_u32(lanes, vand_u32(nanMask, vdup_n_u32(0x00400000u)));
+    return PpcM128ToPsInline(vreinterpret_f32_u32(lanes));
 #endif
 }
 
@@ -143,12 +150,16 @@ inline void PpcStorePairPsqFloatToHostInline(uint8_t* host, double value)
     const __m128i lanes = PpcStorePairPsqFloatBitsLanesInline(
         _mm_castps_si128(PpcPsToM128Inline(value)));
     _mm_storel_epi64(reinterpret_cast<__m128i*>(host), PpcPsqSwapPairBytesInline(lanes));
-#elif defined(__aarch64__)
-    // Inverse of the load path above: bswap64 is its own inverse, so applying
-    // it to the quieted packed value reproduces the on-disk big-endian bytes.
-    const uint64_t quieted = PpcStorePairPsqFloatBitsPackedInline(PpcBitCastToU64Inline(value));
-    const uint64_t swapped = __builtin_bswap64(quieted);
-    std::memcpy(host, &swapped, sizeof(swapped));
+#elif defined(MKW_TARGET_VITA) || defined(__aarch64__)
+    uint32x2_t lanes = vreinterpret_u32_f32(PpcPsToM128Inline(value));
+    const uint32x2_t magnitude = vand_u32(lanes, vdup_n_u32(0x7FFFFFFFu));
+    const uint32x2_t subnormalMask = vclt_u32(magnitude, vdup_n_u32(0x00800000u));
+    const uint32x2_t nanMask = vcgt_u32(magnitude, vdup_n_u32(0x7F800000u));
+    const uint32x2_t quieted = vorr_u32(
+        lanes, vand_u32(nanMask, vdup_n_u32(0x00400000u)));
+    const uint32x2_t signedZero = vand_u32(lanes, vdup_n_u32(0x80000000u));
+    lanes = vbsl_u32(subnormalMask, signedZero, quieted);
+    vst1_u8(host, vrev64_u8(vreinterpret_u8_u32(lanes)));
 #endif
 }
 
@@ -391,16 +402,17 @@ inline uint16_t PpcQuantizePairPsqU8Scale61PackedInline(double value)
     // Native lane 0 is ps1 and lane 1 is ps0. Packing to the low uint16_t
     // therefore produces the guest-order numeric value (ps0 << 8) | ps1.
     return static_cast<uint16_t>(_mm_cvtsi128_si32(lanes8));
-#elif defined(__aarch64__)
-    // Equivalent to two calls of the already-portable scalar quantizer above
-    // (its own !(scaled > 0) rule maps NaN to 0, matching what MAXPS-with-zero
-    // does on the x86 path per the comment there), packed the same way the
-    // fallback path just below already does for the non-SIMD case.
-    PPC_FPR fpr{};
-    fpr.d = value;
-    const uint8_t q0 = PpcQuantizePsqU8Scale61Inline(fpr.paired.ps0);
-    const uint8_t q1 = PpcQuantizePsqU8Scale61Inline(fpr.paired.ps1);
-    return static_cast<uint16_t>((static_cast<uint16_t>(q0) << 8) | static_cast<uint16_t>(q1));
+#elif defined(MKW_TARGET_VITA) || defined(__aarch64__)
+    const float32x2_t scaled = vmul_n_f32(PpcPsToM128Inline(value), 0.125f);
+    const float32x2_t zero = vdup_n_f32(0.0f);
+    // vcgt is false for NaN, reproducing !(scaled > 0) -> 0 exactly.
+    const uint32x2_t positive = vcgt_f32(scaled, zero);
+    const float32x2_t nonNegative = vbsl_f32(positive, scaled, zero);
+    const float32x2_t clamped = vmin_f32(nonNegative, vdup_n_f32(255.0f));
+    const uint32x2_t quantized = vcvt_u32_f32(clamped);
+    // Native lane0=ps1, lane1=ps0; return guest-order (ps0 << 8) | ps1.
+    return static_cast<uint16_t>((vget_lane_u32(quantized, 1) << 8) |
+                                 vget_lane_u32(quantized, 0));
 #endif
 }
 

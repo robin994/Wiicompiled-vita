@@ -17,6 +17,10 @@ public:
   // scaling it into an existing/new sampled EFB texture. srcY is GL bottom-left.
   Handle capture_from_bound(Handle existing,int32_t srcX,int32_t srcY,uint32_t srcWidth,uint32_t srcHeight,
                             uint32_t dstWidth,uint32_t dstHeight,EfbCopyFormat format=EfbCopyFormat::Passthrough) noexcept;
+  // Low-memory sampled EFB path for Vita speedhack builds. The caller supplies RGBA8 pixels
+  // from the currently rendered target; no framebuffer/renderbuffer or temporary capture texture
+  // is allocated. Existing handles are updated in-place when dimensions match.
+  Handle upload_rgba(Handle existing,uint32_t width,uint32_t height,const void* rgba) noexcept;
   bool bind_texture(Handle h,unsigned unit,const SamplerDesc& sampler) noexcept;
   bool read_rgba(Handle h,std::vector<uint8_t>& out) noexcept;
   bool dimensions(Handle h,uint32_t& width,uint32_t& height) const noexcept;
