@@ -1,9 +1,11 @@
 # WiiCompiled Vita / Mario Kart Wii – Porting Status
 
-> **Snapshot:** 2026-09-03 (session 2 — see section 16 for the milestone log)  
+> **Snapshot:** 2026-09-03 (session 2 — see section 16 for the milestone log; M7/M8 latest)  
 > **Repository:** `/Users/robin994/Documents/Code/PSVita/wiicompiled-vita`  
 > **Target:** Mario Kart Wii PAL `RMCP01`, static recompile PowerPC → ARM32, PS Vita hardware  
-> **Current HEAD observed:** `b554833 checkpoint`
+> **Current HEAD observed:** `c2d6db0 checkpoint` (external checkpoint commits appear in this
+> repo — do not assume they are ours; never rewrite history). M1–M4 landed in `c2d6db0`; M5–M8
+> are uncommitted working-tree changes.
 
 This document is a technical handoff/state file. It summarizes what has already been implemented, what has been verified on real hardware, how the current Aurora-Vita integration works, what still needs to change, and what the next profiling/implementation steps should be.
 
@@ -57,13 +59,18 @@ Build success and runtime success must always be kept separate. The observations
 
 ## 3. Latest local build not yet hardware-validated
 
-`build/vita/wiicompiled-vita-mkw-firstboot-aurora-speedhack-nomovies-schedtrace.vpk`
-(M3, this session). Adds `MKW_VITA_DISABLE_MOVIES` plus a scheduler-event ring-buffer
-trace dumped at each stall. Pending hardware validation.
+`build/vita/wiicompiled-vita-mkw-firstboot-aurora-speedhack-m6-dvd-deferred-togglable.vpk`
+(M6, this session) — SHA-256 `ea0ab46bc144954cc98ab8b338016e23c0abfe54c29d46cf5fb45aafc6e74d5a`.
+= M5 (deferred-DVD-completion queue + block-copy DMA + Fable patch C host-file LRU) with a
+working kill switch: `getenv` does nothing for a LiveArea `.vpk`, so `DvdDeferEnabled()` now also
+honours a marker file `ux0:data/wiicompiled-vita/dvd_defer_off` (present => inline behaviour) and
+the compile flag `MKW_VITA_DVD_DEFER=0` (`-D` in `COMMON_FLAGS`, default 1). Pending hardware
+validation. Superseded: M4 `c622f26b…`, M5 `06343c67…`.
 
 Prior builds this session:
 - `...-phase-fiber-watchdog-nomovies.vpk` (M1) — SHA-256 `8a7f5401814176556baecd722774dd8509f142f682b7500d8fe2c9811b4f1f69` — movie disable only. Hardware-tested (see section 16).
 - `...-nomovies-threaddump.vpk` (M2) — SHA-256 `610561d3947c44ea24d6c5040867c32c7b772698713faae9f7cea83f5c92f38d` — adds the guest-thread-table dump. Hardware-tested (see section 16).
+- `...-nomovies-schedtrace.vpk` (M3) — SHA-256 `44ce9d07b25c5333b1050b00930bd65d1c3e670663ddee2a0fc2efc91beb713d` — scheduler-event ring-buffer trace. Superseded by M4 before hardware test.
 
 ---
 
@@ -1085,11 +1092,280 @@ LoadArchiveAsync` path is the likely trigger).
 Goal: see the exact last sleep/wake sequence before the queue goes quiet — specifically whether a
 `wake` on `~0x804294A4` fired with an empty queue (lost wakeup) or the wake never happened at all.
 
-## Next
+## M4 — deferred DVD completions  (built + hardware-tested — DID NOT fix the deadlock)
 
-- M3 hardware test -> identify the missing signal.
-- M4 (scheduler fix): most likely defer async I/O callbacks + drain them from the idle loop, or
-  fix the specific lost-wakeup window. Then a separate pass on the ~230 ms/frame guest CPU on the
-  card menu.
-- Later: native THP decode (re-enable movies), default `RFL_DB.dat`, texture-cache / EFB /
-  `GXInvalidateTexAll`-per-frame cleanups.
+Hypothesis (Fable static audit of `dvd.cpp`, 2026-09-03): DVD async callbacks run **inline**
+before the entry point returns, unlike NAND/ISFS which already use a deferred queue, so a caller
+doing `DVDReadAsync` then `OSSleepThread(queue)` loses the wakeup. This is a **real HLE defect**
+worth keeping fixed, but **the M6 hardware test disproved it as the primary Single-Player
+deadlock fix** — the deadlock reproduces identically with the deferred queue active. Not a
+confirmed root cause. `MKW_VITA_DVD_DEFER` is therefore back to **default 0** for the M7
+baseline; the deferred-queue code + kill switch stay as opt-in infrastructure. (The "dvd_pump"
+marker is emitted only every 64th non-empty pump, so its absence in the log is not proof the
+queue was unused — replace with atomic counters if DVD diagnostics are needed.)
+
+Patches applied (`runtime/src/hle/storage/dvd.cpp`, `runtime/src/hle/os/os_alarm.cpp`):
+- **Patch A — deferred DVD completion queue.** Mirrors `nand_async.cpp`: the host read still runs
+  synchronously, but the command-block state + callback are published only when the guest yields.
+  `QueueDvdCompletion` marks the block `DVD_STATE_BUSY` and enqueues; `DvdProcessPendingCallbacks`
+  publishes `DVD_STATE_END` + runs the callback on a scratch `CpuContext` (`CpuContextScope`).
+  Wired into `ProcessAlarmQueue` next to `NandProcessPendingCallbacks`, so the scheduler idle
+  loop drains it. Kill switch `MKW_VITA_DVD_DEFER=0` restores inline behaviour; pre-scheduler
+  boot (`0x800000E4` running-context still 0) also stays inline. Re-entrancy depth guard keeps
+  callback chains flat.
+- **Patch A safety net** — `DVD::GetCommandBlockStatus` (`0x80162A88`) HLE override drains the
+  pump before returning the state, for any caller that spins on the status without yielding.
+- **Patch B** — `CopyToGuestAsDma` (and the boot-time FST publish loop) do one `memcpy` into the
+  flat guest backing (`Memory::GetPointer`) instead of a `Memory::Write8` per byte; per-byte path
+  kept as fallback for unmapped/aliased ranges. Cuts the multi-million checked-write loop on a
+  ~4 MB SZS.
+- **Patch C — host-file LRU + read-in-place.** 8-slot `FILE*` cache keyed by `DVDFileEntry*`
+  (`AcquireHostFile`), and `DvdReadIntoGuest` `fread`s straight into the guest pointer, dropping
+  the `std::vector` temp + second copy in `DVDReadPrio` / `DVDReadAbsAsyncPrio`. Cache is
+  invalidated (`DropHostFileCache`) after every `g_fileEntries` mutation
+  (`BuildAndPublishRuntimeFst`, `RegisterFileEntry`) so stale entry pointers can't be used.
+  Unmapped/aliased dest falls back to the buffered path.
+
+Not applied from the audit: Patch D (I/O helper thread) — do after A/C are green on hardware. The
+build-flags patch (`005-makefile-flags.patch`) is **rejected**: as written it replaces
+`MKW_TRANSLATED_CXXFLAGS` with a list that drops `$(CXXFLAGS)` entirely (loses every `-I`, `-D`,
+`-std=gnu++20`, `-fexceptions`) and forces shards from `-Os` to `-O2` against the documented
+Vita-loader text-budget constraint; it also appends flags to an object-list make variable and
+defines `MKW_RUNTIME_CXXFLAGS`/`MKW_RUNTIME_LDFLAGS` that nothing in the Makefile consumes. It is
+written against an assumed Makefile structure. Clock-444 is already done in `main_vita.cpp`.
+Patch `004-os-scheduler-integration.patch` is also written against a hallucinated
+`os_scheduler.cpp` (references `SelectThread_801A9C08`, `AudioTickPending()`,
+`nand_internal.h` include — none present); the equivalent wiring is done correctly here by
+pumping `DvdProcessPendingCallbacks` inside `ProcessAlarmQueue`, which the real idle loop
+(`os_scheduler.cpp:244`, inside `while (pending == 0)`) calls every iteration.
+
+## M5 — Fable audit patch C  (built + hardware-tested, superseded)
+
+Applied Fable's host-`FILE*` LRU + read-in-place (`DvdReadIntoGuest`) on top of M4. Kept.
+
+## M6 — DVD defer toggle  (built + hardware-tested — REGRESSION observed, cause understood)
+
+Made `MKW_VITA_DVD_DEFER` a real Vita toggle: compile `-D` (default was 1) > marker file
+`ux0:data/wiicompiled-vita/dvd_defer_off` > default. (`getenv` does nothing for a LiveArea vpk.)
+
+**Hardware M6 result — two decisive facts:**
+
+1. **The "performance regression" is mostly the M3 profiling itself.** The runtime.log was ~30 k
+   lines, ~28 k of them `sched_trace`. `GuestStallWatchdog::Poll()` runs on the **render worker
+   (USER_1)** (`vita/gx_backend.cpp`, the `g_renderWake.wait_for` timeout branch). Each stall
+   dumped the thread table + ~300 `sched_trace` lines to the line-buffered `ux0:` log = hundreds
+   of blocking `sceIoWrite` on USER_1 -> render worker stalls -> producer `prior_wait_us` climbs
+   (frames of **7.8 s** observed) -> watchdog fires -> another dump. Self-amplifying. These frame
+   times are a logging artifact, **not** game performance. Removing the destroyed frames, the
+   card screen is ~328 ms/frame (~3 fps) — i.e. M1's real ~296 ms gain held; the old 1.5 fps
+   regression did **not** actually return.
+
+2. **The deadlock is `EGG::AsyncDisplay` / VI retrace, not DVD.** The M3 sched_trace named the
+   queue: root `0x80347498` sleeps on `0x804294A4` from `LR 0x8020FE50`
+   (`EGG::AsyncDisplay::beginFrame` @ 0x8020FE24). The normal wake comes from `LR 0x80210078`
+   (`EGG::AsyncDisplay::postVRetrace` @ 0x80210024), invoked as the VI post-retrace callback.
+   Normal loop: `beginFrame -> OSSleepThread(0x804294A4)` / VI retrace / post-retrace callback
+   `-> postVRetrace -> OSWakeupThread(0x804294A4)`. Works for hundreds of frames; after the
+   Single-Player transition the wake stops arriving and `Scene Enter` never prints. `dvd_pump`
+   was 0. The idle scheduler **already** calls `VI_HLE_PollRetrace(cpu)` inside `while (pending
+   == 0)` (`os_scheduler.cpp`), so the question is *why does `VI_HLE_PollRetrace` keep being
+   called but stop producing `EGG::AsyncDisplay::postVRetrace`*.
+
+Aurora is **not** the blocker: `render_large phase=completed` for the final 1326-draw frame
+(~927 ms). Packet queue, EFB copies, EndFrame, Swap all complete; then the guest just sits.
+
+## M7 — clean baseline  (built: `...-m7-clean-baseline.vpk`, SHA `09d51fb4e2...`)
+
+Purely diagnostic hygiene, no functional fix:
+- `guest_stall_watchdog.cpp`: `sched_trace` ring buffer + its ~300-line stall dump now behind
+  `#if MKW_VITA_SCHED_TRACE` (default 0 — compiled out). `TraceSchedEvent` is a no-op.
+  `DumpGuestThreadTable` fires **once per session** (was once per stall-serial). `Poll()` still
+  logs the one-line `guest_watchdog_stall` at most 1/s, plus a `root_wait_q` line.
+- `fiber_manager.cpp`: `fiber_slice` threshold back to 20 ms / first-8-then-pow2.
+- `Makefile.vita`: `MKW_VITA_DVD_DEFER ?= 0`.
+- Kept: `MKW_VITA_DISABLE_MOVIES ?= 1`, DVD patch B (memcpy) + patch C (file LRU).
+- Baseline build flags this session: `MKW_TRANSLATED_BUILD_DIR=build/vita/mkwii_translated_neon_os`,
+  `MKW_TRANSLATED_OPT='-Os -fno-asynchronous-unwind-tables -mfpu=neon -mfloat-abi=hard'`,
+  `MKW_VITA_LYT_DIRECT=0 MKW_VITA_LYT_FAITHFUL=1` (the visually-stable bring-up LYT config).
+
+## M8 — VI retrace diagnostics + RAII guard  (built: `...-m8-vi-retrace-trace.vpk`, SHA `461743b1c8...`)
+
+`runtime/src/hle/vi.cpp`:
+- **`s_inAdvanceRetrace` is now RAII / exception-safe.** Before, the guard was a bare
+  `exchange(true)` at entry and `store(false)` at the very end. If `InvokeIndirectCpu(preCb)` /
+  `InvokeIndirectCpu(postCb)` / `OSWakeupThread` / `VI_HLE_PresentFrame` threw
+  (`Memory::AccessViolation` from a guest callback) or a fiber switched away and unwound
+  elsewhere, `s_inAdvanceRetrace` stayed `true` forever -> every subsequent `AdvanceRetrace`
+  early-returns -> no more post-retrace callback -> `EGG::AsyncDisplay::postVRetrace` never runs
+  -> root deadlock. Prime suspect for the Single-Player hang. Now a `GuardReset` destructor
+  always clears it.
+- `AdvanceRetrace` returns `bool` (`false` = skipped by the re-entry guard).
+- `AdvanceDueRetraces` now `break`s on a skipped `AdvanceRetrace` and does **not** set
+  `advancedAny` for it (was unconditionally `true`, which both lied about progress and spun the
+  catch-up loop `maxToProcess` times against a stale `lastRetrace`).
+- Low-overhead atomic counters (`g_viDiag`): `poll_total`, `due_total`, `advance_enter`,
+  `advance_reentry`, `advance_complete`, `pre_cb_total`, `post_cb_total`,
+  `post_cb_no_system` (sSystem==0 guard hit), `post_cb_zero` (postCb==0),
+  `retrace_wake_total`, plus `last_post_cb`, `last_post_cb_us`, `last_retrace_count`,
+  `last_advance_complete_us`. **Zero `RT_LOGF` per retrace.**
+- `VI_HLE_LogDiagnostics()` emits one `vi_stall …` line; the watchdog calls it once per second
+  while a stall is active (alongside the existing `guest_watchdog_stall` one-liner).
+
+Mapping (from M6 sched_trace + MAP.txt):
+| addr | symbol |
+|---|---|
+| `0x8020FE24` | `EGG::AsyncDisplay::beginFrame` |
+| `0x8020FE50` | sleep point (`OSSleepThread(0x804294A4)`) |
+| `0x80210024` | `EGG::AsyncDisplay::postVRetrace` |
+| `0x80210078` | wake point (`OSWakeupThread(0x804294A4)`) |
+| `0x804294A4` | AsyncDisplay main-thread wait queue |
+| `0x80386BC0` | `kViRetraceQueueAddr` (VIWaitForRetrace queue — the DVD thread sleeps here, not root) |
+
+### What the M8 log must distinguish (from `vi_stall`)
+- **CASE A** `in_advance=1` stuck, `retrace_count` frozen, `advance_reentry` climbing => the
+  `s_inAdvanceRetrace` bug (RAII fix should have prevented it — if it recurs the guard is being
+  defeated by a fiber-switch-away, not an exception).
+- **CASE B** `in_advance=0`, `poll_total` climbs, `due_total` flat, `last_retrace_age_us` huge
+  => VI deadline/timeline problem (`lastRetrace` not advancing / interval wrong).
+- **CASE C** `retrace_count` climbs, `post_cb=0` => callback de-registered / pointer lost.
+- **CASE D** `retrace_count` climbs, `post_cb!=0`, `sSystem=0` => the `sSystem != 0` guard in
+  `AdvanceRetrace` is deliberately skipping the post-retrace callback.
+- **CASE E** `post_cb_total` climbs but no `wake 0x804294A4` => `postVRetrace` is entered but its
+  internal virtual call / condition prevents the `OSWakeupThread`; analyse `func_80210024`.
+- **CASE F** `post_cb_total` flat, `retrace_count` climbs => post-callback pointer/state wrong.
+
+### M8 HARDWARE RESULT — RAII guard is NOT the bug; USER_0 stops calling `VI_HLE_PollRetrace`
+
+`vi_stall` counter progression (SP-menu stall):
+- `in_advance=0`, `advance_reentry=0`, `advance_enter == advance_complete` the whole time -> the
+  `s_inAdvanceRetrace` RAII fix is correct and **not** what deadlocks. **CASE A ruled out.**
+- `post_cb=0x8020FCD4` (`EGG::PostRetraceCallback`, wraps `postVRetrace`), `sSystem=0x802A4080`
+  non-null, `post_cb_no_system=0`, `post_cb_zero=10` (constant), `post_cb_total` tracks
+  `retrace_count` -> callback stays registered and fires. **CASE C/D/F ruled out.**
+- `retrace_count`, `poll_total`, `advance_*`, `post_cb_total` **all climb together to
+  retrace_count=2697 / poll_total=1198, then FREEZE forever**; only `last_retrace_age_us` keeps
+  climbing (to 74 s). So `VI_HLE_PollRetrace` **stops being called** — the scheduler idle loop on
+  USER_0 stops running. This is the real mechanism, adjacent to CASE B but the cause is USER_0
+  ownership, not a VI timeline bug.
+- Coincident: `fiber_slice ... to=0x90112660 from_entry=0x800A49C0(SoundThread) to_entry=0x8024373C
+  elapsed_us=1120420` right before the freeze, and the once-per-session thread table shows
+  `0x90112660` (prio 6, MEM2, entry `EGG::Thread::Run`) as `state=1` **READY** (linked on the
+  prio-6 run queue `0x803477E0`) while every other thread is `state=4`. `0x90112660` executes
+  `DvdThread_main` (`func_80008D18`) — from M6 it slept at `DvdThread_main+0xEC`
+  (`VIWaitForRetrace`, `OSSleepThread(0x80386BC0)`). `DvdThread_main` loop:
+  `GetDriveStatus(); switch; if (*(state+72)==5) return; VIWaitForRetrace(); loop`. It is now
+  READY/running and not reaching `VIWaitForRetrace` -> a busy path in its status-switch that
+  never yields, monopolising USER_0.
+- `render_large phase=completed serial=774` (947 ms) — Aurora still finishes the final frame.
+- The watchdog `os_running`/`current_guest` are from the frozen producer snapshot, so they do
+  **not** identify who owns USER_0 during the deadlock. -> M9.
+
+### Secondary architectural note (validate after M9)
+
+`EGG::AsyncDisplay::postVRetrace` (`func_80210024`) only calls `OSWakeupThread(this+88 =
+0x804294A4)` when `*(this+96) != 0`. `beginFrame` (`func_8020FE24`) never writes `+96`; the
+**only** writer is `EGG::AsyncDisplay::startSyncNTSC` (`0x8020FD8C`), which also arms a periodic
+`OS::SetPeriodicAlarm` (`0x801A08E0`) whose handler is `EGG::AsyncDisplay::HandleAlarmWrapper`
+(`0x8020FD10`). So the retrace->root wake depends on `startSyncNTSC` having been called and
+`+96` staying set across the scene transition. If M9 shows USER_0 is *not* monopolised, check
+`*(AsyncDisplay+96)` and whether `startSyncNTSC` / the periodic alarm survive the SP transition.
+
+## M9 — live USER_0-ownership tracking  (built: `...-m9-live-fiber-scheduler.vpk`, SHA `391f9e49d2...`)
+
+Pure diagnostics, minimal overhead, no functional change. Goal: identify **live** who owns USER_0
+when `vi_poll_total` stops advancing.
+
+- `guest_stall_watchdog.{h,cpp}`: live atomics (`g_live`, `sceKernelGetProcessTimeWide` clock):
+  - `RecordFiberSwitchBegin(from,to,fromEntry,toEntry)` / `RecordFiberSwitchEnd()` — called in
+    `GuestFiberManager::SwitchToThread` immediately around the real `co_switch` / `SwitchToFiber`.
+    Stores `switch_seq`, `switching` (in-progress flag), `active_from/to`, `active_from/to_entry`,
+    `switch_begin_us`, `last_return_us`. No logging per switch.
+  - `RecordSchedulerTick(kind)` — kind 1 in `SelectThread_801a9c08` entry, kind 2 per idle-loop
+    iteration (`while(pending==0)`), kind 3 in `VI_HLE_PollRetrace`. Stores
+    `scheduler_select_total`, `scheduler_idle_total`, `vi_poll_total`, `last_scheduler_us`,
+    `last_idle_us`, `last_vi_poll_us`.
+- Watchdog `Poll()` (USER_1), once per second during a stall, now also:
+  - reads **live** guest memory: `OSRunningContext 0x800000E4`, `OSCurrentContext 0x800000D4`,
+    running/current thread `state` + `wait_q` + `prio`, scheduler `pending 0x80386920` — emits
+    `guest_watchdog_live …` (distinct from the frozen `RecordFrame` snapshot).
+  - emits `guest_live switch_seq=… switching=… from=… to=… from_entry=… to_entry=… slice_age_us=…`
+  - emits `guest_live sched_select_total=… sched_idle_total=… vi_poll_total=… last_*_age_us=…`
+
+### What the M9 log must distinguish
+- **CASE 1** `switching=1`, `to=0x90112660`, ... => guest thread monopolises USER_0.
+- **CASE 2** USER_0 wedged elsewhere.
+- **CASE 3** `sched_idle_total` climbs but `vi_poll_total` does not => scheduler/idle-loop bug.
+- **CASE 4** `vi_poll_total` climbs but VI counters do not => reopen VI path.
+
+### M9 HARDWARE RESULT — CASE 3. VI is starved inside the idle loop by audio wakes.
+
+- `fiber_switch_in_progress` stays 0; `switch_seq`, `sched_select_total`, `sched_idle_total` all
+  climb fast for tens of seconds => USER_0 and the guest scheduler are **alive**. Fiber
+  monopolisation (M9 CASE 1) **disproven**.
+- `vi_poll_total` frozen at **1212** for the whole stall; `last_vi_poll_age_us` climbs.
+- `guest_watchdog_live` (LIVE guest reads, not the frozen `RecordFrame` snapshot) shows the
+  scheduler bouncing: `os_running=0x00000000` (idle thread, `os_current=0x803478B0`) <->
+  `os_running=0x802ECEB0 run_prio=4` (nw4r SoundThread), with `pending=0x08000000` almost
+  always set.
+- `pending=0x08000000` = bit `31-27` => priority 4 (`MarkRunQueuePending: pending | (1<<(31-prio))`).
+  prio 4 = SoundThread `0x802ECEB0`. Confirmed both by the bit and by `os_running` directly.
+
+**Static proof (os_scheduler.cpp idle loop, `while (pending == 0)`):**
+```
+ProcessSleepTimers(cpu);
+Audio_HLE_Poll(cpu);                 // completes up to kMaxBlocksPerTick=4 AI-DMA blocks;
+                                     // each runs the guest AI-DMA callback -> __AXOutNewFrame
+                                     // -> wakes SoundThread (prio 4) -> pending = 0x08000000
+if (pending != 0) break;             // <<< BREAKS HERE, BEFORE VI
+VI_HLE_PollRetrace(cpu);             // starved: never reached while audio keeps waking SoundThread
+...
+VI_HLE_WaitForNextRetracePoll();     // also skipped -> idle loop does not even sleep -> spins hot
+```
+`Audio_HLE_Poll` -> `Audio_HLE_Tick(ConsumeAudioPollDeltaMicros())`; the delta is real wall-clock
+since the last poll (capped 100 ms). Running the AI-DMA callback (a full AX voice mix, ~hundreds
+of PBs) costs more guest CPU than one ~3 ms block lasts, so once the SP transition has left an
+audio backlog every idle pass completes >=1 block and re-wakes SoundThread -> the `break` fires
+every pass -> `VI_HLE_PollRetrace` is never reached -> `retrace_count` frozen ->
+`EGG::AsyncDisplay::postVRetrace` never runs -> root `0x80347498` (asleep on `0x804294A4` in
+`beginFrame`) is never woken -> black screen. Before the SP transition root itself produced
+frames and the frame-pacing loop also serviced audio, so the idle loop was never the sole
+audio+VI pump and the trap never latched.
+
+## M10 — scheduler time-event fairness  (built: `...-m10-vi-idle-fairness.vpk`, SHA `e542e2296d...`)
+
+`runtime/src/hle/os/os_scheduler.cpp` idle loop: **removed the early `break` after
+`Audio_HLE_Poll`.** Now each idle pass services *every* due time source once —
+`ProcessSleepTimers`, `Audio_HLE_Poll`, `VI_HLE_PollRetrace`, `ProcessTimerEvents`,
+`ProcessAlarmQueue` — and only then checks `pending` and reschedules / sleeps. A wake from one
+hardware time source no longer prevents the others (VI retrace above all) from running that
+pass. Order kept audio-before-VI to match the previous Wii-ish interleave; the fix is the
+general fairness, not a reorder.
+
+Diagnostics added (`g_live`, no per-event logging): `idle_audio_pending_total` (passes where
+`Audio_HLE_Poll` left `pending` set), `idle_vi_after_audio_total` (passes where `VI_HLE_PollRetrace`
+still ran despite that — the fix working), `idle_break_after_service_total`. Emitted on the
+`guest_live sched_*` watchdog line.
+
+**Audio backlog note (not touched in M10, flagged for a separate fix if M10's log shows it):**
+`Audio_HLE_Poll` may stay tens of seconds behind wall-clock after a slow period and keep
+completing blocks / waking SoundThread every poll. M10 makes that survivable (VI still runs),
+but if the log shows `idle_audio_pending_total` ~= `sched_idle_total` indefinitely, add a
+bounded/coalescing catch-up in `Audio_HLE_Tick` (faithful to the hardware DMA cadence),
+separately and documented.
+
+### M10 success criteria (from the SP transition)
+1. `vi_poll_total` keeps advancing; 2. `retrace_count` keeps advancing;
+3. `last_vi_poll_age_us` stops climbing for seconds; 4. `post_cb_total` keeps advancing;
+5. AsyncDisplay keeps getting postRetrace; 6. root `0x80347498` woken from `0x804294A4`.
+Best case: `Scene Enter` and progress past the black screen. If VI recovers but root still
+doesn't run, the next blocker is prio-4 SoundThread vs prio-16 root scheduling starvation —
+analyse that, do not call M10 failed.
+
+## Next (after the VI deadlock is fixed and confirmed on hardware)
+
+- ~230-260 ms/frame guest CPU pre-GX on the card menu (nw4r `lyt::Layout::Animate`/calc + EGG
+  heap on translated code); per-shard sampling before HLE-ing nw4r::lyt.
+- native THP decode (`sceJpegDecodeMJpegYCbCr` -> 3 planes, skip CPU YUV) + re-enable movies.
+- generated default `RFL_DB.dat` (~6 s `RFLiInitShapeRes` on the licence screen).
+- Aurora: texture-cache lifetime split, per-frame `GXInvalidateTexAll`, streaming arena size,
+  vertex-representation collapse, persistent pipeline cache. 360p only after USER_0 < 30 ms.

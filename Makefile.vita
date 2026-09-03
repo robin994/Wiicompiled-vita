@@ -98,6 +98,7 @@ MKW_VITA_VITAGL ?= speedhack
 MKW_VITA_LYT_DIRECT ?= 1
 MKW_VITA_LYT_FAITHFUL ?= 0
 MKW_VITA_DISABLE_MOVIES ?= 1
+MKW_VITA_DVD_DEFER ?= 0
 AURORA_VITAGL_LIB ?= ../aurora-vita-max-prehardware/third_party/vitaGL-speedhack-src/libvitaGL.a
 AURORA_VITA_GFX_DIR := aurora-main/platforms/vita/gfx
 AURORA_VITA_GFX_SRCS := $(addprefix $(AURORA_VITA_GFX_DIR)/,\
@@ -155,7 +156,7 @@ MKW_FIRSTBOOT_SFO := $(MKW_RUNTIME_BUILD_DIR)/param.sfo
 MKW_FIRSTBOOT_VPK := $(BUILD_DIR)/$(MKW_FIRSTBOOT_TARGET).vpk
 
 COMMON_FLAGS := -O2 -g -ffunction-sections -fdata-sections -D__vita__ -DMKW_TARGET_VITA=1 -DTARGET_PC=1 -DLIBCO_MP=1 -DMKW_VITA_LYT_DIRECT=$(MKW_VITA_LYT_DIRECT) -DMKW_VITA_LYT_FAITHFUL=$(MKW_VITA_LYT_FAITHFUL) \
-	-DMKW_VITA_DISABLE_MOVIES=$(MKW_VITA_DISABLE_MOVIES) \
+	-DMKW_VITA_DISABLE_MOVIES=$(MKW_VITA_DISABLE_MOVIES) -DMKW_VITA_DVD_DEFER=$(MKW_VITA_DVD_DEFER) \
 	-DCRYPTOPP_DISABLE_ASM -DCRYPTOPP_NO_GLOBAL_BYTE \
 	-Iruntime/third_party -Iruntime/third_party/libco -Iruntime/third_party/toml11 \
 	-Iruntime/third_party/pugixml -Iruntime/include -Iruntime/src -Iaurora-main/include -Ivita/include

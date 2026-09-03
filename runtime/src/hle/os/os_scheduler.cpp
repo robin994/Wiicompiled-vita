@@ -133,6 +133,7 @@ extern "C" void SelectThread_801a9c08(CpuContext* ctx)
     CpuContext* cpu = ctx ? ctx : &GetPersistentCpuContext();
     const uint32_t forceSwitch = cpu->gpr[3];
 
+    GuestStallWatchdog::RecordSchedulerTick(1u);
     ProcessSleepTimers(cpu);
 
     // Read scheduler state
@@ -228,21 +229,29 @@ extern "C" void SelectThread_801a9c08(CpuContext* ctx)
             OS__EnableInterrupts_801a65c0();
 
             while (::Memory::Read32(kSchedulerPendingFlagAddr) == 0) {
+                GuestStallWatchdog::RecordSchedulerTick(2u);
+                // Time-event fairness: a hardware time source that wakes a thread
+                // (e.g. the AI-DMA block completion in Audio_HLE_Poll waking the
+                // prio-4 SoundThread) must not stop the other already-due sources
+                // - VI retrace above all - from being serviced this pass. On real
+                // hardware each interrupt is independent; here we service every
+                // due source once, then reschedule.
                 ProcessSleepTimers(cpu);
-                // Dolphin models DSP audio DMA as an independent 4 kHz timing
-                // event.  Poll it from the guest scheduler instead of batching
-                // completed 3 ms DMA blocks at VI retrace cadence.  A completed
-                // block wakes SoundThread and sets the scheduler pending mask.
                 Audio_HLE_Poll(cpu);
-                if (::Memory::Read32(kSchedulerPendingFlagAddr) != 0) {
-                    break;
+                const bool audioSetPending = ::Memory::Read32(kSchedulerPendingFlagAddr) != 0;
+                if (audioSetPending) {
+                    GuestStallWatchdog::RecordSchedulerTick(4u);
                 }
                 VI_HLE_PollRetrace(cpu);
+                if (audioSetPending) {
+                    GuestStallWatchdog::RecordSchedulerTick(5u);
+                }
                 if (Fiber::GuestFiberManager::IsInitialized()) {
                     Fiber::GuestFiberManager::ProcessTimerEvents(cpu);
                 }
                 ProcessAlarmQueue(cpu, 8);
                 if (::Memory::Read32(kSchedulerPendingFlagAddr) != 0) {
+                    GuestStallWatchdog::RecordSchedulerTick(6u);
                     break;
                 }
                 VI_HLE_WaitForNextRetracePoll();

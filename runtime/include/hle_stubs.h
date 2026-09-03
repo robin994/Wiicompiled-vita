@@ -10,6 +10,7 @@
 // VI Utils
 void VI_HLE_ForceRetrace(CpuContext* ctx);
 void VI_HLE_PollRetrace(CpuContext* ctx);
+void VI_HLE_LogDiagnostics() noexcept;
 void VI_HLE_ProcessRetracesDeferred(int maxToProcess);
 void VI_HLE_WaitForNextRetracePoll();
 // Single owner of the Aurora frame presentation sequence (seal, optional pace

@@ -9,7 +9,34 @@
 #include <chrono>
 
 #if defined(MKW_TARGET_VITA)
+#include <psp2/kernel/processmgr.h>
 namespace {
+
+uint64_t NowUs() noexcept
+{
+    return static_cast<uint64_t>(sceKernelGetProcessTimeWide());
+}
+
+struct LiveOwnership {
+    std::atomic<uint64_t> switchSeq{0};
+    std::atomic<uint32_t> switchInProgress{0};
+    std::atomic<uint32_t> activeFrom{0};
+    std::atomic<uint32_t> activeTo{0};
+    std::atomic<uint32_t> activeFromEntry{0};
+    std::atomic<uint32_t> activeToEntry{0};
+    std::atomic<uint64_t> switchBeginUs{0};
+    std::atomic<uint64_t> lastReturnUs{0};
+    std::atomic<uint64_t> schedulerSelectTotal{0};
+    std::atomic<uint64_t> schedulerIdleTotal{0};
+    std::atomic<uint64_t> viPollTotal{0};
+    std::atomic<uint64_t> lastSchedulerUs{0};
+    std::atomic<uint64_t> lastIdleUs{0};
+    std::atomic<uint64_t> lastViPollUs{0};
+    std::atomic<uint64_t> idleAudioPendingTotal{0};
+    std::atomic<uint64_t> idleViAfterAudioTotal{0};
+    std::atomic<uint64_t> idleBreakAfterServiceTotal{0};
+};
+LiveOwnership g_live;
 
 constexpr uint32_t kOSCurrentContextAddr = 0x800000D4u;
 constexpr uint32_t kOSRunningContextAddr = 0x800000E4u;
@@ -70,6 +97,11 @@ uint32_t Read16OrZero(uint32_t address) noexcept
     }
 }
 
+#ifndef MKW_VITA_SCHED_TRACE
+#define MKW_VITA_SCHED_TRACE 0
+#endif
+
+#if MKW_VITA_SCHED_TRACE
 struct SchedTraceEntry {
     uint64_t whenUs = 0;
     uint32_t kind = 0;
@@ -102,6 +134,7 @@ const char* SchedKindName(uint32_t kind) noexcept
     default: return "?";
     }
 }
+#endif
 
 void DumpGuestThreadTable() noexcept
 {
@@ -131,6 +164,7 @@ void DumpGuestThreadTable() noexcept
         thread = Read32OrZero(thread + kThreadListLinkOffset);
     }
 
+#if MKW_VITA_SCHED_TRACE
     const uint32_t h = g_schedTraceHead.load(std::memory_order_relaxed);
     constexpr uint32_t kDumpLimit = 300u;
     const uint32_t available = h < kSchedTraceCapacity ? h : kSchedTraceCapacity;
@@ -142,10 +176,13 @@ void DumpGuestThreadTable() noexcept
         RT_LOGF(RT_TAG_OS, "sched_trace t_us=%llu %s a=0x%08X b=0x%08X c=0x%08X\n",
                 static_cast<unsigned long long>(e.whenUs), SchedKindName(e.kind), e.a, e.b, e.c);
     }
+#endif
 }
 
 } // namespace
 #endif
+
+void VI_HLE_LogDiagnostics() noexcept;
 
 namespace GuestStallWatchdog {
 
@@ -211,7 +248,7 @@ void RecordTaskThread(uint32_t taskThread, uint32_t job, uint32_t callback,
 
 void TraceSchedEvent(uint32_t kind, uint32_t a, uint32_t b, uint32_t c) noexcept
 {
-#if defined(MKW_TARGET_VITA)
+#if defined(MKW_TARGET_VITA) && MKW_VITA_SCHED_TRACE
     if ((kind == 1u || kind == 7u) && IsNoisyAudioLr(c)) {
         return;
     }
@@ -228,6 +265,63 @@ void TraceSchedEvent(uint32_t kind, uint32_t a, uint32_t b, uint32_t c) noexcept
     (void)a;
     (void)b;
     (void)c;
+#endif
+}
+
+void RecordFiberSwitchBegin(uint32_t fromThread, uint32_t toThread,
+                            uint32_t fromEntry, uint32_t toEntry) noexcept
+{
+#if defined(MKW_TARGET_VITA)
+    g_live.activeFrom.store(fromThread, std::memory_order_relaxed);
+    g_live.activeTo.store(toThread, std::memory_order_relaxed);
+    g_live.activeFromEntry.store(fromEntry, std::memory_order_relaxed);
+    g_live.activeToEntry.store(toEntry, std::memory_order_relaxed);
+    g_live.switchBeginUs.store(NowUs(), std::memory_order_relaxed);
+    g_live.switchSeq.fetch_add(1, std::memory_order_relaxed);
+    g_live.switchInProgress.store(1, std::memory_order_release);
+#else
+    (void)fromThread; (void)toThread; (void)fromEntry; (void)toEntry;
+#endif
+}
+
+void RecordFiberSwitchEnd() noexcept
+{
+#if defined(MKW_TARGET_VITA)
+    g_live.switchInProgress.store(0, std::memory_order_release);
+    g_live.lastReturnUs.store(NowUs(), std::memory_order_relaxed);
+#endif
+}
+
+void RecordSchedulerTick(uint32_t kind) noexcept
+{
+#if defined(MKW_TARGET_VITA)
+    switch (kind) {
+    case 1u:
+        g_live.schedulerSelectTotal.fetch_add(1, std::memory_order_relaxed);
+        g_live.lastSchedulerUs.store(NowUs(), std::memory_order_relaxed);
+        break;
+    case 2u:
+        g_live.schedulerIdleTotal.fetch_add(1, std::memory_order_relaxed);
+        g_live.lastIdleUs.store(NowUs(), std::memory_order_relaxed);
+        break;
+    case 3u:
+        g_live.viPollTotal.fetch_add(1, std::memory_order_relaxed);
+        g_live.lastViPollUs.store(NowUs(), std::memory_order_relaxed);
+        break;
+    case 4u:
+        g_live.idleAudioPendingTotal.fetch_add(1, std::memory_order_relaxed);
+        break;
+    case 5u:
+        g_live.idleViAfterAudioTotal.fetch_add(1, std::memory_order_relaxed);
+        break;
+    case 6u:
+        g_live.idleBreakAfterServiceTotal.fetch_add(1, std::memory_order_relaxed);
+        break;
+    default:
+        break;
+    }
+#else
+    (void)kind;
 #endif
 }
 
@@ -291,10 +385,54 @@ void Poll(uint64_t nowUs) noexcept
             g_snapshot.rflManager.load(std::memory_order_relaxed),
             g_snapshot.rflWorking.load(std::memory_order_relaxed));
 
-    static uint64_t lastDumpedSerial = ~0ull;
-    const uint64_t serial = g_snapshot.serial.load(std::memory_order_relaxed);
-    if (serial != lastDumpedSerial) {
-        lastDumpedSerial = serial;
+    const uint32_t liveRunning = Read32OrZero(kOSRunningContextAddr);
+    const uint32_t liveCurrent = Read32OrZero(kOSCurrentContextAddr);
+    const uint32_t livePending = Read32OrZero(kSchedulerPendingFlagAddr);
+    const uint32_t runState = liveRunning != 0 ? Read16OrZero(liveRunning + kThreadStateOffset) : 0u;
+    const uint32_t runWaitQ = liveRunning != 0 ? Read32OrZero(liveRunning + kThreadWaitQueueOffset) : 0u;
+    const uint32_t runPrio = liveRunning != 0 ? Read32OrZero(liveRunning + kThreadPriorityOffset) : 0u;
+    const uint32_t curState = liveCurrent != 0 ? Read16OrZero(liveCurrent + kThreadStateOffset) : 0u;
+    RT_LOGF(RT_TAG_OS,
+            "guest_watchdog_live os_running=0x%08X run_state=%u run_prio=%u run_wait_q=0x%08X "
+            "os_current=0x%08X cur_state=%u pending=0x%08X\n",
+            liveRunning, runState, runPrio, runWaitQ, liveCurrent, curState, livePending);
+
+    const uint64_t swBegin = g_live.switchBeginUs.load(std::memory_order_relaxed);
+    RT_LOGF(RT_TAG_OS,
+            "guest_live switch_seq=%llu switching=%u from=0x%08X to=0x%08X from_entry=0x%08X to_entry=0x%08X "
+            "slice_age_us=%lld last_return_age_us=%lld\n",
+            static_cast<unsigned long long>(g_live.switchSeq.load(std::memory_order_relaxed)),
+            g_live.switchInProgress.load(std::memory_order_acquire),
+            g_live.activeFrom.load(std::memory_order_relaxed),
+            g_live.activeTo.load(std::memory_order_relaxed),
+            g_live.activeFromEntry.load(std::memory_order_relaxed),
+            g_live.activeToEntry.load(std::memory_order_relaxed),
+            static_cast<long long>(swBegin != 0 ? static_cast<int64_t>(nowUs - swBegin) : -1),
+            static_cast<long long>(g_live.lastReturnUs.load(std::memory_order_relaxed) != 0
+                ? static_cast<int64_t>(nowUs - g_live.lastReturnUs.load(std::memory_order_relaxed)) : -1));
+
+    const uint64_t lastSched = g_live.lastSchedulerUs.load(std::memory_order_relaxed);
+    const uint64_t lastIdle = g_live.lastIdleUs.load(std::memory_order_relaxed);
+    const uint64_t lastPoll = g_live.lastViPollUs.load(std::memory_order_relaxed);
+    RT_LOGF(RT_TAG_OS,
+            "guest_live sched_select_total=%llu sched_idle_total=%llu vi_poll_total=%llu "
+            "last_scheduler_age_us=%lld last_idle_age_us=%lld last_vi_poll_age_us=%lld "
+            "idle_audio_pending_total=%llu idle_vi_after_audio_total=%llu idle_break_after_service_total=%llu\n",
+            static_cast<unsigned long long>(g_live.schedulerSelectTotal.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(g_live.schedulerIdleTotal.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(g_live.viPollTotal.load(std::memory_order_relaxed)),
+            static_cast<long long>(lastSched != 0 ? static_cast<int64_t>(nowUs - lastSched) : -1),
+            static_cast<long long>(lastIdle != 0 ? static_cast<int64_t>(nowUs - lastIdle) : -1),
+            static_cast<long long>(lastPoll != 0 ? static_cast<int64_t>(nowUs - lastPoll) : -1),
+            static_cast<unsigned long long>(g_live.idleAudioPendingTotal.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(g_live.idleViAfterAudioTotal.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(g_live.idleBreakAfterServiceTotal.load(std::memory_order_relaxed)));
+
+    VI_HLE_LogDiagnostics();
+
+    static bool s_dumpedThreadTable = false;
+    if (!s_dumpedThreadTable) {
+        s_dumpedThreadTable = true;
         DumpGuestThreadTable();
     }
 #else

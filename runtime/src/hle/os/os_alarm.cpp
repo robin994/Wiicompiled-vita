@@ -21,6 +21,7 @@ extern "C" void func_801A0620(CpuContext* ctx);
 // Alarm queue helpers
 // ============================================================================
 extern bool NandProcessPendingCallbacks(CpuContext* cpu, int maxToProcess);
+extern bool DvdProcessPendingCallbacks(CpuContext* cpu, int maxToProcess);
 
 namespace {
 // OSAlarm link layout matches InsertAlarm in the original RVL OS:
@@ -240,6 +241,10 @@ bool ProcessAlarmQueue(CpuContext* cpu, int maxToProcess)
     }
 
     if (NandProcessPendingCallbacks(cpu, maxToProcess)) {
+        handledAny = true;
+        completionNeedsReschedule = true;
+    }
+    if (DvdProcessPendingCallbacks(cpu, maxToProcess < 64 ? 64 : maxToProcess)) {
         handledAny = true;
         completionNeedsReschedule = true;
     }

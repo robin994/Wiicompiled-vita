@@ -1,4 +1,5 @@
 #include "hle_stubs.h"
+#include "guest_stall_watchdog.h"
 #include "memory.h"
 #include "abi_bridge.h"
 #include "guest_interrupt_context.h"
@@ -259,19 +260,47 @@ uint32_t ExtractTvFormat(uint32_t tvMode) {
 // Re-entry guard to prevent AdvanceRetrace calling itself via OSWakeupThread -> SelectThread
 static std::atomic<bool> s_inAdvanceRetrace{false};
 
+struct ViDiag {
+    std::atomic<uint64_t> pollTotal{0};
+    std::atomic<uint64_t> dueTotal{0};
+    std::atomic<uint64_t> advanceEnterTotal{0};
+    std::atomic<uint64_t> advanceReentryTotal{0};
+    std::atomic<uint64_t> advanceCompleteTotal{0};
+    std::atomic<uint64_t> preCbTotal{0};
+    std::atomic<uint64_t> postCbTotal{0};
+    std::atomic<uint64_t> postCbSkippedNoSystem{0};
+    std::atomic<uint64_t> postCbZero{0};
+    std::atomic<uint64_t> retraceQueueWakeTotal{0};
+    std::atomic<uint32_t> lastPostCbAddr{0};
+    std::atomic<uint64_t> lastPostCbUs{0};
+    std::atomic<uint32_t> lastRetraceCount{0};
+    std::atomic<uint64_t> lastAdvanceCompleteUs{0};
+};
+ViDiag g_viDiag;
+
+inline uint64_t MonoUs() {
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+        Clock::now().time_since_epoch()).count());
+}
+
 // Set while VI_HLE_PresentFrame runs its seal/pace/pre-warm sequence. Guest callbacks
 // serviced during that window (pace-loop alarms, GX timing polls) still see the stale
 // hasValidXfb/g_auroraFrameActive flags; a retrace-context present fired from them would
 // end the freshly pre-warmed empty frame and show it as a black frame group.
 static std::atomic<bool> s_presentSequenceActive{false};
 
-void AdvanceRetrace(CpuContext* ctx, Clock::time_point retraceStamp, bool serviceAurora) {
+bool AdvanceRetrace(CpuContext* ctx, Clock::time_point retraceStamp, bool serviceAurora) {
     // Prevent re-entry - this can happen if OSWakeupThread triggers SelectThread
     // which goes idle and calls ProcessTimerEvents again
     if (s_inAdvanceRetrace.exchange(true)) {
-        return;
+        g_viDiag.advanceReentryTotal.fetch_add(1, std::memory_order_relaxed);
+        return false;
     }
-    
+    struct GuardReset {
+        ~GuardReset() { s_inAdvanceRetrace.store(false, std::memory_order_release); }
+    } guardReset;
+    g_viDiag.advanceEnterTotal.fetch_add(1, std::memory_order_relaxed);
+
     uint32_t preCb = 0;
     uint32_t postCb = 0;
     uint32_t retraceValue = 0;
@@ -321,6 +350,7 @@ void AdvanceRetrace(CpuContext* ctx, Clock::time_point retraceStamp, bool servic
     if (ctx) {
         ctx->gpr[3] = kViRetraceQueueAddr;
         OSWakeupThread_HLE_801aaaa4(ctx);
+        g_viDiag.retraceQueueWakeTotal.fetch_add(1, std::memory_order_relaxed);
     }
 
     if (serviceAurora) {
@@ -338,6 +368,7 @@ void AdvanceRetrace(CpuContext* ctx, Clock::time_point retraceStamp, bool servic
     if (ctx) {
         ctx->gpr[3] = retraceValue;
         if (preCb) {
+            g_viDiag.preCbTotal.fetch_add(1, std::memory_order_relaxed);
             InvokeIndirectCpu(preCb, ctx);
         }
         if (postCb) {
@@ -345,8 +376,15 @@ void AdvanceRetrace(CpuContext* ctx, Clock::time_point retraceStamp, bool servic
             // The callback dereferences sSystem which must be non-null
             uint32_t sSystemPtr = Memory::Read32(kEggSSystemAddr);
             if (sSystemPtr != 0) {
+                g_viDiag.postCbTotal.fetch_add(1, std::memory_order_relaxed);
+                g_viDiag.lastPostCbAddr.store(postCb, std::memory_order_relaxed);
+                g_viDiag.lastPostCbUs.store(MonoUs(), std::memory_order_relaxed);
                 InvokeIndirectCpu(postCb, ctx);
+            } else {
+                g_viDiag.postCbSkippedNoSystem.fetch_add(1, std::memory_order_relaxed);
             }
+        } else {
+            g_viDiag.postCbZero.fetch_add(1, std::memory_order_relaxed);
         }
     }
 
@@ -375,8 +413,10 @@ void AdvanceRetrace(CpuContext* ctx, Clock::time_point retraceStamp, bool servic
         }
     }
 
-    // Clear re-entry guard
-    s_inAdvanceRetrace.store(false);
+    g_viDiag.advanceCompleteTotal.fetch_add(1, std::memory_order_relaxed);
+    g_viDiag.lastRetraceCount.store(retraceValue, std::memory_order_relaxed);
+    g_viDiag.lastAdvanceCompleteUs.store(MonoUs(), std::memory_order_relaxed);
+    return true;
 }
 
 bool AdvanceDueRetraces(CpuContext* ctx, int maxToProcess, bool serviceAurora)
@@ -397,8 +437,14 @@ bool AdvanceDueRetraces(CpuContext* ctx, int maxToProcess, bool serviceAurora)
             }
         }
 
+        g_viDiag.dueTotal.fetch_add(1, std::memory_order_relaxed);
 
-        AdvanceRetrace(ctx, target, serviceAurora);
+        if (!AdvanceRetrace(ctx, target, serviceAurora)) {
+            // Re-entry: another AdvanceRetrace is on the stack. Stop here so we
+            // don't spin maxToProcess times against a stale lastRetrace, and do
+            // not claim progress that did not happen.
+            break;
+        }
         advancedAny = true;
     }
 
@@ -424,9 +470,58 @@ bool VI_HLE_IsAdvancingRetrace() {
     return s_inAdvanceRetrace.load(std::memory_order_acquire);
 }
 
+void VI_HLE_LogDiagnostics() noexcept {
+    int64_t lastAgeUs = 0;
+    int64_t nextDueUs = 0;
+    uint32_t retraceCount = 0;
+    uint32_t preCbPtr = 0;
+    uint32_t postCbPtr = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_viMutex);
+        const auto now = Clock::now();
+        lastAgeUs = std::chrono::duration_cast<std::chrono::microseconds>(now - g_vi.lastRetrace).count();
+        nextDueUs = std::chrono::duration_cast<std::chrono::microseconds>(
+            (g_vi.lastRetrace + g_vi.retraceInterval) - now).count();
+        retraceCount = g_vi.retraceCount;
+        preCbPtr = g_vi.preRetraceCallback;
+        postCbPtr = g_vi.postRetraceCallback;
+    }
+    uint32_t sSystemPtr = 0;
+    try {
+        sSystemPtr = Memory::Read32(kEggSSystemAddr);
+    } catch (const Memory::AccessViolation&) {
+        sSystemPtr = 0;
+    }
+    RT_LOGF(RT_TAG_OS,
+            "vi_stall retrace_count=%u last_retrace_age_us=%lld next_retrace_due_us=%lld in_advance=%d "
+            "pre_cb=0x%08X post_cb=0x%08X sSystem=0x%08X "
+            "poll_total=%llu due_total=%llu advance_enter=%llu advance_reentry=%llu advance_complete=%llu "
+            "pre_cb_total=%llu post_cb_total=%llu post_cb_no_system=%llu post_cb_zero=%llu retrace_wake_total=%llu "
+            "last_post_cb=0x%08X last_post_cb_us=%llu last_retrace_count=%u last_advance_complete_us=%llu\n",
+            retraceCount, static_cast<long long>(lastAgeUs), static_cast<long long>(nextDueUs),
+            s_inAdvanceRetrace.load(std::memory_order_acquire) ? 1 : 0,
+            preCbPtr, postCbPtr, sSystemPtr,
+            static_cast<unsigned long long>(g_viDiag.pollTotal.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(g_viDiag.dueTotal.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(g_viDiag.advanceEnterTotal.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(g_viDiag.advanceReentryTotal.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(g_viDiag.advanceCompleteTotal.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(g_viDiag.preCbTotal.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(g_viDiag.postCbTotal.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(g_viDiag.postCbSkippedNoSystem.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(g_viDiag.postCbZero.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(g_viDiag.retraceQueueWakeTotal.load(std::memory_order_relaxed)),
+            g_viDiag.lastPostCbAddr.load(std::memory_order_relaxed),
+            static_cast<unsigned long long>(g_viDiag.lastPostCbUs.load(std::memory_order_relaxed)),
+            g_viDiag.lastRetraceCount.load(std::memory_order_relaxed),
+            static_cast<unsigned long long>(g_viDiag.lastAdvanceCompleteUs.load(std::memory_order_relaxed)));
+}
+
 // Advance every retrace whose interval has already elapsed. Safe to call from
 // busy loops (GX drawing, the scheduler's idle spin) to keep VBlank ticking.
 void VI_HLE_PollRetrace(CpuContext* ctx) {
+    g_viDiag.pollTotal.fetch_add(1, std::memory_order_relaxed);
+    GuestStallWatchdog::RecordSchedulerTick(3u);
     AdvanceDueRetraces(ctx, 8, true);
 }
 

@@ -2,6 +2,7 @@
 #include "memory.h"
 #include "abi_bridge.h"
 #include "hle_stubs.h"
+#include "guest_stall_watchdog.h"
 #include "runtime_log.h"
 
 // Defined in hle/os/os_sleep.cpp; the sleep-timer table is file-local there.
@@ -517,6 +518,8 @@ void GuestFiberManager::SwitchToThread(uint32_t guestThreadAddr, CpuContext* cpu
     // fibers are consuming the large CPU gaps between menu draws.
 #if defined(MKW_TARGET_VITA)
     const auto guestSliceBegin = std::chrono::steady_clock::now();
+    GuestStallWatchdog::RecordFiberSwitchBegin(previousThread, guestThreadAddr,
+                                               previousEntryPoint, targetEntryPoint);
 #endif
 #if defined(_WIN32)
     SwitchToFiber(fiberHandle);
@@ -528,13 +531,14 @@ void GuestFiberManager::SwitchToThread(uint32_t guestThreadAddr, CpuContext* cpu
     co_switch(static_cast<cothread_t>(fiberHandle));
 #endif
 #if defined(MKW_TARGET_VITA)
+    GuestStallWatchdog::RecordFiberSwitchEnd();
     const auto guestSliceUsSigned = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now() - guestSliceBegin).count();
     const uint64_t guestSliceUs = static_cast<uint64_t>(guestSliceUsSigned > 0 ? guestSliceUsSigned : 0);
-    if (guestSliceUs >= 4000u) {
+    if (guestSliceUs >= 20000u) {
         static thread_local uint32_t s_longGuestSliceLogs = 0;
         const uint32_t n = ++s_longGuestSliceLogs;
-        if (n <= 96u || (n & (n - 1u)) == 0u) {
+        if (n <= 8u || (n & (n - 1u)) == 0u) {
             RT_LOGF(RT_TAG_OS,
                     "fiber_slice n=%u from=0x%08X to=0x%08X from_entry=0x%08X to_entry=0x%08X elapsed_us=%llu\n",
                     n, previousThread, guestThreadAddr, previousEntryPoint, targetEntryPoint,

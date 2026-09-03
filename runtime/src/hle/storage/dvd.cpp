@@ -15,11 +15,14 @@ extern "C" void GxNotifyGuestRamDmaWrite(uint32_t addr, uint32_t size);
 #include "runtime_log.h"
 #include "runtime_product.h"
 
+#include <array>
+#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <algorithm>
+#include <deque>
 #include <vector>
 #include <string>
 #include <map>
@@ -105,10 +108,21 @@ extern "C" uint32_t g_dvdFstReservedSize;
 
 // Byte-wise copy into guest RAM plus the DMA notification the GX caches need.
 static void CopyToGuestAsDma(uint32_t dest, const uint8_t* data, size_t size) {
+    if (size == 0) {
+        return;
+    }
+    const uint32_t size32 = static_cast<uint32_t>(size);
+    if (Memory::Contains(dest, size32)) {
+        if (uint8_t* host = Memory::GetPointer(dest, size32)) {
+            std::memcpy(host, data, size);
+            GxNotifyGuestRamDmaWrite(dest, size32);
+            return;
+        }
+    }
     for (size_t i = 0; i < size; ++i) {
         Memory::Write8(dest + static_cast<uint32_t>(i), data[i]);
     }
-    GxNotifyGuestRamDmaWrite(dest, static_cast<uint32_t>(size));
+    GxNotifyGuestRamDmaWrite(dest, size32);
 }
 
 // Host path strings only ever leave this module as UTF-8 display text.
@@ -169,32 +183,250 @@ static const fs::path& GetDvdRoot() {
 }
 
 static std::string NormalizePath(const std::string& path);
+static void CompleteDvdCancelState();
 
-static void InvokeDvdCallback(uint32_t callbackPtr, int32_t result, uint32_t fileInfoPtr) {
-    if (callbackPtr == 0) {
-        return;
-    }
-    if (!TranslatedFunctionRegistry::FindByAddressPtr(callbackPtr)) {
-        return;
-    }
-    auto& cpu = GetPersistentCpuContext();
-    cpu.gpr[3] = static_cast<uint32_t>(result);
-    cpu.gpr[4] = fileInfoPtr;
-    InvokeIndirectCpu(callbackPtr, &cpu);
+namespace {
+
+constexpr uint32_t kOsRunningContextAddr = 0x800000E4u;
+
+struct PendingDvdCallback {
+    uint32_t callbackPtr = 0;
+    int32_t  result      = 0;
+    uint32_t block       = 0;
+    bool     lowLevel    = false;
+    int32_t  finalState  = DVD_STATE_END;
+    uint32_t transferred = 0;
+};
+
+std::mutex g_pendingDvdMutex;
+std::deque<PendingDvdCallback> g_pendingDvd;
+std::atomic<uint32_t> g_pendingDvdCount{0};
+thread_local int g_dvdDrainDepth = 0;
+
+bool DvdDeferEnabled() {
+    static const bool enabled = [] {
+#if defined(MKW_VITA_DVD_DEFER) && !MKW_VITA_DVD_DEFER
+        return false;
+#endif
+        const char* env = std::getenv("MKW_VITA_DVD_DEFER");
+        if (env && env[0] == '0') {
+            return false;
+        }
+        std::error_code ec;
+        if (fs::exists("ux0:data/wiicompiled-vita/dvd_defer_off", ec)) {
+            return false;
+        }
+        return true;
+    }();
+    return enabled;
 }
 
-// Same shape as InvokeDvdCallback minus the command block: the DVDLow callbacks
-// take only a result, so r4 is deliberately left untouched here.
+bool DvdCanDefer() {
+    if (!DvdDeferEnabled()) {
+        return false;
+    }
+    uint32_t running = 0;
+    if (!Memory::TryRead32(kOsRunningContextAddr, running)) {
+        return false;
+    }
+    return running != 0;
+}
+
+void DispatchDvdCallbackNow(const PendingDvdCallback& cb) {
+    if (cb.callbackPtr == 0) {
+        return;
+    }
+    if (!TranslatedFunctionRegistry::FindByAddressPtr(cb.callbackPtr)) {
+        return;
+    }
+    CpuContext callbackCpu = GetPersistentCpuContext();
+    callbackCpu.gpr[3] = static_cast<uint32_t>(cb.result);
+    if (!cb.lowLevel) {
+        callbackCpu.gpr[4] = cb.block;
+    }
+    CpuContextScope scope(&callbackCpu);
+    InvokeIndirectCpu(cb.callbackPtr, &callbackCpu);
+}
+
+void PublishDvdCompletionState(const PendingDvdCallback& cb) {
+    if (cb.block != 0) {
+        try {
+            Memory::Write32(cb.block + DVD_CB_OFFSET_TRANSFERRED, cb.transferred);
+            Memory::Write32(cb.block + DVD_CB_OFFSET_STATE, static_cast<uint32_t>(cb.finalState));
+        } catch (const Memory::AccessViolation&) {
+        }
+    }
+    CompleteDvdCancelState();
+}
+
+void QueueDvdCompletion(PendingDvdCallback cb) {
+    if (!DvdCanDefer()) {
+        PublishDvdCompletionState(cb);
+        DispatchDvdCallbackNow(cb);
+        return;
+    }
+    if (cb.block != 0) {
+        try {
+            Memory::Write32(cb.block + DVD_CB_OFFSET_STATE, DVD_STATE_BUSY);
+        } catch (const Memory::AccessViolation&) {
+        }
+    }
+    std::lock_guard<std::mutex> lock(g_pendingDvdMutex);
+    g_pendingDvd.push_back(cb);
+    g_pendingDvdCount.fetch_add(1, std::memory_order_release);
+}
+
+struct HostFileSlot {
+    const DVDFileEntry* entry = nullptr;
+    FILE* file = nullptr;
+    uint64_t lastUse = 0;
+};
+constexpr size_t kHostFileSlots = 8;
+std::array<HostFileSlot, kHostFileSlots> g_hostFiles{};
+uint64_t g_hostFileClock = 0;
+std::mutex g_hostFileMutex;
+
+FILE* AcquireHostFile(const DVDFileEntry& entry) {
+    std::lock_guard<std::mutex> lock(g_hostFileMutex);
+    ++g_hostFileClock;
+    HostFileSlot* victim = &g_hostFiles[0];
+    for (auto& slot : g_hostFiles) {
+        if (slot.entry == &entry && slot.file) {
+            slot.lastUse = g_hostFileClock;
+            return slot.file;
+        }
+        if (!slot.file) {
+            victim = &slot;
+            break;
+        }
+        if (slot.lastUse < victim->lastUse) {
+            victim = &slot;
+        }
+    }
+    if (victim->file) {
+        std::fclose(victim->file);
+    }
+    victim->file = std::fopen(RuntimeConfigFile::PathToUtf8(entry.hostPath).c_str(), "rb");
+    victim->entry = victim->file ? &entry : nullptr;
+    victim->lastUse = g_hostFileClock;
+    if (victim->file) {
+        std::setvbuf(victim->file, nullptr, _IONBF, 0);
+    }
+    return victim->file;
+}
+
+void DropHostFileCache() {
+    std::lock_guard<std::mutex> lock(g_hostFileMutex);
+    for (auto& slot : g_hostFiles) {
+        if (slot.file) {
+            std::fclose(slot.file);
+        }
+        slot = {};
+    }
+}
+
+bool DvdReadIntoGuest(const DVDFileEntry& entry, uint32_t fileOffset, uint32_t length,
+                      uint32_t guestDest, const char** why) {
+    if (length == 0) {
+        return true;
+    }
+    if (!Memory::Contains(guestDest, length)) {
+        *why = "DVD read destination is outside guest memory";
+        return false;
+    }
+    uint8_t* host = Memory::GetPointer(guestDest, length);
+    if (host == nullptr) {
+        std::vector<uint8_t> tmp;
+        DvdReadContract::HostReadFailure f;
+        if (!DvdReadContract::ReadExact(entry.hostPath, fileOffset, length, tmp, f)) {
+            *why = DvdReadContract::Describe(f);
+            return false;
+        }
+        CopyToGuestAsDma(guestDest, tmp.data(), tmp.size());
+        return true;
+    }
+    FILE* file = AcquireHostFile(entry);
+    if (file == nullptr) {
+        *why = "cannot open host file";
+        return false;
+    }
+    if (std::fseek(file, static_cast<long>(fileOffset), SEEK_SET) != 0) {
+        *why = "seek failed";
+        return false;
+    }
+    size_t done = 0;
+    while (done < length) {
+        const size_t n = std::fread(host + done, 1, length - done, file);
+        if (n == 0) {
+            *why = std::feof(file) ? "short read" : "read error";
+            return false;
+        }
+        done += n;
+    }
+    GxNotifyGuestRamDmaWrite(guestDest, length);
+    return true;
+}
+
+} // namespace
+
+bool DvdProcessPendingCallbacks(CpuContext* cpu, int maxToProcess) {
+    (void)cpu;
+    if (g_pendingDvdCount.load(std::memory_order_acquire) == 0) {
+        return false;
+    }
+    if (g_dvdDrainDepth != 0) {
+        return false;
+    }
+    struct DepthGuard {
+        DepthGuard() { ++g_dvdDrainDepth; }
+        ~DepthGuard() { --g_dvdDrainDepth; }
+    } depthGuard;
+
+    int processed = 0;
+    while (processed < maxToProcess) {
+        PendingDvdCallback cb{};
+        {
+            std::lock_guard<std::mutex> lock(g_pendingDvdMutex);
+            if (g_pendingDvd.empty()) {
+                break;
+            }
+            cb = g_pendingDvd.front();
+            g_pendingDvd.pop_front();
+            g_pendingDvdCount.fetch_sub(1, std::memory_order_release);
+        }
+        PublishDvdCompletionState(cb);
+        DispatchDvdCallbackNow(cb);
+        ++processed;
+    }
+#if defined(MKW_TARGET_VITA)
+    if (processed > 0) {
+        static uint32_t s_pumps = 0;
+        if (((++s_pumps) & 63u) == 0u) {
+            RT_LOGF(RT_TAG_OS, "dvd_pump n=%d left=%u\n", processed,
+                    g_pendingDvdCount.load(std::memory_order_relaxed));
+        }
+    }
+#endif
+    return processed != 0;
+}
+
+static void InvokeDvdCallback(uint32_t callbackPtr, int32_t result, uint32_t fileInfoPtr) {
+    PendingDvdCallback cb;
+    cb.callbackPtr = callbackPtr;
+    cb.result = result;
+    cb.block = fileInfoPtr;
+    cb.lowLevel = false;
+    cb.finalState = result >= 0 ? DVD_STATE_END : DVD_STATE_FATAL_ERROR;
+    cb.transferred = result >= 0 ? static_cast<uint32_t>(result) : 0u;
+    QueueDvdCompletion(cb);
+}
+
 static void InvokeDvdLowCallback(uint32_t callbackPtr, int32_t result) {
-    if (callbackPtr == 0) {
-        return;
-    }
-    if (!TranslatedFunctionRegistry::FindByAddressPtr(callbackPtr)) {
-        return;
-    }
-    auto& cpu = GetPersistentCpuContext();
-    cpu.gpr[3] = static_cast<uint32_t>(result);
-    InvokeIndirectCpu(callbackPtr, &cpu);
+    PendingDvdCallback cb;
+    cb.callbackPtr = callbackPtr;
+    cb.result = result;
+    cb.lowLevel = true;
+    QueueDvdCompletion(cb);
 }
 
 static void ReportDvdReadError(const std::string& hostPath,
@@ -411,6 +643,7 @@ static void RegisterFileEntry(std::string dvdPath, const fs::path& hostPath, uin
     const int32_t entryNum = static_cast<int32_t>(g_fileEntries.size());
     g_fileEntries.push_back(std::move(fileEntry));
     g_pathToEntry[NormalizePath(dvdPath)] = entryNum;
+    DropHostFileCache();
 }
 
 // True when a disc path already has an entry (vanilla disc or an earlier
@@ -687,6 +920,7 @@ static void BuildAndPublishRuntimeFst() {
     }
     g_fileEntries = std::move(indexedEntries);
     g_pathToEntry = std::move(image.pathToEntry);
+    DropHostFileCache();
 
     g_publishedExtents.clear();
     g_publishedExtents.reserve(g_fileEntries.size());
@@ -716,8 +950,12 @@ static void BuildAndPublishRuntimeFst() {
     }
 
     const uint32_t fstAddress = g_dvdFstReservedBase;
-    for (size_t i = 0; i < image.bytes.size(); ++i) {
-        Memory::Write8(fstAddress + static_cast<uint32_t>(i), image.bytes[i]);
+    if (uint8_t* fstHost = Memory::GetPointer(fstAddress, static_cast<uint32_t>(image.bytes.size()))) {
+        std::memcpy(fstHost, image.bytes.data(), image.bytes.size());
+    } else {
+        for (size_t i = 0; i < image.bytes.size(); ++i) {
+            Memory::Write8(fstAddress + static_cast<uint32_t>(i), image.bytes[i]);
+        }
     }
 
     Memory::Write32(0x80000038u, fstAddress);
@@ -973,14 +1211,10 @@ extern "C" int32_t DVDReadPrio_8015E834(uint32_t fileInfoPtr, uint32_t bufferPtr
                             "DVD read destination is outside guest memory");
     }
 
-    std::vector<uint8_t> tempBuf;
-    DvdReadContract::HostReadFailure failure;
-    if (!DvdReadContract::ReadExact(entry.hostPath, uOffset, uLength, tempBuf, failure)) {
-        return DvdReadFatal(fileInfoPtr, HostPathText(entry.hostPath), offset, uLength,
-                            DvdReadContract::Describe(failure));
+    const char* readWhy = nullptr;
+    if (!DvdReadIntoGuest(entry, uOffset, uLength, bufferPtr, &readWhy)) {
+        return DvdReadFatal(fileInfoPtr, HostPathText(entry.hostPath), offset, uLength, readWhy);
     }
-
-    CopyToGuestAsDma(bufferPtr, tempBuf.data(), uLength);
 
     Memory::Write32(fileInfoPtr + DVD_CB_OFFSET_TRANSFERRED, uLength);
     Memory::Write32(fileInfoPtr + DVD_CB_OFFSET_STATE, DVD_STATE_END);
@@ -1040,19 +1274,13 @@ extern "C" int32_t DVD__ReadAbsAsyncPrio_HLE_801628cc(uint32_t cmdBlockPtr,
                                      readInfo.fileOffset, requestedLength,
                                      "DVD read destination is outside guest memory");
         } else {
-            std::vector<uint8_t> tempBuf;
-            DvdReadContract::HostReadFailure failure;
-            if (!DvdReadContract::ReadExact(readInfo.entry->hostPath,
-                                            readInfo.fileOffset,
-                                            readInfo.readLength,
-                                            tempBuf,
-                                            failure)) {
+            const char* readWhy = nullptr;
+            if (!DvdReadIntoGuest(*readInfo.entry, readInfo.fileOffset, readInfo.readLength,
+                                  bufferPtr, &readWhy)) {
                 bytesRead = DvdReadFatal(cmdBlockPtr, HostPathText(readInfo.entry->hostPath),
-                                         readInfo.fileOffset, readInfo.readLength,
-                                         DvdReadContract::Describe(failure));
+                                         readInfo.fileOffset, readInfo.readLength, readWhy);
             } else {
-                CopyToGuestAsDma(bufferPtr, tempBuf.data(), tempBuf.size());
-                bytesRead = static_cast<int32_t>(tempBuf.size());
+                bytesRead = static_cast<int32_t>(readInfo.readLength);
             }
         }
 
@@ -1073,6 +1301,21 @@ extern "C" int32_t DVD__ReadAbsAsyncPrio_HLE_801628cc(uint32_t cmdBlockPtr,
 PPC_NATIVE_OVERRIDE(801628CC, DVD__ReadAbsAsyncPrio_HLE_801628cc, int32_t,
          (uint32_t cb, uint32_t b, int32_t l, int32_t o, uint32_t cbfn, int32_t p),
          (cb, b, l, o, cbfn, p));
+
+extern "C" int32_t DVD__GetCommandBlockStatus_HLE_80162a88(uint32_t block)
+{
+    DvdProcessPendingCallbacks(&GetPersistentCpuContext(), 64);
+    if (block == 0) {
+        return DVD_STATE_END;
+    }
+    try {
+        return static_cast<int32_t>(Memory::Read32(block + DVD_CB_OFFSET_STATE));
+    } catch (const Memory::AccessViolation&) {
+        return DVD_STATE_FATAL_ERROR;
+    }
+}
+PPC_NATIVE_OVERRIDE(80162A88, DVD__GetCommandBlockStatus_HLE_80162a88, int32_t,
+         (uint32_t b), (b));
 
 
 // ============================================================================
