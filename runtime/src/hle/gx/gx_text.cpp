@@ -10,6 +10,11 @@
 extern "C" void GX__Begin_8016f0f0(uint32_t primitive, uint32_t vtxFmt,
                                       uint32_t vertexCount);
 extern "C" void GX__LoadTexObj_80170f2c(uint32_t objAddr, uint32_t texMap);
+#if defined(MKW_TARGET_VITA)
+extern "C" bool GX_HLE_SubmitRawDrawFast(uint32_t primitive, uint32_t vtxFmt,
+                                            const uint8_t* vertices, uint16_t vtxCount,
+                                            uint32_t vertexBytes);
+#endif
 
 namespace {
 
@@ -70,11 +75,6 @@ void Text__GlyphDrawer__Draw_HLE_805cf598(CpuContext* ctx) {
         GX__LoadTexObj_80170f2c(textureObject, 0u);
     }
 
-    // The translated function sets LR to the instruction after GXBegin (0x805CF604).
-    // Keep that exact caller PC so guest hot-call attribution stays faithful.
-    ctx->lr = 0x805CF604u;
-    GX__Begin_8016f0f0(GX_QUADS, GX_VTXFMT0, 4u);
-
     const int32_t y0 = static_cast<int16_t>(
         MemoryInline::ReadResolved16(glyphBytes, 4u, glyph + 4u));
     const int32_t y1 = static_cast<int16_t>(
@@ -94,8 +94,25 @@ void Text__GlyphDrawer__Draw_HLE_805cf598(CpuContext* ctx) {
     for (size_t i = 0; i < words.size(); ++i) {
         StoreBe16(fifo.data() + i * 2u, words[i]);
     }
-    GX_HLE_FIFO_WriteBurst(fifo.data(), static_cast<uint32_t>(fifo.size()));
-    GX_HLE_RecordGlyphFast(setupRequired, textureLoaded);
+
+    bool rawDirect = false;
+#if defined(MKW_TARGET_VITA)
+    rawDirect = GX_HLE_SubmitRawDrawFast(GX_QUADS, GX_VTXFMT0, fifo.data(), 4u,
+                                         static_cast<uint32_t>(fifo.size()));
+    if (rawDirect) {
+        // The logical GXBegin still exists in the guest function even though the native
+        // fast path bypasses the incremental HLE parser. Preserve its profiler identity.
+        GX_HLE_RecordBeginCaller(0x805CF604u);
+    }
+#endif
+    if (!rawDirect) {
+        // Faithful fallback: the translated function sets LR to the instruction after
+        // GXBegin (0x805CF604), which is also the caller PC used by the hot profiler.
+        ctx->lr = 0x805CF604u;
+        GX__Begin_8016f0f0(GX_QUADS, GX_VTXFMT0, 4u);
+        GX_HLE_FIFO_WriteBurst(fifo.data(), static_cast<uint32_t>(fifo.size()));
+    }
+    GX_HLE_RecordGlyphFast(setupRequired, textureLoaded, rawDirect);
 
     // Match the volatile register image left by the translated implementation.
     ctx->gpr[0] = savedLr;

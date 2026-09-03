@@ -3,6 +3,7 @@
 #include "ppc_runtime.h"
 #include "memory.h"
 #include "runtime_log.h"
+#include "guest_stall_watchdog.h"
 
 namespace {
 
@@ -44,9 +45,21 @@ uint32_t RunMovieManagerPrepareAsync(uint32_t manager, CpuContext* cpu)
         return 0;
     }
 
+#if defined(MKW_VITA_DISABLE_MOVIES) && MKW_VITA_DISABLE_MOVIES
+    GuestStallWatchdog::RecordMovieManager(manager, Memory::Read32(manager + 0xACu), 0u);
+    static bool s_loggedMovieDisable = false;
+    if (!s_loggedMovieDisable) {
+        s_loggedMovieDisable = true;
+        RT_LOGF(RT_TAG_HLE, "movie: THP playback disabled (MKW_VITA_DISABLE_MOVIES)\n");
+    }
+    cpu->gpr[3] = 0;
+    return 0;
+#else
     if (Memory::Read32(manager + 0xACu) != 0) {
         return cpu->gpr[3];
     }
+
+    GuestStallWatchdog::RecordMovieManager(manager, Memory::Read32(manager + 0xACu), 0u);
 
     auto callThpPlayerOpen = [&]() -> uint32_t {
         CpuContextScope scope(cpu);
@@ -110,7 +123,9 @@ uint32_t RunMovieManagerPrepareAsync(uint32_t manager, CpuContext* cpu)
         Memory::Write32(manager + 0xACu, 1);
     }
     cpu->gpr[3] = prepareResult;
+    GuestStallWatchdog::RecordMovieManager(manager, Memory::Read32(manager + 0xACu), prepareResult);
     return prepareResult;
+#endif
 }
 
 void ClearTaskJob(uint32_t taskThread, uint32_t job)
@@ -139,6 +154,7 @@ extern "C" void TaskThread_run_HLE_80242d7c(CpuContext* ctx) {
     if (!Memory::Contains(taskThread + kTaskMessageQueueOffset, 0x4Cu)) {
         return;
     }
+    GuestStallWatchdog::RecordTaskThread(taskThread, 0u, 0u, 0u);
 
     // Match the original PPC prologue: TaskThread::Run seeds GQR2-GQR5 before
     // servicing callbacks. Some worker callbacks rely on these quantization
@@ -173,6 +189,7 @@ extern "C" void TaskThread_run_HLE_80242d7c(CpuContext* ctx) {
             const uint32_t arg = Memory::Read32(job + kJobArgOffset);
             const uint32_t token = Memory::Read32(job + kJobTokenOffset);
             const uint32_t onDone = Memory::Read32(job + kJobOnDoneOffset);
+            GuestStallWatchdog::RecordTaskThread(taskThread, job, callback, arg);
 
             if (callback != 0) {
                 CpuContextScope scope(cpu);
@@ -204,6 +221,7 @@ extern "C" void TaskThread_run_HLE_80242d7c(CpuContext* ctx) {
         }
 
         ClearTaskJob(taskThread, job);
+        GuestStallWatchdog::RecordTaskThread(taskThread, 0u, 0u, 0u);
     }
 }
 PPC_NATIVE_OVERRIDE_VOID(80242D7C, TaskThread_run_HLE_80242d7c, (CpuContext* ctx), (ctx));

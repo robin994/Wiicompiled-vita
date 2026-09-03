@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "abi_bridge.h"
+#include "guest_stall_watchdog.h"
 #include "memory.h"
 #include "hle_stubs.h"
 #include "ppc_runtime.h"
@@ -461,7 +462,9 @@ extern "C" void OSSleepThread_HLE_801aa9b8(CpuContext* ctx)
 
         // Set reschedule flag and switch threads
         ::Memory::Write32(kSchedulerReschedCounterAddr, 1);
-        
+
+        GuestStallWatchdog::TraceSchedEvent(1u, currentThread, queuePtr, cpu->lr);
+
         // Match the original SDK behavior: sleep yields via SelectThread(0).
         cpu->gpr[3] = 0;
         SelectThread_801a9c08(cpu);

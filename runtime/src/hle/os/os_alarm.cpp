@@ -446,6 +446,8 @@ PPC_NATIVE_OVERRIDE_VOID(801A08E0, OS__SetPeriodicAlarm_801a08e0, (CpuContext* c
 // returning 0 when the manager pointer (0x80386298) is null.
 extern "C" uint32_t RFLiIsWorking_HLE_800bd860()
 {
+    static thread_local uint64_t s_rflWorkingCalls = 0;
+    const uint64_t callOrdinal = ++s_rflWorkingCalls;
     // Pump alarms/callbacks on the current guest thread when available. Using a
     // detached persistent context here can leave the busy loop waiting on work
     // that completed on the wrong scheduling context.
@@ -462,10 +464,16 @@ extern "C" uint32_t RFLiIsWorking_HLE_800bd860()
 
     try {
         const uint32_t managerBase = ::Memory::Read32(kRflManagerPtrAddr);
-        if (managerBase == 0) {
-            return 0;
+        const uint32_t working = managerBase != 0
+            ? ::Memory::Read32(managerBase + kWorkingFlagOffset) : 0u;
+        // Powers-of-two logging makes a runaway RFL busy loop visible without turning
+        // runtime.log itself into the bottleneck during a multi-minute black screen.
+        if (callOrdinal <= 8u || (callOrdinal & (callOrdinal - 1u)) == 0u) {
+            RT_LOGF(RT_TAG_OS,
+                    "rfl_working n=%llu manager=0x%08X flag=0x%08X\n",
+                    static_cast<unsigned long long>(callOrdinal), managerBase, working);
         }
-        return ::Memory::Read32(managerBase + kWorkingFlagOffset);
+        return working;
     } catch (const ::Memory::AccessViolation& e) {
         LogMemoryError(RT_TAG_OS, "RFLiIsWorking", e);
         return 0;

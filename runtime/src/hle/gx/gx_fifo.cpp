@@ -112,6 +112,44 @@ static bool TrySubmitRawDirectFifoDraw(const uint8_t* packet, uint32_t packetByt
     return true;
 }
 
+extern "C" bool GX_HLE_SubmitRawDrawFast(uint32_t primitive, uint32_t vtxFmt,
+                                            const uint8_t* vertices, uint16_t vtxCount,
+                                            uint32_t vertexBytes) {
+    if (vertices == nullptr || vtxCount == 0 || vertexBytes == 0 || vtxFmt >= GX_MAX_VTXFMT) {
+        return false;
+    }
+
+    uint32_t vertexSize = 0;
+    const GXVtxFmt fmt = static_cast<GXVtxFmt>(vtxFmt);
+    if (!TryGetRawDirectFifoVertexSize(fmt, vertexSize) ||
+        vertexSize * static_cast<uint32_t>(vtxCount) != vertexBytes) {
+        return false;
+    }
+
+    EnsureAuroraFrameActive();
+    g_hleGxState.currentVtxFmt = fmt;
+    g_hleGxState.currentPrim = static_cast<GXPrimitive>(primitive);
+    g_hleGxState.vertsRemaining = 0;
+    g_hleGxState.inBegin = false;
+    g_hleGxState.auroraBeginCalled = false;
+    g_hleGxState.ResetVertex();
+
+    // Publish the same HLE vertex state GX__Begin would have published, but feed the
+    // complete quad directly to Aurora instead of reparsing eight gather-pipe writes.
+    // This path is deliberately all-direct only; any unexpected glyph layout falls
+    // back to the faithful GXBegin + FIFO implementation in gx_text.cpp.
+    PublishAuroraVtxState(fmt, AuroraVtxPublishOptions{/*includeNbt=*/false,
+                                                       /*fmtLoopFirst=*/static_cast<int>(GX_VA_POS),
+                                                       /*fmtLoopLast=*/static_cast<int>(GX_VA_TEX7)});
+    EnsureDefaultGxAlphaCompare();
+    if (!aurora::gx::fifo::submit_raw_draw(static_cast<GXPrimitive>(primitive), fmt, vertices,
+                                            vtxCount, vertexBytes)) {
+        return false;
+    }
+    GXMarkFrameWork();
+    return true;
+}
+
 static void DecodeColorFromArray(uint32_t addr, GXCompType type, GXCompCnt cnt, GXColor& out) {
     // Gather exactly the bytes the shared decoder consumes. GX_RGBX8 is the one
     // format whose stream footprint (4 bytes) exceeds what is decoded (3), and

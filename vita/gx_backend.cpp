@@ -1,5 +1,7 @@
 #include "wiicompiled_vita/gx_backend.h"
 #include "wiicompiled_vita/host_thread.h"
+#include "guest_stall_watchdog.h"
+#include "abi_bridge.h"
 #include "runtime_log.h"
 #if defined(MKW_VITA_AURORA_RENDERER)
 #include "aurora_packet_renderer.h"
@@ -2722,6 +2724,7 @@ void RenderWorkerMain() {
             if (!g_renderWake.wait_for(lock, std::chrono::milliseconds(100),
                                        [] { return g_renderStop || g_renderPending; })) {
                 lock.unlock();
+                GuestStallWatchdog::Poll(sceKernelGetProcessTimeWide());
                 if (bootConsoleActive) {
                     RenderBootConsole();
                 }
@@ -2781,6 +2784,16 @@ void RenderWorkerMain() {
             }
             g_renderIdle.notify_all();
             continue;
+        }
+
+        const bool traceLargeFrame = packet.geometry.drawCount >= 1000u;
+        if (traceLargeFrame) {
+            RT_LOGF(RT_TAG_GX,
+                    "render_large phase=begin serial=%llu draws=%u vertices=%u efb=%u\n",
+                    static_cast<unsigned long long>(serial),
+                    static_cast<unsigned>(packet.geometry.drawCount),
+                    static_cast<unsigned>(packet.geometry.vertexCount),
+                    static_cast<unsigned>(packet.geometry.efbCommandCount));
         }
 
         if (bootConsoleActive) {
@@ -2957,6 +2970,14 @@ void RenderWorkerMain() {
 
             for (u16 i = 0; i < packet.geometry.drawCount; ++i) {
 #if defined(MKW_VITA_AURORA_RENDERER)
+                if (traceLargeFrame && (i % 128u) == 0u) {
+                    RT_LOGF(RT_TAG_GX,
+                            "render_large phase=draw_progress serial=%llu draw=%u/%u efb_next=%u elapsed_us=%llu\n",
+                            static_cast<unsigned long long>(serial), static_cast<unsigned>(i),
+                            static_cast<unsigned>(packet.geometry.drawCount),
+                            static_cast<unsigned>(nextEfbCommand),
+                            static_cast<unsigned long long>(sceKernelGetProcessTimeWide() - frameRenderBeginUs));
+                }
                 ExecuteEfbCommandsAt(i);
 #endif
                 const GeometryDraw& draw = packet.geometry.draws[i];
@@ -3337,8 +3358,20 @@ void RenderWorkerMain() {
 #if defined(MKW_VITA_AURORA_RENDERER)
             ExecuteEfbCommandsAt(packet.geometry.drawCount);
             auroraSubmitEndUs = sceKernelGetProcessTimeWide();
+            if (traceLargeFrame) {
+                RT_LOGF(RT_TAG_GX,
+                        "render_large phase=submit_done serial=%llu efb_done=%u elapsed_us=%llu\n",
+                        static_cast<unsigned long long>(serial), static_cast<unsigned>(nextEfbCommand),
+                        static_cast<unsigned long long>(auroraSubmitEndUs - frameRenderBeginUs));
+            }
             auroraFrameStats = WiiCompiledVita::AuroraPacketRendererEndFrame();
             auroraEndFrameEndUs = sceKernelGetProcessTimeWide();
+            if (traceLargeFrame) {
+                RT_LOGF(RT_TAG_GX,
+                        "render_large phase=endframe_done serial=%llu elapsed_us=%llu\n",
+                        static_cast<unsigned long long>(serial),
+                        static_cast<unsigned long long>(auroraEndFrameEndUs - frameRenderBeginUs));
+            }
 #else
 #if defined(MKW_VITA_VITAGL_SPEEDHACK)
             glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -3362,12 +3395,22 @@ void RenderWorkerMain() {
         }
 #endif
         const uint64_t swapBeginUs = sceKernelGetProcessTimeWide();
+        if (traceLargeFrame) {
+            RT_LOGF(RT_TAG_GX, "render_large phase=swap_begin serial=%llu elapsed_us=%llu\n",
+                    static_cast<unsigned long long>(serial),
+                    static_cast<unsigned long long>(swapBeginUs - frameRenderBeginUs));
+        }
         if (traceGpu) {
             RT_LOGF(RT_TAG_GX, "gpu_trace frame=%llu phase=swap_begin\n",
                     static_cast<unsigned long long>(serial));
         }
         vglSwapBuffers(GL_FALSE);
         const uint64_t swapEndUs = sceKernelGetProcessTimeWide();
+        if (traceLargeFrame) {
+            RT_LOGF(RT_TAG_GX, "render_large phase=swap_end serial=%llu elapsed_us=%llu\n",
+                    static_cast<unsigned long long>(serial),
+                    static_cast<unsigned long long>(swapEndUs - frameRenderBeginUs));
+        }
         if (traceGpu) {
             RT_LOGF(RT_TAG_GX, "gpu_trace frame=%llu phase=swap_end\n",
                     static_cast<unsigned long long>(serial));
@@ -3555,6 +3598,11 @@ void RenderWorkerMain() {
             g_stats.textureIa8Uploads += textureCounters.ia8Uploads;
             g_stats.textureCmprUploads += textureCounters.cmprUploads;
         }
+        if (traceLargeFrame) {
+            RT_LOGF(RT_TAG_GX, "render_large phase=completed serial=%llu total_us=%llu\n",
+                    static_cast<unsigned long long>(serial),
+                    static_cast<unsigned long long>(sceKernelGetProcessTimeWide() - frameRenderBeginUs));
+        }
         g_renderIdle.notify_all();
     }
 
@@ -3707,6 +3755,9 @@ void SubmitFrame() {
     lock.unlock();
     g_renderWake.notify_one();
 
+    GuestStallWatchdog::RecordFrame(submittedSerial, packetCopyEndUs, producerIntervalUs,
+                                    TryGetCpuContext());
+
 #if defined(MKW_TARGET_VITA)
     static std::uint32_t capacitySummaryCount = 0;
     if (g_pendingFrame.counters.immediateDrawCapacityFailures != 0 && capacitySummaryCount < 12u) {
@@ -3719,7 +3770,8 @@ void SubmitFrame() {
                 static_cast<unsigned long long>(g_pendingFrame.counters.immediateDrawCapacityFailures),
                 g_pendingFrame.geometry.droppedVertices);
     }
-    if (submittedSerial <= 8u || (submittedSerial % 120u) == 0u || producerDraws > 300u) {
+    if (submittedSerial <= 8u || (submittedSerial % 30u) == 0u ||
+        producerDraws >= 1000u || producerIntervalUs >= 1000000u) {
         RT_LOGF(RT_TAG_GX,
                 "producer_frame=%llu interval_us=%llu queue_wait_us=%llu packet_copy_us=%llu "
                 "prior_wait_calls=%llu prior_wait_us=%llu draws=%u vertices=%u efb_cmds=%u\n",

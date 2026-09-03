@@ -9,6 +9,7 @@
 #include "ppc_runtime.h"
 #include "runtime_log.h"
 #include "os_internal.h"
+#include "guest_stall_watchdog.h"
 
 // ============================================================================
 // OSMessageQueue HLE
@@ -119,6 +120,7 @@ int32_t MsgQueueOp(CpuContext* cpu, const char* who, uint32_t queuePtr, bool blo
         try {
             if (ready(queuePtr)) {
                 apply(queuePtr);
+                GuestStallWatchdog::TraceSchedEvent(6u, queuePtr, wakeOffset, cpu->lr);
                 cpu->gpr[3] = queuePtr + wakeOffset;
                 OSWakeupThread_HLE_801aaaa4(cpu);
                 cpu->gpr[3] = 1;
@@ -138,6 +140,7 @@ int32_t MsgQueueOp(CpuContext* cpu, const char* who, uint32_t queuePtr, bool blo
             return 0;
         }
 
+        GuestStallWatchdog::TraceSchedEvent(7u, queuePtr, blockOffset, cpu->lr);
         cpu->gpr[3] = queuePtr + blockOffset;
         OSSleepThread_HLE_801aa9b8(cpu);
     }

@@ -88,11 +88,17 @@ struct GxCpuPerfSnapshot {
     uint64_t glyphFastCalls = 0;
     uint64_t glyphSetupCalls = 0;
     uint64_t glyphTextureLoads = 0;
+    uint64_t glyphRawDirectCalls = 0;
+    uint64_t glyphRawFallbacks = 0;
+    uint64_t preFirstBeginUs = 0;
+    uint64_t tailAfterLastBeginUs = 0;
     uint32_t gxBeginCalls = 0;
     uint32_t gxBeginCallerCount = 0;
     struct GxBeginCaller {
         uint32_t lr = 0;
         uint32_t count = 0;
+        uint64_t gapUs = 0;
+        uint64_t maxGapUs = 0;
     };
     static constexpr size_t kGxBeginCallerCapacity = 64;
     std::array<GxBeginCaller, kGxBeginCallerCapacity> gxBeginCallers{};
@@ -100,7 +106,8 @@ struct GxCpuPerfSnapshot {
 
 GxCpuPerfSnapshot GX_HLE_TakeCpuPerfSnapshot() noexcept;
 void GX_HLE_RecordBeginCaller(uint32_t lr) noexcept;
-void GX_HLE_RecordGlyphFast(bool setupCalled, bool textureLoaded) noexcept;
+void GX_HLE_RecordCopyDispStart() noexcept;
+void GX_HLE_RecordGlyphFast(bool setupCalled, bool textureLoaded, bool rawDirect) noexcept;
 
 extern std::atomic_bool g_auroraFrameActive;
 extern std::atomic_bool g_auroraFrameHadWork;

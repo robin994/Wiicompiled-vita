@@ -22,9 +22,20 @@ uint32_t g_largestEfbCopyDestination = 0;
 
 #if defined(MKW_TARGET_VITA)
 void LogGxBeginHot(const GxCpuPerfSnapshot& snapshot, int frame) {
-    if (frame > 8 && (frame % 120) != 0 && snapshot.gxBeginCalls <= 300) {
+    bool hasLongGap = false;
+    for (uint32_t i = 0; i < snapshot.gxBeginCallerCount; ++i) {
+        hasLongGap |= snapshot.gxBeginCallers[i].maxGapUs >= 100000u;
+    }
+    // High-draw menu frames used to emit 6-8 unbuffered stderr lines every frame,
+    // which perturbed the very producer timing we are trying to measure on Vita.
+    // Sample routine frames, but always retain transition stalls and very large frames.
+    if (frame > 8 && (frame % 30) != 0 && snapshot.gxBeginCalls < 1000 && !hasLongGap) {
         return;
     }
+    RT_LOGF(RT_TAG_GX,
+            "gx_phase frame=%d prebegin_us=%llu tail_us=%llu begins=%u\n",
+            frame, static_cast<unsigned long long>(snapshot.preFirstBeginUs),
+            static_cast<unsigned long long>(snapshot.tailAfterLastBeginUs), snapshot.gxBeginCalls);
 
     std::array<uint8_t, 8> topIndices{};
     std::array<bool, GxCpuPerfSnapshot::kGxBeginCallerCapacity> selected{};
@@ -49,8 +60,40 @@ void LogGxBeginHot(const GxCpuPerfSnapshot& snapshot, int frame) {
     for (uint32_t rank = 0; rank < topCount; ++rank) {
         const auto& caller = snapshot.gxBeginCallers[topIndices[rank]];
         RT_LOGF(RT_TAG_GX,
-                "gx_begin_hot frame=%d rank=%u lr=%08x count=%u total=%u\n",
-                frame, rank, caller.lr, caller.count, snapshot.gxBeginCalls);
+                "gx_begin_hot frame=%d rank=%u lr=%08x count=%u total=%u gap_us=%llu max_gap_us=%llu\n",
+                frame, rank, caller.lr, caller.count, snapshot.gxBeginCalls,
+                static_cast<unsigned long long>(caller.gapUs),
+                static_cast<unsigned long long>(caller.maxGapUs));
+    }
+
+    // Count tells us which draw path is busiest; accumulated inter-begin time tells us
+    // which path actually owns producer CPU time. A low-count THP/RFL call can otherwise
+    // disappear behind hundreds of cheap glyph draws.
+    selected.fill(false);
+    topCount = 0;
+    for (uint32_t rank = 0; rank < 6; ++rank) {
+        uint32_t best = GxCpuPerfSnapshot::kGxBeginCallerCapacity;
+        uint64_t bestGap = 0;
+        for (uint32_t i = 0; i < snapshot.gxBeginCallerCount; ++i) {
+            if (selected[i] || snapshot.gxBeginCallers[i].gapUs <= bestGap) {
+                continue;
+            }
+            best = i;
+            bestGap = snapshot.gxBeginCallers[i].gapUs;
+        }
+        if (best == GxCpuPerfSnapshot::kGxBeginCallerCapacity) {
+            break;
+        }
+        selected[best] = true;
+        topIndices[topCount++] = static_cast<uint8_t>(best);
+    }
+    for (uint32_t rank = 0; rank < topCount; ++rank) {
+        const auto& caller = snapshot.gxBeginCallers[topIndices[rank]];
+        RT_LOGF(RT_TAG_GX,
+                "gx_gap_hot frame=%d rank=%u lr=%08x gap_us=%llu max_gap_us=%llu count=%u\n",
+                frame, rank, caller.lr,
+                static_cast<unsigned long long>(caller.gapUs),
+                static_cast<unsigned long long>(caller.maxGapUs), caller.count);
     }
 }
 #endif
@@ -147,6 +190,7 @@ PPC_NATIVE_OVERRIDE_VOID(8016fc24, GX__SetDispCopyGamma_8016fc24, (uint32_t g), 
 // ============================================================================
 
 extern "C" void GX__CopyDisp_8016fc38(uint32_t da, uint32_t c) {
+    GX_HLE_RecordCopyDispStart();
     const auto copyBegin = std::chrono::steady_clock::now();
     EnsureAuroraFrameActive();
     // GX copies are FIFO-ordered on hardware. Drain submitted draws before
@@ -169,11 +213,11 @@ extern "C" void GX__CopyDisp_8016fc38(uint32_t da, uint32_t c) {
     const auto copyUs = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now() - copyBegin).count();
     const GxCpuPerfSnapshot cpuPerf = GX_HLE_TakeCpuPerfSnapshot();
-    if (g_gxFrameCount <= 8 || (g_gxFrameCount % 120) == 0) {
+    if (g_gxFrameCount <= 8 || (g_gxFrameCount % 30) == 0) {
         RT_LOGF(RT_TAG_GX,
                 "gx_cpu_perf frame=%d lyt_calls=%llu lyt_us=%llu lyt_direct=%llu lyt_packet=%llu lyt_faithful=%llu "
                 "dl_calls=%llu dl_us=%llu dl_bytes=%llu dl_cache=%llu/%llu dl_fallback=%llu "
-                "glyph_fast=%llu setup=%llu texload=%llu copydisp_us=%llu\n",
+                "glyph_fast=%llu setup=%llu texload=%llu glyph_raw=%llu glyph_fallback=%llu prebegin_us=%llu tail_us=%llu copydisp_us=%llu\n",
                 g_gxFrameCount,
                 static_cast<unsigned long long>(cpuPerf.lytCalls),
                 static_cast<unsigned long long>(cpuPerf.lytUs),
@@ -189,6 +233,10 @@ extern "C" void GX__CopyDisp_8016fc38(uint32_t da, uint32_t c) {
                 static_cast<unsigned long long>(cpuPerf.glyphFastCalls),
                 static_cast<unsigned long long>(cpuPerf.glyphSetupCalls),
                 static_cast<unsigned long long>(cpuPerf.glyphTextureLoads),
+                static_cast<unsigned long long>(cpuPerf.glyphRawDirectCalls),
+                static_cast<unsigned long long>(cpuPerf.glyphRawFallbacks),
+                static_cast<unsigned long long>(cpuPerf.preFirstBeginUs),
+                static_cast<unsigned long long>(cpuPerf.tailAfterLastBeginUs),
                 static_cast<unsigned long long>(copyUs > 0 ? copyUs : 0));
     }
     LogGxBeginHot(cpuPerf, g_gxFrameCount);

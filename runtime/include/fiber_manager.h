@@ -81,6 +81,9 @@ public:
     
     // Get the currently running guest thread address (0 if in scheduler)
     static uint32_t GetCurrentGuestThread();
+
+    // Snapshot-safe entry point lookup for low-overhead diagnostics.
+    static uint32_t GetCurrentGuestThreadEntryPoint();
     
     // Get fiber info for a guest thread (may be null)
     static GuestFiber* GetFiber(uint32_t guestThreadAddr);
@@ -135,4 +138,3 @@ private:
 extern std::atomic<uint32_t> g_viRetracePendingCount;
 
 } // namespace Fiber
-

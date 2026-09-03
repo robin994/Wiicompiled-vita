@@ -10,6 +10,7 @@
 #include "fiber_manager.h"
 #include "runtime_log.h"
 #include "os_internal.h"
+#include "guest_stall_watchdog.h"
 
 namespace {
 void LinkMutexToThread(uint32_t threadPtr, uint32_t mutexPtr)
@@ -393,11 +394,15 @@ static void WakeupThreadQueue(CpuContext* ctx, bool allowImmediateReschedule)
     constexpr int kMaxWake = 256;
     int woke = 0;
 
+    GuestStallWatchdog::TraceSchedEvent(2u, queueAddr, ::Memory::Read32(queueAddr), cpu->lr);
+
     while (woke < kMaxWake) {
         const uint32_t thread = ::Memory::Read32(queueAddr);
         if (thread == 0) {
             break;
         }
+        GuestStallWatchdog::TraceSchedEvent(3u, queueAddr, thread,
+                                            ::Memory::Read16(thread + kThreadStateOffset));
 
         PopThreadQueueHead(queueAddr, thread);
 

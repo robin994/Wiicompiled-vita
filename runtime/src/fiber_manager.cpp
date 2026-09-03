@@ -431,6 +431,8 @@ void GuestFiberManager::SwitchToThread(uint32_t guestThreadAddr, CpuContext* cpu
     
     void* fiberHandle = nullptr;
     uint32_t previousThread = 0;
+    uint32_t previousEntryPoint = 0;
+    uint32_t targetEntryPoint = 0;
     CpuContext callerContext{};
     const bool haveCallerContext = (cpu != nullptr);
     CpuContext targetContext{};
@@ -451,6 +453,7 @@ void GuestFiberManager::SwitchToThread(uint32_t guestThreadAddr, CpuContext* cpu
         }
         
         fiberHandle = it->second.fiber;
+        targetEntryPoint = it->second.entryPoint;
         
         if (!fiberHandle || it->second.terminated) {
             RT_LOG(RT_TAG_OS) << "SwitchToThread: invalid fiber for 0x"
@@ -460,12 +463,15 @@ void GuestFiberManager::SwitchToThread(uint32_t guestThreadAddr, CpuContext* cpu
         
         // Remember what thread we're switching from
         previousThread = s_currentGuestThread;
-        
+
         // Save current thread's CPU context if switching from a guest thread
-        if (s_currentGuestThread != 0 && cpu) {
+        if (s_currentGuestThread != 0) {
             auto currentIt = s_fibers.find(s_currentGuestThread);
             if (currentIt != s_fibers.end()) {
-                currentIt->second.cpuContext = *cpu;
+                previousEntryPoint = currentIt->second.entryPoint;
+                if (cpu) {
+                    currentIt->second.cpuContext = *cpu;
+                }
             }
         }
         
@@ -505,7 +511,13 @@ void GuestFiberManager::SwitchToThread(uint32_t guestThreadAddr, CpuContext* cpu
         MkwApplyHostNiMode(cpu->fpscr);
     }
 
-    // Switch to the target fiber (the target fiber will load its own context)
+    // Switch to the target fiber (the target fiber will load its own context). On Vita,
+    // time the cooperative slice at this boundary: this is much cheaper and more useful than
+    // instrumenting translated instructions, and tells us whether THP/RFL/background guest
+    // fibers are consuming the large CPU gaps between menu draws.
+#if defined(MKW_TARGET_VITA)
+    const auto guestSliceBegin = std::chrono::steady_clock::now();
+#endif
 #if defined(_WIN32)
     SwitchToFiber(fiberHandle);
 #else
@@ -514,6 +526,21 @@ void GuestFiberManager::SwitchToThread(uint32_t guestThreadAddr, CpuContext* cpu
     // trampoline's entry point.
     s_pendingFiberArg = guestThreadAddr;
     co_switch(static_cast<cothread_t>(fiberHandle));
+#endif
+#if defined(MKW_TARGET_VITA)
+    const auto guestSliceUsSigned = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - guestSliceBegin).count();
+    const uint64_t guestSliceUs = static_cast<uint64_t>(guestSliceUsSigned > 0 ? guestSliceUsSigned : 0);
+    if (guestSliceUs >= 4000u) {
+        static thread_local uint32_t s_longGuestSliceLogs = 0;
+        const uint32_t n = ++s_longGuestSliceLogs;
+        if (n <= 96u || (n & (n - 1u)) == 0u) {
+            RT_LOGF(RT_TAG_OS,
+                    "fiber_slice n=%u from=0x%08X to=0x%08X from_entry=0x%08X to_entry=0x%08X elapsed_us=%llu\n",
+                    n, previousThread, guestThreadAddr, previousEntryPoint, targetEntryPoint,
+                    static_cast<unsigned long long>(guestSliceUs));
+        }
+    }
 #endif
 
     // When we return here, the fiber that issued SwitchToThread has resumed.
@@ -558,6 +585,12 @@ void GuestFiberManager::SwitchToThread(uint32_t guestThreadAddr, CpuContext* cpu
 
 uint32_t GuestFiberManager::GetCurrentGuestThread() {
     return s_currentGuestThread;
+}
+
+uint32_t GuestFiberManager::GetCurrentGuestThreadEntryPoint() {
+    std::lock_guard<std::mutex> lock(s_mutex);
+    const auto it = s_fibers.find(s_currentGuestThread);
+    return it != s_fibers.end() ? it->second.entryPoint : 0u;
 }
 
 GuestFiber* GuestFiberManager::GetFiber(uint32_t guestThreadAddr) {

@@ -7,6 +7,7 @@
 #include "wiicompiled_vita/gx_backend.h"
 #endif
 
+#include <algorithm>
 #include <cstdlib>
 #include <unordered_map>
 
@@ -36,6 +37,8 @@ extern "C" void GX_HLE_FIFO_Write32(uint32_t value);
 namespace {
 
 thread_local GxCpuPerfSnapshot g_cpuPerf{};
+thread_local std::chrono::steady_clock::time_point g_lastGxBeginRecordTime{};
+thread_local std::chrono::steady_clock::time_point g_lastGxPerfSnapshotTime{};
 
 class ScopedGxCpuPerfTimer {
 public:
@@ -1429,12 +1432,40 @@ static bool ApplyAuroraIndexedXFArraysForDisplayList(const std::array<uint32_t, 
 } // namespace
 
 GxCpuPerfSnapshot GX_HLE_TakeCpuPerfSnapshot() noexcept {
+    const auto now = std::chrono::steady_clock::now();
     const GxCpuPerfSnapshot snapshot = g_cpuPerf;
     g_cpuPerf = {};
+    g_lastGxBeginRecordTime = {};
+    g_lastGxPerfSnapshotTime = now;
     return snapshot;
 }
 
+void GX_HLE_RecordCopyDispStart() noexcept {
+    if (g_lastGxBeginRecordTime.time_since_epoch().count() == 0) {
+        return;
+    }
+    const auto now = std::chrono::steady_clock::now();
+    const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+        now - g_lastGxBeginRecordTime).count();
+    g_cpuPerf.tailAfterLastBeginUs = static_cast<uint64_t>(elapsed > 0 ? elapsed : 0);
+}
+
 void GX_HLE_RecordBeginCaller(uint32_t lr) noexcept {
+    const auto now = std::chrono::steady_clock::now();
+    if (g_cpuPerf.gxBeginCalls == 0 &&
+        g_lastGxPerfSnapshotTime.time_since_epoch().count() != 0) {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+            now - g_lastGxPerfSnapshotTime).count();
+        g_cpuPerf.preFirstBeginUs = static_cast<uint64_t>(elapsed > 0 ? elapsed : 0);
+    }
+    uint64_t gapUs = 0;
+    if (g_lastGxBeginRecordTime.time_since_epoch().count() != 0) {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+            now - g_lastGxBeginRecordTime).count();
+        gapUs = static_cast<uint64_t>(elapsed > 0 ? elapsed : 0);
+    }
+    g_lastGxBeginRecordTime = now;
+
     ++g_cpuPerf.gxBeginCalls;
     if (lr == 0 || g_cpuPerf.gxBeginCallerCount >= GxCpuPerfSnapshot::kGxBeginCallerCapacity) {
         return;
@@ -1444,6 +1475,8 @@ void GX_HLE_RecordBeginCaller(uint32_t lr) noexcept {
         auto& entry = g_cpuPerf.gxBeginCallers[i];
         if (entry.lr == lr) {
             ++entry.count;
+            entry.gapUs += gapUs;
+            entry.maxGapUs = std::max(entry.maxGapUs, gapUs);
             return;
         }
     }
@@ -1451,12 +1484,16 @@ void GX_HLE_RecordBeginCaller(uint32_t lr) noexcept {
     auto& entry = g_cpuPerf.gxBeginCallers[g_cpuPerf.gxBeginCallerCount++];
     entry.lr = lr;
     entry.count = 1;
+    entry.gapUs = gapUs;
+    entry.maxGapUs = gapUs;
 }
 
-void GX_HLE_RecordGlyphFast(bool setupCalled, bool textureLoaded) noexcept {
+void GX_HLE_RecordGlyphFast(bool setupCalled, bool textureLoaded, bool rawDirect) noexcept {
     ++g_cpuPerf.glyphFastCalls;
     g_cpuPerf.glyphSetupCalls += setupCalled ? 1u : 0u;
     g_cpuPerf.glyphTextureLoads += textureLoaded ? 1u : 0u;
+    g_cpuPerf.glyphRawDirectCalls += rawDirect ? 1u : 0u;
+    g_cpuPerf.glyphRawFallbacks += rawDirect ? 0u : 1u;
 }
 
 extern "C" void GxNotifyDisplayListMemoryWrite(uint32_t addr, uint32_t size) {
