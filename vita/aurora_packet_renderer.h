@@ -133,6 +133,8 @@ struct AuroraPacketFrameStats {
     std::uint64_t efbAllocationBlocked = 0;
     std::uint64_t efbAllocationBlockedBytes = 0;
     std::uint64_t efbBudgetBytes = 0;
+    std::uint32_t efbGpuCopies = 0;
+    std::uint32_t efbReadbackCopies = 0;
 };
 
 bool AuroraPacketRendererInitialize() noexcept;

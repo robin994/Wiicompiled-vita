@@ -1739,6 +1739,71 @@ Next correctness milestone should therefore separate three issues rather than mi
 3. **THP/Motion-JPEG video:** add the dedicated Vita decode/presentation path and only then re-enable
    movies for hardware validation.
 
+## M12.7 — full race-frame capacity and EFB crash isolation
+
+The M12.6 core is now symbolized against its exact ELF. The fault is a native USER_1 render-thread
+data abort at `SceGxm+0x1E638` (`DFAR=0xFFFFFFFF`), not a translated PPC exception. Accounting for
+the Vita loader's `+0x4D000` relocation, the return chain enters vitaGL through:
+
+- `glViewport` (`misc.c:342`), immediately after `sceGxmSetViewport`;
+- `update_scissor_test` (`tests.c:299`), immediately after its first
+  `sceGxmSetUniformDataF` call;
+- `glBlitNamedFramebuffer` (`framebuffers.c:816`);
+- `glBlitFramebuffer` (`framebuffers.c:919`).
+
+This identifies the active failure path as Aurora's GPU-resident EFB capture switching FBO render
+targets and rebuilding vitaGL's scissor mask. It does not by itself prove whether the invalid GXM
+state is scene exhaustion or earlier corruption. The M12.6 log stops at draw 384 with 28 of the 64
+queued EFB commands already consumed, matching this stack and making a draw-array overflow an
+unsupported explanation for that core.
+
+M12.7 makes the crash isolation and capacity changes independently measurable:
+
+1. Frame packet caps are now **8192 draws / 49152 vertices / 128 EFB commands**, from
+   4096 / 32768 / 64. The exact `FramePacket` is 7,525,544 bytes (`g_pendingFrame=0x72D4A8`),
+   bounded by an 8 MiB `static_assert`. Two frame geometries plus `g_renderVertices` cost
+   7,508,488 bytes more static memory than M12.6. Counts remain inside their `u16`/`u8` storage.
+2. The Aurora vertex streaming arena is **8 MiB per slot**, two slots. A complete bounded packet
+   needs at most 49,152 x 168 = 8,257,536 vertex bytes, below the 8 MiB slot; the 512 KiB index
+   arena is unchanged.
+3. `MKW_VITA_EFB_GPU_BLIT=0` is the default. EFB copies use the existing synchronous
+   `glReadPixels` + bounded downscale + `upload_efb_rgba` route, avoiding the crashing destination
+   FBO/scissor-reset path while retaining the 4 MiB EFB allocation guard. Set the flag to `1` for
+   an explicit GPU-blit A/B. `efbreadback` and `efbgpu` use distinct object/artifact names, so make
+   cannot silently reuse the opposite implementation.
+4. The custom vitaGL speedhack build is configured for its supported maximum of 8 display/FBO
+   render-target scenes before `vglInitExtended`; stock vitaGL keeps its default because that API
+   is not part of the installed public header.
+5. Producer telemetry now reports EFB calls/recorded/capacity failures/destroys together with both
+   immediate and raw draw-cap failures. Completed `efb_frame` lines identify `gpu` versus
+   `readback` copy counts. This resolves whether M12.6's exact `efb_cmds=64` was saturation rather
+   than assuming it from the array count alone.
+
+Build baseline: reused `build/vita/mkwii_translated_neon_os`, translated flags
+`-Os -fno-asynchronous-unwind-tables -mfpu=neon -mfloat-abi=hard`,
+`MKW_VITA_LYT_DIRECT=0`, `MKW_VITA_LYT_FAITHFUL=1`, movies disabled, native THP enabled,
+DVD defer disabled, Aurora + custom-heap speedhack vitaGL unchanged. `runtime-gx-bridge-check` and
+`graphics-check` pass; the final ELF links, VELF/FSELF conversion succeeds, and `unzip -t` reports
+no package errors. The only compiler diagnostic is the existing GCC enum-conversion warning in
+Aurora `GXVert.cpp`. The readback and GPU-blit A/B object variants both compile successfully; only
+the readback variant below was linked and packaged for hardware testing.
+
+Artifacts:
+
+- `build/vita/wiicompiled-vita-mkw-firstboot-aurora-speedhack-m12_7-full-race-frame.vpk` —
+  SHA-256 `582afd7f5ffadaccac557fba5facc3d02e097460d632e33d9454c3904cfdd252`.
+- Exact ELF `build/vita/mkwii_runtime/wiicompiled-vita-mkw-firstboot-aurora-speedhack-m12_7-full-race-frame.elf` —
+  SHA-256 `cfd212545297f6b63f2c6bfa815ba259cacf4c31ed021ed2dd3bc6de1b82e183`.
+- Linked vitaGL archive remains SHA-256
+  `de04978951a09cdc28da1710face48051530be17358df7f50273d7a9a262600d`.
+
+Hardware validation is pending. Clear or rename the append-mode `runtime.log`, install this exact
+VPK, repeat the same Single Player race path, and retain any new core. Required evidence is:
+`frame_draw_cap=8192 frame_vertex_cap=49152 efb_cap=128 efb_gpu_blit=0`, a first-race
+`producer_frame` with `begin_cap=0 raw_cap=0 dropped=0`, `efb_cap_fail=0`, and either a completed
+`efb_frame ... gpu=0 readback=N`/`aurora_frame` or the exact last `render_large` marker if it still
+crashes. This build/package result is not yet a real-hardware PASS.
+
 ## Performance hotspot for M13 — `0x8022DEA4` = `EGG::LightTexture::SetupTevInfo+0x13C`
 
 `gx_gap_hot rank=0 lr=8022dea4 gap_us=252750 max_gap_us=108417 count=10` on the heavy scene —

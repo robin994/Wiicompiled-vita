@@ -19,6 +19,10 @@
 #include <unordered_map>
 #include <vector>
 
+#ifndef MKW_VITA_EFB_GPU_BLIT
+#define MKW_VITA_EFB_GPU_BLIT 0
+#endif
+
 namespace WiiCompiledVita {
 namespace {
 
@@ -45,6 +49,8 @@ std::unordered_map<std::uint64_t, EfbCopyTexture> g_efbCopies;
 std::uint64_t g_efbSourceMissTraceCount = 0;
 std::vector<std::uint8_t> g_efbReadback;
 std::uint64_t g_efbCopyTraceCount = 0;
+std::uint32_t g_frameEfbGpuCopies = 0;
+std::uint32_t g_frameEfbReadbackCopies = 0;
 // M12.5 keeps the M12.4 sampled-EFB budget based on our own accounting. M12.3
 // proved that vglMemFree(VGL_MEM_VRAM) is itself unsafe under this workload:
 // its sceClibMspaceMallocStats query crashed before an allocation was attempted.
@@ -411,13 +417,11 @@ bool AuroraPacketRendererInitialize() noexcept {
             static_cast<unsigned long long>(rendererEndUs - rendererBeginUs));
 
     gfx::StreamingArenaConfig arenaConfig{};
-    // The Select Class scene carries ~23k CanonicalVertex per frame. Hardware M12.5
-    // proved that the 3 MiB arena still fills at 3,145,464 bytes, after which exactly
-    // 801 tail draws fail with StreamingOverflow. Those tail draws contain late UI
-    // composition, matching the observed black screen with the 50/100/150cc cards absent.
-    // 4 MiB holds the full observed frame while adding only 2 MiB total across two slots.
-    // The arena never recycles within a frame, so it must hold the whole frame.
-    arenaConfig.vertexBytes = 4u * 1024u * 1024u;
+    // M12.7 accepts up to 49152 packet vertices. CanonicalVertex is 168 bytes, so
+    // an 8 MiB slot can retain the entire bounded frame without mid-frame reuse.
+    // M12.6's 4 MiB slot was validated only through Select Class, not the 6154-draw
+    // first race frame. Two slots add 8 MiB over M12.6.
+    arenaConfig.vertexBytes = 8u * 1024u * 1024u;
     arenaConfig.indexBytes = 512u * 1024u;
     arenaConfig.slots = 2;
     arenaConfig.alignment = 16;
@@ -491,6 +495,8 @@ bool AuroraPacketRendererBeginFrame(std::uint64_t serial,
     g_scissor = {scissorX, scissorY, scissorWidth, scissorHeight};
     g_lastPipelineHash = 0;
     g_lastPipelineKey = 0;
+    g_frameEfbGpuCopies = 0;
+    g_frameEfbReadbackCopies = 0;
     g_renderer->clear_current({0.015f, 0.02f, 0.035f, 1.0f}, 1.0f, true, true, true);
     g_frameActive = true;
     return true;
@@ -676,12 +682,12 @@ bool AuroraPacketRendererCopyEfb(const AuroraPacketEfbCopy& copy) noexcept {
     if (srcPixels > SIZE_MAX / 4u) return false;
     const std::size_t srcBytes = srcPixels * 4u;
 
-    // Prefer the GPU-resident framebuffer blit. This avoids one synchronous readback per
-    // preview (the main menu can issue 20+ GXCopyTex operations in one logical frame).
+    // M12.6 hardware crashed in SceGxm while the GPU-resident path switched FBOs
+    // and rebuilt vitaGL's scissor mask. Keep that path as an explicit A/B build;
+    // M12.7 defaults to the synchronous readback/upload path for correctness.
     {
         auto gpuIt = g_efbCopies.find(copy.destinationId);
         const gfx::Handle gpuExisting = gpuIt == g_efbCopies.end() ? gfx::InvalidHandle : gpuIt->second.handle;
-        const std::uint32_t gpuRevision = gpuIt == g_efbCopies.end() ? 0u : gpuIt->second.revision;
         bool needsBackingAllocation = gpuExisting == gfx::InvalidHandle;
         if (!needsBackingAllocation) {
             std::uint32_t existingW = 0, existingH = 0;
@@ -717,10 +723,14 @@ bool AuroraPacketRendererCopyEfb(const AuroraPacketEfbCopy& copy) noexcept {
                 return false;
             }
         }
+#if MKW_VITA_EFB_GPU_BLIT
+        const std::uint32_t gpuRevision =
+            gpuIt == g_efbCopies.end() ? 0u : gpuIt->second.revision;
         const gfx::Scissor gpuSrc{x0, y0, static_cast<std::int32_t>(srcW), static_cast<std::int32_t>(srcH)};
         const gfx::Handle gpuCaptured =
             g_renderer->capture_current(gpuExisting, gpuSrc, outW, outH, format);
         if (gpuCaptured != gfx::InvalidHandle) {
+            ++g_frameEfbGpuCopies;
             g_efbCopies[copy.destinationId] = EfbCopyTexture{gpuCaptured, outW, outH, gpuRevision + 1u};
             if (copy.clear) {
                 g_renderer->clear_current({copy.clearR, copy.clearG, copy.clearB, copy.clearA},
@@ -740,10 +750,11 @@ bool AuroraPacketRendererCopyEfb(const AuroraPacketEfbCopy& copy) noexcept {
             g_lastPipelineKey = 0;
             return true;
         }
+#endif
     }
 
-    // Conservative fallback for any vitaGL/GXM combination that cannot blit the requested
-    // rectangle. This path is correct but synchronous and should normally stay unused.
+    // Conservative synchronous path. It is the M12.7 default and also the fallback
+    // for GPU-blit A/B builds when vitaGL cannot capture the requested rectangle.
     const std::uint64_t trace = ++g_efbCopyTraceCount;
     if (trace <= 32u) {
         RT_LOGF(RT_TAG_GX,
@@ -800,6 +811,7 @@ bool AuroraPacketRendererCopyEfb(const AuroraPacketEfbCopy& copy) noexcept {
         return false;
     }
     g_efbCopies[copy.destinationId] = EfbCopyTexture{captured, outW, outH, revision + 1u};
+    ++g_frameEfbReadbackCopies;
 
     if (copy.clear) {
         g_renderer->clear_current({copy.clearR, copy.clearG, copy.clearB, copy.clearA},
@@ -857,6 +869,8 @@ AuroraPacketFrameStats AuroraPacketRendererEndFrame() noexcept {
     result.efbAllocationBlocked = g_efbAllocationBlocked;
     result.efbAllocationBlockedBytes = g_efbAllocationBlockedBytes;
     result.efbBudgetBytes = kEfbBudgetBytes;
+    result.efbGpuCopies = g_frameEfbGpuCopies;
+    result.efbReadbackCopies = g_frameEfbReadbackCopies;
     g_frameActive = false;
     return result;
 }

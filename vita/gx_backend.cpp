@@ -46,6 +46,14 @@
 #include <string>
 #include <vector>
 
+#ifndef MKW_VITA_EFB_GPU_BLIT
+#define MKW_VITA_EFB_GPU_BLIT 0
+#endif
+
+#if defined(MKW_VITA_VITAGL_SPEEDHACK)
+extern "C" void vglSetupRenderTargetScenesNum(uint8_t displaySize, uint8_t fboSize);
+#endif
+
 extern "C" {
 struct PsvDebugScreenFont {
     unsigned char* glyphs;
@@ -68,13 +76,14 @@ constexpr uint32_t kSurfaceWidth = 960;
 constexpr uint32_t kSurfaceHeight = 544;
 constexpr size_t kRenderWorkerStack = 128 * 1024;
 constexpr int kVitaGlUserRamReserve = 8 * 1024 * 1024;
-constexpr size_t kMaxFrameVertices = 32768;
-// Post-Single-Player scenes issue ~3400 draws / ~26k vertices per frame; the
-// previous 2048/16384 cap truncated >1300 draws. 4096/32768 covers the observed
-// worst case with headroom. Two FrameGeometry instances + g_renderVertices, so
-// each slot costs ~1.5 KiB static; the whole frame packet is ~3.75 MiB.
-constexpr size_t kMaxFrameDraws = 4096;
-constexpr size_t kMaxFrameEfbCommands = 64;
+// M12.6 hardware reached the first race frame with 6154 requested draws, at
+// least 36457 requested vertices and exactly 64 recorded EFB commands. Keep a
+// bounded full-frame packet with enough headroom to distinguish real renderer
+// failures from producer truncation. This raises FramePacket from ~3.78 MiB to
+// ~7.18 MiB and all static frame buffers by ~7.16 MiB.
+constexpr size_t kMaxFrameVertices = 49152;
+constexpr size_t kMaxFrameDraws = 8192;
+constexpr size_t kMaxFrameEfbCommands = 128;
 constexpr size_t kPnMtxCount = 10;
 constexpr u8 kPnMtxExplicitBit = 0x80u;
 constexpr size_t kTextureCacheCapacity = 32;
@@ -94,8 +103,10 @@ constexpr const char* kRendererVariant = "legacy";
 #endif
 #if defined(MKW_VITA_VITAGL_SPEEDHACK)
 constexpr const char* kVitaGlVariant = "speedhack-custom-heap";
+constexpr u8 kRenderTargetScenes = 8;
 #else
 constexpr const char* kVitaGlVariant = "stock";
+constexpr u8 kRenderTargetScenes = 1;
 #endif
 
 struct FifoMeta {
@@ -656,8 +667,8 @@ struct FramePacket {
     std::array<f32, 6> viewport{0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 1.0f};
     std::array<u32, 4> scissor{0, 0, 640, 480};
 };
-static_assert(sizeof(FramePacket) < 5 * 1024 * 1024,
-              "Vita GX frame packet must stay bounded below 5 MiB");
+static_assert(sizeof(FramePacket) < 8 * 1024 * 1024,
+              "Vita GX frame packet must stay bounded below 8 MiB");
 
 struct GxState {
     std::array<GXAttrType, GX_VA_MAX_ATTR> vtxDesc{};
@@ -2562,10 +2573,21 @@ void RenderWorkerMain() {
     // vitaGL's GLboolean result reports whether it had to fall back from the
     // requested resolution; it is not an initialization success flag. Once
     // the call returns, the GXM context and vitaGL pools are initialized.
+    // The M12.6 core enters SceGxm from vitaGL's FBO scene/scissor reset path.
+    // Eight is vitaGL's supported maximum and gives diagnostic headroom even
+    // though M12.7 defaults to the synchronous EFB readback path below.
+#if defined(MKW_VITA_VITAGL_SPEEDHACK)
+    vglSetupRenderTargetScenesNum(kRenderTargetScenes, kRenderTargetScenes);
+#endif
     const uint64_t vglInitBeginUs = sceKernelGetProcessTimeWide();
     RT_LOGF(RT_TAG_GX,
-            "init_marker=vglInitExtended phase=begin t_us=%llu renderer=%s vitagl=%s\n",
-            static_cast<unsigned long long>(vglInitBeginUs), kRendererVariant, kVitaGlVariant);
+            "init_marker=vglInitExtended phase=begin t_us=%llu renderer=%s vitagl=%s rt_scenes=%u/%u "
+            "frame_draw_cap=%u frame_vertex_cap=%u efb_cap=%u packet_bytes=%u efb_gpu_blit=%u\n",
+            static_cast<unsigned long long>(vglInitBeginUs), kRendererVariant, kVitaGlVariant,
+            static_cast<unsigned>(kRenderTargetScenes), static_cast<unsigned>(kRenderTargetScenes),
+            static_cast<unsigned>(kMaxFrameDraws), static_cast<unsigned>(kMaxFrameVertices),
+            static_cast<unsigned>(kMaxFrameEfbCommands), static_cast<unsigned>(sizeof(FramePacket)),
+            static_cast<unsigned>(MKW_VITA_EFB_GPU_BLIT));
     const bool resolutionFallback =
         vglInitExtended(0, kSurfaceWidth, kSurfaceHeight, kVitaGlUserRamReserve,
                         SCE_GXM_MULTISAMPLE_NONE) == GL_TRUE;
@@ -3610,14 +3632,18 @@ void RenderWorkerMain() {
 #endif
 #if defined(MKW_VITA_AURORA_RENDERER)
             RT_LOGF(RT_TAG_GX,
-                    "efb_frame=%llu recorded=%llu capacity_fail=%llu commands=%u executed=%llu failed=%llu sampled=%llu\n",
+                    "efb_frame=%llu calls=%llu recorded=%llu capacity_fail=%llu commands=%u "
+                    "executed=%llu failed=%llu sampled=%llu gpu=%u readback=%u\n",
                     static_cast<unsigned long long>(serial),
+                    static_cast<unsigned long long>(packet.counters.efbCopyCalls),
                     static_cast<unsigned long long>(packet.counters.efbCopyRecorded),
                     static_cast<unsigned long long>(packet.counters.efbCopyCapacityFailures),
                     static_cast<unsigned>(packet.geometry.efbCommandCount),
                     static_cast<unsigned long long>(efbCopiesExecuted),
                     static_cast<unsigned long long>(efbCopyFailures),
-                    static_cast<unsigned long long>(efbTexturesSampled));
+                    static_cast<unsigned long long>(efbTexturesSampled),
+                    auroraFrameStats.efbGpuCopies,
+                    auroraFrameStats.efbReadbackCopies);
 #endif
             for (size_t signatureIndex = 0;
                  signatureIndex < packet.counters.customTevSignatures.size();
@@ -3850,11 +3876,14 @@ void SubmitFrame() {
 #if defined(MKW_TARGET_VITA)
     if (submittedSerial <= 8u || (submittedSerial % 30u) == 0u ||
         producerDraws >= 1000u || producerIntervalUs >= 1000000u ||
-        g_pendingFrame.counters.immediateDrawCapacityFailures != 0) {
+        g_pendingFrame.counters.immediateDrawCapacityFailures != 0 ||
+        g_pendingFrame.counters.rawDrawCapacityFailures != 0 ||
+        g_pendingFrame.counters.efbCopyCapacityFailures != 0) {
         RT_LOGF(RT_TAG_GX,
                 "producer_frame=%llu interval_us=%llu queue_wait_us=%llu packet_copy_us=%llu "
                 "prior_wait_calls=%llu prior_wait_us=%llu draws=%u vertices=%u efb_cmds=%u "
-                "requested_draws=%llu begin_cap=%llu dropped=%u\n",
+                "requested_draws=%llu begin_cap=%llu raw_cap=%llu dropped=%u "
+                "efb_calls=%llu efb_recorded=%llu efb_cap_fail=%llu efb_destroy=%llu\n",
                 static_cast<unsigned long long>(submittedSerial),
                 static_cast<unsigned long long>(producerIntervalUs),
                 static_cast<unsigned long long>(queueWaitEndUs - queueWaitBeginUs),
@@ -3865,7 +3894,12 @@ void SubmitFrame() {
                 static_cast<unsigned>(g_pendingFrame.geometry.efbCommandCount),
                 static_cast<unsigned long long>(g_pendingFrame.counters.drawCalls),
                 static_cast<unsigned long long>(g_pendingFrame.counters.immediateDrawCapacityFailures),
-                g_pendingFrame.geometry.droppedVertices);
+                static_cast<unsigned long long>(g_pendingFrame.counters.rawDrawCapacityFailures),
+                g_pendingFrame.geometry.droppedVertices,
+                static_cast<unsigned long long>(g_pendingFrame.counters.efbCopyCalls),
+                static_cast<unsigned long long>(g_pendingFrame.counters.efbCopyRecorded),
+                static_cast<unsigned long long>(g_pendingFrame.counters.efbCopyCapacityFailures),
+                static_cast<unsigned long long>(g_pendingFrame.counters.efbDestroyRecorded));
     }
 #endif
 }

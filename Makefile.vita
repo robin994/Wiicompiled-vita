@@ -100,6 +100,7 @@ MKW_VITA_LYT_FAITHFUL ?= 0
 MKW_VITA_DISABLE_MOVIES ?= 1
 MKW_VITA_DVD_DEFER ?= 0
 MKW_VITA_NATIVE_THP ?= 1
+MKW_VITA_EFB_GPU_BLIT ?= 0
 AURORA_VITAGL_LIB ?= ../aurora-vita-max-prehardware/third_party/vitaGL-speedhack-src/libvitaGL-m12_5-custom-heap.a
 AURORA_VITA_GFX_DIR := aurora-main/platforms/vita/gfx
 AURORA_VITA_GFX_SRCS := $(addprefix $(AURORA_VITA_GFX_DIR)/,\
@@ -130,7 +131,17 @@ else
 $(error MKW_VITA_VITAGL must be stock or speedhack)
 endif
 
-MKW_VITA_BUILD_VARIANT := $(MKW_VITA_RENDERER_VARIANT)-$(MKW_VITA_VITAGL_VARIANT)
+ifeq ($(MKW_VITA_EFB_GPU_BLIT),1)
+MKW_VITA_EFB_VARIANT := efbgpu
+MKW_EFB_CPPFLAGS := -DMKW_VITA_EFB_GPU_BLIT=1
+else ifeq ($(MKW_VITA_EFB_GPU_BLIT),0)
+MKW_VITA_EFB_VARIANT := efbreadback
+MKW_EFB_CPPFLAGS := -DMKW_VITA_EFB_GPU_BLIT=0
+else
+$(error MKW_VITA_EFB_GPU_BLIT must be 0 or 1)
+endif
+
+MKW_VITA_BUILD_VARIANT := $(MKW_VITA_RENDERER_VARIANT)-$(MKW_VITA_VITAGL_VARIANT)-$(MKW_VITA_EFB_VARIANT)
 # Objects compiled with renderer/vitaGL-specific flags live under this variant tag.
 # Common runtime/third-party objects remain shared because their compile flags are identical.
 MKW_VITA_VARIANT_OBJ_DIR := $(MKW_RUNTIME_BUILD_DIR)/variants/$(MKW_VITA_BUILD_VARIANT)
@@ -138,7 +149,7 @@ AURORA_VITA_GFX_OBJS := $(patsubst $(AURORA_VITA_GFX_DIR)/%.cpp,\
 	$(MKW_VITA_VARIANT_OBJ_DIR)/aurora_vita/gfx/%.o,$(AURORA_VITA_GFX_SRCS))
 MKW_VITA_GX_OBJ := $(MKW_VITA_VARIANT_OBJ_DIR)/vita/gx_backend.o
 MKW_VITA_AURORA_PACKET_OBJ := $(MKW_VITA_VARIANT_OBJ_DIR)/vita/aurora_packet_renderer.o
-MKW_AURORA_CPPFLAGS := $(MKW_RENDERER_CPPFLAGS) $(MKW_VITAGL_CPPFLAGS)
+MKW_AURORA_CPPFLAGS := $(MKW_RENDERER_CPPFLAGS) $(MKW_VITAGL_CPPFLAGS) $(MKW_EFB_CPPFLAGS)
 
 MKW_FIRSTBOOT_FIXED_OBJS := $(MKW_VITA_MAIN_OBJ) $(MKW_VITA_AUDIO_OBJ) \
 	$(MKW_VITA_CONTROLLER_OBJ) $(MKW_VITA_SETTINGS_OBJ) $(MKW_VITA_GX_OBJ) \
