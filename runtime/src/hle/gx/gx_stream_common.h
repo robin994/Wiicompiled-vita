@@ -309,7 +309,13 @@ inline bool PackIndexedAttrData(const uint8_t* srcBase, uint32_t stride, uint32_
 
 // Binds the guest XF array (position/normal matrices, lights) a GX_LOAD_INDX_*
 // packet indexes into, so aurora can resolve the index itself.
-inline bool ApplyIndexedXfArrayForPacket(uint8_t cmd, uint32_t value) {
+struct IndexedXfLoad {
+    const uint8_t* source = nullptr;
+    uint32_t bytes = 0;
+};
+
+inline bool ApplyIndexedXfArrayForPacket(uint8_t cmd, uint32_t value,
+                                         IndexedXfLoad* resolved = nullptr) {
     const int attr = GX_POS_MTX_ARRAY +
                      (((cmd & GxCmd::GX_OPCODE_MASK_CMD) - GxCmd::GX_LOAD_INDX_A_CMD) / 0x08);
     if (attr < GX_POS_MTX_ARRAY || attr > GX_LIGHT_ARRAY) {
@@ -334,6 +340,10 @@ inline bool ApplyIndexedXfArrayForPacket(uint8_t cmd, uint32_t value) {
     }
 
     GXSetArray(static_cast<GXAttr>(attr), hostPtr, span, static_cast<uint8_t>(arr.stride));
+    if (resolved) {
+        resolved->source = hostPtr + static_cast<size_t>(index) * arr.stride;
+        resolved->bytes = bytes;
+    }
     return true;
 }
 

@@ -513,8 +513,17 @@ void HleFifoWrite(u32 val, uint32_t sizeBytes) {
         if (opcode >= GX_LOAD_INDX_A_CMD && opcode <= GX_LOAD_INDX_D_CMD) {
             if (g_hleGxState.fifoByteCount < 5) break;
             const uint32_t xfValue = ReadBE32(data + 1);
-            ApplyIndexedXfArrayForPacket(cmd, xfValue);
+            IndexedXfLoad indexedLoad{};
+            const bool indexedResolved =
+                ApplyIndexedXfArrayForPacket(cmd, xfValue, &indexedLoad);
+#if defined(MKW_TARGET_VITA)
+            if (indexedResolved) {
+                WiiCompiledVita::GxBackend::ApplyIndexedXfPacket(
+                    xfValue, indexedLoad.source, indexedLoad.bytes);
+            }
+#else
             GXCallDisplayList(data, 5);
+#endif
             GXMarkFrameWork();
             if (!consumeBytes(5, sink)) break;
             continue;

@@ -334,32 +334,50 @@ bool PrepareThpYuv420(const AuroraPacketTexture& input, gfx::TextureDesc& output
                          input.thpChromaHeight);
 
     if (key != g_thpConversionKey) {
+        const std::uint64_t conversionBeginUs = sceKernelGetProcessTimeWide();
         const std::size_t rgbaBytes = static_cast<std::size_t>(input.width) * input.height * 4u;
         g_thpRgba.resize(rgbaBytes);
         const auto* yPlane = static_cast<const std::uint8_t*>(input.data);
         const auto* uPlane = static_cast<const std::uint8_t*>(input.thpUData);
         const auto* vPlane = static_cast<const std::uint8_t*>(input.thpVData);
-        for (std::uint32_t y = 0; y < input.height; ++y) {
-            for (std::uint32_t x = 0; x < input.width; ++x) {
-                const int yy = static_cast<int>(ReadTiledI8(yPlane, input.width, x, y)) - 16;
+        // 4:2:0 shares one chroma sample across a 2x2 luma block. The old loop
+        // re-read U/V and recomputed all chroma coefficients for every pixel.
+        // Reuse them here: this removes 75% of chroma tiled-addressing and the
+        // corresponding integer multiplies from the render thread.
+        for (std::uint32_t y = 0; y < input.height; y += 2u) {
+            const std::uint32_t chromaY = y >> 1u;
+            for (std::uint32_t x = 0; x < input.width; x += 2u) {
+                const std::uint32_t chromaX = x >> 1u;
                 const int uu = static_cast<int>(ReadTiledI8(
-                    uPlane, input.thpChromaWidth, x >> 1u, y >> 1u)) - 128;
+                    uPlane, input.thpChromaWidth, chromaX, chromaY)) - 128;
                 const int vv = static_cast<int>(ReadTiledI8(
-                    vPlane, input.thpChromaWidth, x >> 1u, y >> 1u)) - 128;
-                const int c = std::max(0, yy);
-                const std::size_t offset =
-                    (static_cast<std::size_t>(y) * input.width + x) * 4u;
-                g_thpRgba[offset + 0u] = ClampThpColor((298 * c + 409 * vv + 128) >> 8);
-                g_thpRgba[offset + 1u] = ClampThpColor((298 * c - 100 * uu - 208 * vv + 128) >> 8);
-                g_thpRgba[offset + 2u] = ClampThpColor((298 * c + 516 * uu + 128) >> 8);
-                g_thpRgba[offset + 3u] = 255u;
+                    vPlane, input.thpChromaWidth, chromaX, chromaY)) - 128;
+                const int rChroma = 409 * vv;
+                const int gChroma = -100 * uu - 208 * vv;
+                const int bChroma = 516 * uu;
+                for (std::uint32_t dy = 0; dy < 2u && y + dy < input.height; ++dy) {
+                    for (std::uint32_t dx = 0; dx < 2u && x + dx < input.width; ++dx) {
+                        const std::uint32_t px = x + dx;
+                        const std::uint32_t py = y + dy;
+                        const int yy = static_cast<int>(ReadTiledI8(
+                            yPlane, input.width, px, py)) - 16;
+                        const int c = std::max(0, yy);
+                        const std::size_t offset =
+                            (static_cast<std::size_t>(py) * input.width + px) * 4u;
+                        g_thpRgba[offset + 0u] = ClampThpColor((298 * c + rChroma + 128) >> 8);
+                        g_thpRgba[offset + 1u] = ClampThpColor((298 * c + gChroma + 128) >> 8);
+                        g_thpRgba[offset + 2u] = ClampThpColor((298 * c + bChroma + 128) >> 8);
+                        g_thpRgba[offset + 3u] = 255u;
+                    }
+                }
             }
         }
         g_thpConversionKey = key;
         ++g_thpConversionCount;
         if (g_thpConversionCount <= 24u) {
+            const std::uint64_t conversionEndUs = sceKernelGetProcessTimeWide();
             RT_LOGF(RT_TAG_GX,
-                    "thp_yuv420 n=%llu size=%ux%u y=0x%llX u=0x%llX v=0x%llX gen=%llu/%llu/%llu\n",
+                    "thp_yuv420 n=%llu size=%ux%u y=0x%llX u=0x%llX v=0x%llX gen=%llu/%llu/%llu elapsed_us=%llu\n",
                     static_cast<unsigned long long>(g_thpConversionCount),
                     static_cast<unsigned>(input.width), static_cast<unsigned>(input.height),
                     static_cast<unsigned long long>(input.sourceId),
@@ -367,7 +385,8 @@ bool PrepareThpYuv420(const AuroraPacketTexture& input, gfx::TextureDesc& output
                     static_cast<unsigned long long>(reinterpret_cast<std::uintptr_t>(input.thpVData)),
                     static_cast<unsigned long long>(input.sourceGeneration),
                     static_cast<unsigned long long>(input.thpUGeneration),
-                    static_cast<unsigned long long>(input.thpVGeneration));
+                    static_cast<unsigned long long>(input.thpVGeneration),
+                    static_cast<unsigned long long>(conversionEndUs - conversionBeginUs));
         }
     }
 

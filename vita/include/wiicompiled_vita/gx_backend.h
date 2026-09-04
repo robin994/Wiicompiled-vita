@@ -32,6 +32,8 @@ struct Stats {
     uint64_t xfViewportWrites = 0;
     uint64_t xfMatrixIndexWrites = 0;
     uint64_t xfUnsupportedWords = 0;
+    uint64_t xfIndexedLoads = 0;
+    uint64_t xfIndexedWords = 0;
     uint64_t geometryDepthCompareDraws = 0;
     uint64_t geometryDepthWriteDraws = 0;
     uint64_t geometryCullNoneDraws = 0;
@@ -74,6 +76,8 @@ bool Initialize() noexcept;
 void Shutdown() noexcept;
 Stats SnapshotStats() noexcept;
 bool ApplyXfPacket(const uint8_t* packet, uint32_t packetBytes) noexcept;
+bool ApplyIndexedXfPacket(uint32_t value, const uint8_t* source,
+                          uint32_t sourceBytes) noexcept;
 
 // M12 trace: guest return address of the current GXBegin, threaded into GeometryDraw.
 void SetGuestBeginLr(uint32_t lr) noexcept;

@@ -217,6 +217,7 @@ extern "C" void GX__CopyDisp_8016fc38(uint32_t da, uint32_t c) {
         RT_LOGF(RT_TAG_GX,
                 "gx_cpu_perf frame=%d lyt_calls=%llu lyt_us=%llu lyt_direct=%llu lyt_packet=%llu lyt_faithful=%llu "
                 "dl_calls=%llu dl_us=%llu dl_bytes=%llu dl_cache=%llu/%llu dl_fallback=%llu "
+                "dl_raw=%llu/%llu verts=%llu fail=%llu "
                 "glyph_fast=%llu setup=%llu texload=%llu glyph_raw=%llu glyph_fallback=%llu prebegin_us=%llu tail_us=%llu copydisp_us=%llu\n",
                 g_gxFrameCount,
                 static_cast<unsigned long long>(cpuPerf.lytCalls),
@@ -230,6 +231,10 @@ extern "C" void GX__CopyDisp_8016fc38(uint32_t da, uint32_t c) {
                 static_cast<unsigned long long>(cpuPerf.dlCacheHits),
                 static_cast<unsigned long long>(cpuPerf.dlCacheMisses),
                 static_cast<unsigned long long>(cpuPerf.dlFallbacks),
+                static_cast<unsigned long long>(cpuPerf.dlRawFastDraws),
+                static_cast<unsigned long long>(cpuPerf.dlRawIndexedDraws),
+                static_cast<unsigned long long>(cpuPerf.dlRawFastVertices),
+                static_cast<unsigned long long>(cpuPerf.dlRawFastFailures),
                 static_cast<unsigned long long>(cpuPerf.glyphFastCalls),
                 static_cast<unsigned long long>(cpuPerf.glyphSetupCalls),
                 static_cast<unsigned long long>(cpuPerf.glyphTextureLoads),
@@ -247,6 +252,16 @@ PPC_NATIVE_OVERRIDE_VOID(8016fc38, GX__CopyDisp_8016fc38, (uint32_t da, uint32_t
 
 
 extern "C" void GX__CopyTex_8016fd74(uint32_t da, uint32_t c) {
+#if defined(MKW_VITA_PERF_SKIP_EFB) && MKW_VITA_PERF_SKIP_EFB
+    static uint64_t s_perfSkippedEfbCopies = 0;
+    const uint64_t n = ++s_perfSkippedEfbCopies;
+    if (n <= 16u || (n & (n - 1u)) == 0u) {
+        RT_LOGF(RT_TAG_GX, "perf_probe skip_efb_copy n=%llu dest=0x%08X\n",
+                static_cast<unsigned long long>(n), static_cast<unsigned>(da));
+    }
+    (void)c;
+    return;
+#endif
     EnsureAuroraFrameActive();
     // Match GX FIFO ordering: texture copies observe all prior draws.
     GXDrawDone();

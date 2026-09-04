@@ -3,6 +3,19 @@
 
 extern "C" void __GXSetSUTexRegs();
 
+#ifndef MKW_VITA_PERF_SKIP_BILLBOARDS
+#define MKW_VITA_PERF_SKIP_BILLBOARDS 0
+#endif
+#ifndef MKW_VITA_PERF_SKIP_LIGHTTEXTURE
+#define MKW_VITA_PERF_SKIP_LIGHTTEXTURE 0
+#endif
+
+extern "C" {
+uint32_t g_mkwVitaPerfProbeFlags =
+    (MKW_VITA_PERF_SKIP_BILLBOARDS ? 0x1u : 0u) |
+    (MKW_VITA_PERF_SKIP_LIGHTTEXTURE ? 0x2u : 0u);
+}
+
 // ============================================================================
 // FIFO Write Helpers
 // ============================================================================

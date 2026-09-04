@@ -1,7 +1,7 @@
 # WiiCompiled Vita / Mario Kart Wii – Porting Status
 
-> **Snapshot:** 2026-09-03 (session 2 — see section 16 for the milestone log; M10 + M11 hardware
-> PASS; M12 arena fix crashed on texture OOM; M12.1 = texture-OOM hardening, built)  
+> **Snapshot:** 2026-09-04 (M13.1 hardware log analyzed; indexed-raw VCD bug identified;
+> M13.2 indexed-raw + true-white visibility probe built and packaged)
 > **Repository:** `/Users/robin994/Documents/Code/PSVita/wiicompiled-vita`  
 > **Target:** Mario Kart Wii PAL `RMCP01`, static recompile PowerPC → ARM32, PS Vita hardware  
 > **Current HEAD observed:** `c2d6db0 checkpoint` (external checkpoint commits appear in this
@@ -25,16 +25,23 @@ The long-term goal is to run Mario Kart Wii PAL on PS Vita using:
 
 The immediate goals are:
 
-1. make the four main-menu cards render correctly and at an acceptable frame rate;
-2. make `Single Player` transition to the expected menu (`Grand Prix`, `Time Trials`, `VS Race`, `Battle`) instead of remaining on a black screen;
-3. identify and remove the dominant guest-CPU bottlenecks before spending time on lower-resolution rendering;
-4. keep improving Aurora-Vita correctness so later 3D scenes, EFB effects, textures and UI do not require a renderer rewrite.
+1. make submitted 3D character/kart/race geometry visibly render, first with a conclusive solid-white probe and then with faithful materials;
+2. make the indexed display-list raw path consume NW4R/G3D index streams correctly and remove the current hundreds of milliseconds of per-vertex fallback work;
+3. restore required EFB, billboards, lighting and movies one at a time after the geometry/material boundary is established;
+4. continue improving Aurora-Vita correctness without regressing the now-working Single Player/menu/race progression and readable in-race text.
 
 ---
 
 ## 2. Hardware-confirmed state
 
-The latest hardware-tested renderer/profiling build before the current watchdog work is:
+The newest supplied append-mode log is `runtime.log`, SHA-256
+`6bb9489e583cae63467a415cd9bf39a0ff3dd1c77ba13066f60f839dcbc985a2`, 11,432,799 bytes.
+Its final session is the M13.1 probe and runs through the race workload without a terminal crash.
+The user confirms that in-race text is readable but 3D models remain invisible. See the M13.1
+hardware result near the end of this file: the intended white-material A/B was not conclusive
+because M13.1 did not actually replace vertex RGBA with white.
+
+The earlier renderer/profiling baseline was:
 
 `build/vita/wiicompiled-vita-mkw-firstboot-aurora-speedhack-hotguest-glyphraw-gaptrace.vpk`
 
@@ -59,6 +66,15 @@ Build success and runtime success must always be kept separate. The observations
 ---
 
 ## 3. Latest local build not yet hardware-validated
+
+`build/vita/wiicompiled-vita-mkw-firstboot-m13_2-indexed-raw-white.vpk` — M13.2, SHA-256
+`97c9ed295e301178ac3864212bbcc4b0944a60eedfe3a4b910b919d5fc59ef50`.
+This preserves the M13.1 diagnostic switches, fixes the indexed VCD/raw decode ordering bug and
+makes the geometry probe truly white/opaque. Full ARM32 build, bridge/VI checks and packaging pass;
+real-hardware validation is pending. The exact symbol ELF and test procedure are recorded in the
+M13.2 section below.
+
+Historical M6 artifact from the earlier scheduler phase:
 
 `build/vita/wiicompiled-vita-mkw-firstboot-aurora-speedhack-m6-dvd-deferred-togglable.vpk`
 (M6, this session) — SHA-256 `ea0ab46bc144954cc98ab8b338016e23c0abfe54c29d46cf5fb45aafc6e74d5a`.
@@ -1804,6 +1820,53 @@ VPK, repeat the same Single Player race path, and retain any new core. Required 
 `efb_frame ... gpu=0 readback=N`/`aurora_frame` or the exact last `render_large` marker if it still
 crashes. This build/package result is not yet a real-hardware PASS.
 
+### M12.7 hardware result — EFB crash fixed; draw/vertex capacity passes; EFB queue still saturates
+
+Fresh single-session hardware log: `build/vita/runtime.log`, 2,337,268 bytes / 24,434 lines,
+captured 2026-09-04. The expected build identifies itself at startup with
+`frame_draw_cap=8192 frame_vertex_cap=49152 efb_cap=128 packet_bytes=7525544
+efb_gpu_blit=0`, 8/8 render-target scenes and two 8 MiB vertex-stream slots.
+
+M12.7 is a **hardware PASS for the old SceGxm EFB-blit crash and for the enlarged draw/vertex
+packet**. The critical first-race transition is serial 1514:
+
+`draws=6146 vertices=47946 requested_draws=6146 begin_cap=0 raw_cap=0 dropped=0`.
+
+Unlike M12.6, which died near draw 384 after EFB command 28, M12.7 crosses the same boundary,
+processes all 6146 stored draws, reaches `submit_done`, `endframe_done`, `swap_end`, and
+`completed serial=1514 total_us=4691051`. It then continues through loading frames and repeatedly
+completes the steady race workload through serial 1615, typically ~6167-6179 draws / ~38661-38741
+vertices / 13 EFB commands. The final line follows a clean
+`render_large phase=completed serial=1615 total_us=855631`; there is no crash/fatal marker or new
+core evidence in this log. The repeated watchdog lines are slow-frame samples, not a deadlock,
+because serials continue advancing.
+
+The EFB completeness criterion fails and is now measured rather than inferred. Serial 1514 reports
+`efb_cmds=128 efb_calls=399 efb_recorded=78 efb_cap_fail=321 efb_destroy=50`: all 128 command slots
+are consumed by 78 copies plus 50 destroys, and 321 later copy requests are dropped. The worker
+executes the 128 retained commands and survives, but this frame is not semantically complete.
+Periodic frames confirm the intended stable path (`gpu=0 readback=12`, `failed=0`,
+`capacity_fail=0`) outside that transition. Therefore do not increase the queue blindly without
+also accounting for synchronous readback cost: the partial 128-command transition already takes
+4.69 s. First measure unique destinations, overwrite-before-sample copies and destroy ordering;
+then either coalesce provably dead copies or move the command count to `u16` and use a bounded
+capacity of at least 512.
+
+Memory remains stable but close to its guards. Sampled EFB high-water reaches 4,183,616 /
+4,194,304 bytes with no EFB allocation blocks. The texture cache reaches 10,330,076 /
+10,485,760 bytes and safely rejects 16 uploads instead of crashing: fourteen are the same
+256x1024 format-0xA source `0x622523A0`, plus one 256x128 and one 128x128 source. These failures may
+still explain missing visual assets and need correlation with the hardware image.
+
+Steady race speed is still far from real time: renderer completion is approximately 0.83-0.90 s
+per heavy frame and producer intervals are approximately 1.30-1.35 s (~0.74-0.77 FPS). The old M13
+candidate `EGG::LightTexture::SetupTevInfo+0x13C` is no longer the dominant steady-race gap. Frames
+1200-1209 instead spend ~372-378 ms at `0x8003EA94`, inside
+`nw4r::ef::DrawBillboardStrategy::DrawNormalBillboard+0x764`. The serial-1514 transition also has a
+one-off 1.827 s gap at `0x802155E0`, inside `EGG::ColorFader::draw+0x228`, plus the already known RFL
+work. Performance work remains secondary to restoring complete EFB/texture output and confirming
+what was visible on screen.
+
 ## Performance hotspot for M13 — `0x8022DEA4` = `EGG::LightTexture::SetupTevInfo+0x13C`
 
 `gx_gap_hot rank=0 lr=8022dea4 gap_us=252750 max_gap_us=108417 count=10` on the heavy scene —
@@ -1823,12 +1886,204 @@ crashes. This build/package result is not yet a real-hardware PASS.
   `PPC_NATIVE_OVERRIDE` of the inner transform, same pattern as the fpu helpers. Keep it behind a
   flag and measure against `gx_gap_hot`.
 
+
+## M12.8 — indexed XF + native THP + GPU EFB hardware A/B
+
+M12.8 targeted the three remaining user-visible issues from M12.7 while keeping the hardware-proven faithful NW4R/lyt path (`MKW_VITA_LYT_DIRECT=0`, `MKW_VITA_LYT_FAITHFUL=1`):
+
+- fixed `GX_LOAD_INDX_A/B/C/D` on the reduced Vita GX replay path. The old bridge resolved/rebound the CP XF source array but never copied the selected words into the Vita backend XF register state. `ApplyIndexedXfPacket` now converts each resolved indexed load into the equivalent `LOAD_XF_REG` packet and feeds the existing XF decoder;
+- added per-frame `xf_idx=<loads>/<words>` telemetry;
+- re-enabled movie playback (`MKW_VITA_DISABLE_MOVIES=0`) with native THP decode kept enabled;
+- TurboJPEG native THP decode uses `TJFLAG_FASTDCT`; render-side YUV420→RGBA reuses each U/V sample across its 2×2 luma block and logs conversion `elapsed_us`;
+- added a Makefile native-runtime configuration stamp so HLE/movie flag changes cannot silently reuse stale runtime objects;
+- retried `MKW_VITA_EFB_GPU_BLIT=1` with scissor disabled across the transient READ/DRAW FBO switch, attempting to avoid the M12.6 `update_scissor_test` crash while removing synchronous EFB readback.
+
+The complete M12.8 GPU-EFB artifact was built from the source checkout and tested on hardware: `build/vita/wiicompiled-vita-mkw-firstboot-aurora-speedhack-efbgpu.vpk`, SHA-256 `8677cc8c6ccd6771bb8751f0bcb8ed9172e47318381aa0a7c545cee1b0dd18ee`.
+
+### M12.8 hardware result — GPU EFB FAIL; same native SceGxm crash as M12.6
+
+The uploaded `runtime.log` contains multiple concatenated boots; the final session is the M12.8 run. That session reaches NW4R G3D and the RVL THP library, proving movie support is no longer compiled out, but it crashes before the first native THP frame-decode telemetry is reached.
+
+The GPU EFB path is active and executes many `efb_copy_exec ... path=gpu` commands. The second G3D transition eventually submits a 535-draw / 3624-vertex frame with 45 EFB commands after a long guest stall; USER_1 then executes GPU EFB copies through `n=32` and the runtime log terminates abruptly without a completed-frame marker.
+
+The accompanying core is `psp2core-1788515405-0x000692394f-eboot.bin.psp2dmp`. Parsing Vita `THREAD_INFO`, `THREAD_REG_INFO` and `MODULE_INFO` identifies the crashed native USER_1 `pthread` as:
+
+- stop reason `0x30004` — Data Abort;
+- PC `0xE00A2338` = `SceGxm` RX + `0x1E638`;
+- DFAR `0xFFFFFFFF`;
+- DFSR `0x8F5`.
+
+This is the same `SceGxm+0x1E638 / DFAR=FFFFFFFF` signature already symbolized for M12.6. The M12.8 scissor guard therefore does not make vitaGL's `glBlitFramebuffer`/transient-FBO path safe under the real G3D/EFB workload. Treat that implementation as rejected for the correctness path; future GPU-resident EFB work should avoid repeated transient render-target switches.
+
+There is also a separate CPU-side transition stall. `0x800C23C0` (`RFLiInitShapeRes+0x580`) reaches `gap_us=5747850`, including one ~5.01 s gap, and the same boot reports missing `ux0:data/wiicompiled-vita/NAND/shared2/menu/FaceLib/RFL_DB.dat`. The function does return, so this explains the multi-second freeze but not the terminal native crash.
+
+Periodic `xf_idx` samples in this short M12.8 run remain `0/0` because the logged samples are from 2D/pre-G3D frames. This is inconclusive for indexed-XF correctness, not evidence the path is unused.
+
+## M12.9 — stable EFB readback + indexed-XF trace + native THP
+
+M12.9 is the progression/stability build after the failed M12.8 GPU-EFB A/B:
+
+- `MKW_VITA_EFB_GPU_BLIT=0` is again the default (`aurora-speedhack-efbreadback`);
+- all M12.8 indexed-XF semantics stay enabled;
+- all M12.8 native THP/movie changes stay enabled (`MKW_VITA_DISABLE_MOVIES=0`, `MKW_VITA_NATIVE_THP=1`);
+- faithful LYT remains the correctness baseline;
+- `ApplyIndexedXfPacket` now emits immediate `xf_indexed n=... dst=... words=... source=...` telemetry for the first 16 successful loads and then powers of two. This avoids missing a short G3D indexed-matrix phase simply because frame counters reset before a periodic sample.
+
+`runtime-gx-bridge-check` and `runtime-gx-vi-check` pass. The complete NEON build links, converts to SELF, packages successfully, and `unzip -t` reports no errors.
+
+Artifact:
+
+- `build/vita/wiicompiled-vita-mkw-firstboot-aurora-speedhack-efbreadback.vpk`
+- SHA-256 `0d6a78998745e00865e0ef1cd5a12cfc73003bed6c53d3d04a2a02c2366af66e`
+- approximately 39 MiB
+
+Hardware success criterion: recover at least the M12.6/M12.7 menu progression without another SceGxm core. Then use the first `xf_indexed` lines to evaluate the missing 3D models and, only after surviving that transition, inspect native THP decode telemetry for movie playback. The RFL transition is expected to remain temporarily very slow and is now the next independent USER_0 blocker once renderer stability is restored.
+
+## M12.9 hardware result — stable EFB readback; indexed XF validated; 3D still invisible
+
+M12.9 was exercised on real PS Vita through the menu/G3D path and into the heavy race workload. The stable CPU-readback EFB path remains crash-free: no recurrence of the rejected SceGxm+0x1E638 / DFAR=0xFFFFFFFF transient-FBO blit crash was observed in the tested session. The run advances through the previous G3D/race boundaries and continues rendering heavy frames.
+
+Indexed XF is now **hardware-validated**. Immediate xf_indexed traces advance from the first loads through powers of two up to at least n=65536. Periodic frame telemetry shows real indexed-matrix traffic; for example frame 1440 reports approximately xf_idx=108/1188 and xf=442/1338 with transform_fail=0. Earlier enormous NDC values from the pre-indexed-XF implementation disappear in corrected menu/G3D samples; representative corrected values are around max_ndc=4.93,5.61. Therefore the original missing indexed-XF semantics are no longer the primary explanation for the invisible models.
+
+The 3D geometry is nevertheless still not visible on hardware. This is **not a draw-capacity or submission failure** in the menu/G3D samples: thousands of draws and tens of thousands of vertices reach the Aurora packet renderer with no frame draw-cap, vertex-cap or pipeline-submit failure and transform_fail=0. A representative G3D frame contains roughly 3381 draws / 23032 vertices, split between about 319 orthographic draws and 3062 perspective draws.
+
+Material/TEV coverage is now the strongest correctness suspect. In the same kind of frame only about 500 textured draws are classified as the currently supported/simple TEV path while roughly 2856 use the generic TEV fallback. The Vita bridge still represents only a simplified subset of Wii/NW4R multi-stage material state. A model can therefore have valid vertices and matrices but still become black/transparent/otherwise invisible after the incomplete combiner/alpha translation. This must be separated from transform correctness with a material-free visibility A/B.
+
+Performance remains far from real time even with correctness restored:
+
+- menu/G3D display-list replay is commonly about 250-310 ms/frame in the latest M13.0-instrumented run; earlier M12.9 samples were about 127-129 ms/frame before the extra failed fast-path attempts;
+- steady race display-list replay is about 330-370 ms/frame;
+- nw4r::ef::DrawBillboardStrategy::DrawNormalBillboard around guest LR 0x8003EA94 / 0x8003EC84 remains a dominant race guest-CPU hotspot, often around 365-376 ms/frame;
+- EGG::LightTexture::SetupTevInfo around LR 0x8022DEA4 remains a menu/G3D hotspot around 158-159 ms/frame when enabled;
+- stable EFB readback itself remains expensive on USER_1, with sampled heavy-frame renderer/EFB work roughly 350-470 ms in the periodic samples;
+- the RFL transition remains an independent multi-second one-shot stall and still reports missing RFL_DB.dat; it is not the main steady-state FPS limiter.
+
+Native THP support is compiled and available in the correctness build, but the tested M12.9 session did not reach a useful native decode / thp_yuv420 sample. Do not mark movie playback hardware validated yet.
+
+## M13.0 — indexed display-list raw fast path
+
+M13.0 attempted to remove the high per-vertex HLE cost of static NW4R/BRRES display lists. The Vita backend's existing DecodeRawDraw already understands GX_INDEX8 / GX_INDEX16, so GX__CallDisplayList now permits packed indexed draws to bypass the per-vertex SubmitDLVertex loop when the outer scan proves the display list has no nested display-list call and no embedded array-base/stride mutation. Unexpected raw-decode failures automatically fall back to the previous correct per-vertex path.
+
+The feature is controlled by MKW_VITA_DL_INDEXED_RAW (default 1) and is included in the native runtime configuration stamp. CPU telemetry adds dl_raw=<raw-success>/<indexed-success> verts=<raw-vertices> fail=<raw-decode-failures>.
+
+All ARM32 GX/VI/graphics checks pass and the complete VPK links/packages successfully. The explicit M13.0 test artifact produced during this iteration is:
+
+- build/vita/wiicompiled-vita-mkw-firstboot-m13_0-indexed-dl-fastpath.vpk
+- SHA-256 c975699a9c5cfc6f7a083df6ba6ca5896497e1d9473444202bb52e116d1c4f24.
+
+### M13.0 hardware result — fast path currently FAILS on essentially every perspective G3D draw
+
+The first hardware log with M13.0 shows that the optimization does not yet provide its intended speedup. Representative 3D frames report dl_raw=0/0 with thousands of failures. Most importantly, one G3D sample has about **3062 perspective draws and 3062 raw failures** (plus about 319 orthographic draws). This one-to-one correlation strongly suggests that the packed decoder is rejecting the vertex layout/array state used by the real 3D model display lists and then falling back to the slow path for every model draw.
+
+Because the fallback is correct but expensive, M13.0 remains a correctness-preserving experiment, not a performance win. The next diagnostic must record the exact raw decode failure category (indexed array bounds, descriptor, stream footprint, position/texcoord decode or final cursor mismatch) rather than only a total failure count.
+
+## M13.1 — stripped performance + 3D visibility probe
+
+M13.1 is a deliberately non-faithful diagnostic build. It is intended to answer two independent questions in a single hardware run:
+
+1. does perspective 3D geometry become visible when the incomplete material path is removed; and
+2. exactly why does the indexed raw display-list decoder reject the real G3D draws?
+
+New profiling-only flags default to 0, so the normal correctness configuration remains unchanged:
+
+- MKW_VITA_PERF_SKIP_EFB
+- MKW_VITA_PERF_SKIP_BILLBOARDS
+- MKW_VITA_PERF_SKIP_LIGHTTEXTURE
+- MKW_VITA_PERF_FORCE_3D_SOLID
+
+The M13.1 test VPK is built with all four enabled, plus MKW_VITA_DISABLE_MOVIES=1, MKW_VITA_NATIVE_THP=0, MKW_VITA_DL_INDEXED_RAW=1, stable MKW_VITA_EFB_GPU_BLIT=0, faithful LYT and the existing NEON translated build.
+
+Behavior of this diagnostic build:
+
+- GXCopyTex EFB copies return immediately and emit bounded perf_probe skip_efb_copy telemetry;
+- nw4r::ef::DrawBillboardStrategy::DrawNormalBillboard is gated at the translated guest function entry, removing the known billboard/particle hotspot;
+- EGG::LightTexture::SetupTevInfo is gated at its translated guest function entry, removing the known menu lighting hotspot;
+- THP/movie work is disabled;
+- every **perspective** geometry draw keeps its real vertices, PN matrices, projection and depth state but is submitted as a diagnostic untextured/opaque material with texture disabled, alpha compare forced to ALWAYS, blending disabled and culling disabled. The expected hardware output is therefore crude white/solid 3D silhouettes, not correct Mario Kart materials;
+- indexed-XF, core G3D geometry, input, game logic, physics and race progression remain active.
+
+vita/gx_backend.cpp now records bounded raw_decode_fail telemetry with the failure reason and relevant vertex/attribute/index/array/stride/cursor metadata. The first failure reason in the next hardware log should identify the blocker preventing M13.0's bulk decoder from being used.
+
+The M13.1 configuration compiles through the full Vita runtime, including the modified GX backend, links successfully, converts ELF -> VELF -> FSELF and packages successfully. The generated package for the immediate hardware test is currently the standard variant path:
+
+- build/vita/wiicompiled-vita-mkw-firstboot-aurora-speedhack-efbreadback.vpk
+
+At packaging time this path contains the **M13.1 performance/visibility configuration**, despite the legacy generic filename. A dedicated M13.1 filename/hash was not recorded in this iteration, so do not use an older same-named VPK from another build directory as evidence.
+
+### M13.1 hardware result — probe active, but the claimed white A/B was incomplete
+
+The updated append-mode `runtime.log` is 11,432,799 bytes / 119,100 lines. Its final session starts
+at line 91,251 and is the actual M13.1 run: startup reports `movies_disabled=1 native_thp=0`, EFB
+copy bypass markers advance through powers of two, and `perf_probe force_3d_solid` advances from
+the first perspective draw to at least `n=2097152`. The session reaches the race workload and
+continues through `render_large phase=completed serial=1500 total_us=606951` without a terminal
+crash marker. On hardware, 3D models remained invisible while the in-race text was readable.
+
+That visual result does **not** yet disprove the material hypothesis. The M13.1 code selected
+untextured `GX_PASSCLR`, disabled blend/alpha/culling, but left each vertex's original RGBA intact.
+`GX_PASSCLR` consumes raster/vertex color, so black or zero-alpha G3D vertex colors could still
+produce no visible silhouette. The implementation comment promised white geometry without
+actually writing white.
+
+The raw-decode failure is conclusive. Every sampled failure is `direct_stream(3)`: e.g. a draw
+with 4 vertices / 8 payload bytes fails while attribute 9 (POS) is seen as `GX_DIRECT`, and other
+draws fail when NRM/TEX descriptors demand 6/4/12 direct bytes. The display-list scanner correctly
+computed the compact indexed payload, but `DlInterpretVisitor::OnDraw` called
+`ApplyAuroraVtxStateForDlBegin` before raw submission. That helper intentionally converts
+`GX_INDEX8/16` descriptors to `GX_DIRECT` for the old expanded fallback, so the raw decoder was
+given index bytes under a direct layout. This explains the one-failure-per-perspective-draw
+correlation and is not missing/corrupt BRRES data.
+
+The bypass build also gives bounded performance evidence, not a correctness result. Near the end
+of the race it produces about 6047 draws / 38426 vertices / 0 EFB commands, with producer intervals
+around 1.01-1.07 s and render-worker completion around 0.52-0.61 s. The failed raw path still costs
+roughly 0.37 s in `dl_us` on representative race frames, so M13.1 did not deliver the intended
+display-list speedup.
+
+## M13.2 — indexed-VCD raw fix + actual white geometry probe
+
+M13.2 fixes both invalid M13.1 experiments without changing the normal correctness defaults:
+
+- indexed display-list draws are submitted to the raw decoder while Aurora still holds the real
+  indexed VCD/VAT and array bindings published by the outer scan; the direct-state publisher now
+  runs only for all-direct lists or the established per-vertex fallback;
+- if an indexed raw draw still fails for a different reason, the visitor disables further raw
+  attempts for that one display list and falls back to the faithful expanded path, avoiding a
+  chain of failures after the fallback switches the live VCD to direct;
+- the solid probe now overwrites RGBA with `255,255,255,255` in the render-worker vertex copy for
+  every perspective draw before selecting untextured `GX_PASSCLR`. Guest GX state and producer
+  packets remain untouched;
+- the startup marker now prints `dl_indexed_raw` and all four `perf_*` flags;
+- `gx_backend.o` now depends on the native configuration stamp, so changing only the probe `-D`
+  values cannot silently reuse an object from another variant.
+
+The full ARM32 build, GX bridge/VI checks, ELF -> VELF -> FSELF conversion and VPK packaging pass.
+`unzip -t` reports no errors, the packaged `eboot.bin` matches the staged FSELF, and the ELF embeds
+the extended startup marker plus `raw_decode_fail` and `force_3d_solid` telemetry.
+
+Hardware-test artifacts:
+
+- `build/vita/wiicompiled-vita-mkw-firstboot-m13_2-indexed-raw-white.vpk`
+  (40,397,045 bytes), SHA-256
+  `97c9ed295e301178ac3864212bbcc4b0944a60eedfe3a4b910b919d5fc59ef50`;
+- exact symbol ELF:
+  `build/vita/mkwii_runtime/wiicompiled-vita-mkw-firstboot-m13_2-indexed-raw-white.elf`, SHA-256
+  `d1570fcf2c5722603a34a0a98c714e1a32462b5f368c63e339792459e2a6082c`.
+
+This is still a deliberately non-faithful probe: EFB, billboards, LightTexture and movies remain
+disabled. It is not the candidate for restoring final race graphics.
+
 ## Next
 
-- ~230-260 ms/frame guest CPU pre-GX on the card menu (nw4r `lyt::Layout::Animate`/calc + EGG
-  heap on translated code); per-shard sampling before HLE-ing nw4r::lyt. RFL hotspot
-  `0x800C23C0` still costs seconds during the transition. Deferred until the new scene renders.
-- generated default `RFL_DB.dat` (~6 s `RFLiInitShapeRes` on the licence screen).
-- Aurora: texture-cache lifetime split, per-frame `GXInvalidateTexAll`, streaming arena size,
-  vertex-representation collapse, persistent pipeline cache. 360p only after USER_0 < 30 ms.
-- native THP decode (deferred section above); re-enable movies.
+- Archive/remove the append-mode Vita log before launch, then hardware-test the uniquely named
+  M13.2 VPK. Confirm that startup reports all four `perf_*` flags as 1.
+- Explicitly report whether **white/solid 3D silhouettes** now appear in character/kart selection
+  and in-race. This M13.2 observation, unlike M13.1, is a valid material-free visibility A/B.
+- If white 3D appears, treat geometry/XF/projection as sufficiently proven and move correctness work to NW4R/G3D **multi-stage TEV/material/alpha translation**. Re-enable visual features one at a time after the material path is correct.
+- If white 3D is still completely absent, inspect depth, viewport/scissor, clip/projection and PN matrix selection before touching TEV again; culling/blending/alpha/texture will already have been removed from the A/B.
+- Verify that representative G3D/race `gx_cpu_perf` records now report non-zero indexed `dl_raw`
+  successes with `fail` near zero. Preserve any remaining `raw_decode_fail`; its new reason would be
+  the next concrete decoder issue rather than the fixed VCD conversion bug.
+- Compare gx_cpu_perf dl_us against the M13.0 hardware baseline and compare producer/render frame intervals. Do not infer a speedup merely from the disabled visual features.
+- Keep the old transient-FBO GPU EFB implementation rejected. A future EFB speedup must use a different persistent/offscreen architecture rather than re-enabling the path that crashes inside SceGxm.
+- RFL/default RFL_DB.dat and native THP remain independent follow-up tasks after the 3D/material and indexed-DL blockers are understood.

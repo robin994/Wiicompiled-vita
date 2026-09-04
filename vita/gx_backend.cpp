@@ -228,6 +228,8 @@ struct FrameCounters {
     uint64_t xfViewportWrites = 0;
     uint64_t xfMatrixIndexWrites = 0;
     uint64_t xfUnsupportedWords = 0;
+    uint64_t xfIndexedLoads = 0;
+    uint64_t xfIndexedWords = 0;
     std::array<uint32_t, 7> primitiveDraws{};
     std::array<uint32_t, 8> vertexFormatDraws{};
 };
@@ -2012,16 +2014,80 @@ size_t PrimitiveBucket(GXPrimitive primitive) {
     return 1;
 }
 
+enum class RawDecodeFailReason : uint8_t {
+    None = 0,
+    InvalidInput,
+    Capacity,
+    DirectStreamBounds,
+    DirectPosition,
+    DirectTexCoord,
+    InvalidIndexedDescriptor,
+    IndexedStreamBounds,
+    IndexedArrayBounds,
+    IndexedPosition,
+    IndexedTexCoord,
+    CursorMismatch,
+};
+
+struct RawDecodeFailure {
+    RawDecodeFailReason reason = RawDecodeFailReason::None;
+    uint16_t vertex = 0;
+    uint8_t attr = 0xff;
+    uint8_t desc = 0;
+    uint32_t index = 0;
+    uint32_t elementBytes = 0;
+    uint32_t arraySize = 0;
+    uint32_t arrayStride = 0;
+    uint32_t cursorOffset = 0;
+};
+
+thread_local RawDecodeFailure g_rawDecodeFailure{};
+
+bool RawDecodeFail(RawDecodeFailReason reason, uint16_t vertex = 0, GXAttr attr = GX_VA_NULL,
+                   GXAttrType desc = GX_NONE, uint32_t index = 0, uint32_t elementBytes = 0,
+                   uint32_t arraySize = 0, uint32_t arrayStride = 0,
+                   uint32_t cursorOffset = 0) {
+    g_rawDecodeFailure.reason = reason;
+    g_rawDecodeFailure.vertex = vertex;
+    g_rawDecodeFailure.attr = attr == GX_VA_NULL ? 0xffu : static_cast<uint8_t>(attr);
+    g_rawDecodeFailure.desc = static_cast<uint8_t>(desc);
+    g_rawDecodeFailure.index = index;
+    g_rawDecodeFailure.elementBytes = elementBytes;
+    g_rawDecodeFailure.arraySize = arraySize;
+    g_rawDecodeFailure.arrayStride = arrayStride;
+    g_rawDecodeFailure.cursorOffset = cursorOffset;
+    return false;
+}
+
+const char* RawDecodeFailName(RawDecodeFailReason reason) {
+    switch (reason) {
+    case RawDecodeFailReason::None: return "none";
+    case RawDecodeFailReason::InvalidInput: return "input";
+    case RawDecodeFailReason::Capacity: return "capacity";
+    case RawDecodeFailReason::DirectStreamBounds: return "direct_stream";
+    case RawDecodeFailReason::DirectPosition: return "direct_pos";
+    case RawDecodeFailReason::DirectTexCoord: return "direct_tex";
+    case RawDecodeFailReason::InvalidIndexedDescriptor: return "indexed_desc";
+    case RawDecodeFailReason::IndexedStreamBounds: return "indexed_stream";
+    case RawDecodeFailReason::IndexedArrayBounds: return "indexed_array";
+    case RawDecodeFailReason::IndexedPosition: return "indexed_pos";
+    case RawDecodeFailReason::IndexedTexCoord: return "indexed_tex";
+    case RawDecodeFailReason::CursorMismatch: return "cursor";
+    }
+    return "unknown";
+}
+
 bool DecodeRawDraw(GXPrimitive primitive, GXVtxFmt fmt, const uint8_t* vertices,
                    uint16_t vtxCount, uint32_t vertexBytes) {
+    g_rawDecodeFailure = {};
     if (!vertices || vtxCount == 0 || vertexBytes == 0 || fmt < 0 || fmt >= GX_MAX_VTXFMT) {
-        return false;
+        return RawDecodeFail(RawDecodeFailReason::InvalidInput);
     }
     if (g_gx.geometry.drawCount >= g_gx.geometry.draws.size() ||
         static_cast<size_t>(g_gx.geometry.vertexCount) + vtxCount > g_gx.geometry.vertices.size()) {
         g_gx.geometry.droppedVertices += vtxCount;
         ++g_gx.frame.rawDrawCapacityFailures;
-        return false;
+        return RawDecodeFail(RawDecodeFailReason::Capacity);
     }
 
     const uint8_t* cursor = vertices;
@@ -2044,20 +2110,26 @@ bool DecodeRawDraw(GXPrimitive primitive, GXVtxFmt fmt, const uint8_t* vertices,
             if (desc == GX_DIRECT) {
                 const uint32_t bytes = DirectAttrByteSize(attr, attrFmt);
                 if (bytes == 0 || static_cast<size_t>(end - cursor) < bytes) {
-                    return false;
+                    return RawDecodeFail(RawDecodeFailReason::DirectStreamBounds, vertexIndex, attr,
+                                         desc, 0, bytes, 0, 0,
+                                         static_cast<uint32_t>(cursor - vertices));
                 }
                 if (attr == GX_VA_PNMTXIDX) {
                     pnMtxRef = static_cast<u8>(PnMtxSlot(cursor[0]) | kPnMtxExplicitBit);
                 }
                 if (attr == GX_VA_POS && !DecodePosition(cursor, attrFmt, false, decoded)) {
-                    return false;
+                    return RawDecodeFail(RawDecodeFailReason::DirectPosition, vertexIndex, attr,
+                                         desc, 0, bytes, 0, 0,
+                                         static_cast<uint32_t>(cursor - vertices));
                 }
                 if (attr == GX_VA_CLR0) {
                     const GXColor color = DecodeColor(cursor, attrFmt.type, attrFmt.cnt, false);
                     decoded.r = color.r; decoded.g = color.g; decoded.b = color.b; decoded.a = color.a;
                 }
                 if (attr == GX_VA_TEX0 && !DecodeTexCoord(cursor, attrFmt, false, decoded)) {
-                    return false;
+                    return RawDecodeFail(RawDecodeFailReason::DirectTexCoord, vertexIndex, attr,
+                                         desc, 0, bytes, 0, 0,
+                                         static_cast<uint32_t>(cursor - vertices));
                 }
                 cursor += bytes;
                 ++directAttrs;
@@ -2065,14 +2137,18 @@ bool DecodeRawDraw(GXPrimitive primitive, GXVtxFmt fmt, const uint8_t* vertices,
             }
 
             if (desc != GX_INDEX8 && desc != GX_INDEX16 || IsMatrixIndexAttr(attr)) {
-                return false;
+                return RawDecodeFail(RawDecodeFailReason::InvalidIndexedDescriptor, vertexIndex,
+                                     attr, desc, 0, 0, 0, 0,
+                                     static_cast<uint32_t>(cursor - vertices));
             }
 
             const uint32_t indexBytes = desc == GX_INDEX8 ? 1u : 2u;
             const uint32_t indexCount =
                 (attr == GX_VA_NRM && attrFmt.cnt == GX_NRM_NBT3) ? 3u : 1u;
             if (static_cast<size_t>(end - cursor) < indexBytes * indexCount) {
-                return false;
+                return RawDecodeFail(RawDecodeFailReason::IndexedStreamBounds, vertexIndex, attr,
+                                     desc, 0, indexBytes * indexCount, 0, 0,
+                                     static_cast<uint32_t>(cursor - vertices));
             }
 
             const ArrayState& array = g_gx.arrays[static_cast<size_t>(attr)];
@@ -2083,11 +2159,15 @@ bool DecodeRawDraw(GXPrimitive primitive, GXVtxFmt fmt, const uint8_t* vertices,
                     : ReadU16(cursor + indexSlot * 2u, false);
                 const uint8_t* element = nullptr;
                 if (!ArrayElement(array, index, elementBytes, element)) {
-                    return false;
+                    return RawDecodeFail(RawDecodeFailReason::IndexedArrayBounds, vertexIndex, attr,
+                                         desc, index, elementBytes, array.size, array.stride,
+                                         static_cast<uint32_t>(cursor - vertices));
                 }
                 if (indexSlot == 0 && attr == GX_VA_POS &&
                     !DecodePosition(element, attrFmt, array.littleEndian, decoded)) {
-                    return false;
+                    return RawDecodeFail(RawDecodeFailReason::IndexedPosition, vertexIndex, attr,
+                                         desc, index, elementBytes, array.size, array.stride,
+                                         static_cast<uint32_t>(cursor - vertices));
                 }
                 if (indexSlot == 0 && attr == GX_VA_CLR0) {
                     const GXColor color = DecodeColor(element, attrFmt.type, attrFmt.cnt, array.littleEndian);
@@ -2095,7 +2175,9 @@ bool DecodeRawDraw(GXPrimitive primitive, GXVtxFmt fmt, const uint8_t* vertices,
                 }
                 if (indexSlot == 0 && attr == GX_VA_TEX0 &&
                     !DecodeTexCoord(element, attrFmt, array.littleEndian, decoded)) {
-                    return false;
+                    return RawDecodeFail(RawDecodeFailReason::IndexedTexCoord, vertexIndex, attr,
+                                         desc, index, elementBytes, array.size, array.stride,
+                                         static_cast<uint32_t>(cursor - vertices));
                 }
             }
             cursor += indexBytes * indexCount;
@@ -2107,7 +2189,9 @@ bool DecodeRawDraw(GXPrimitive primitive, GXVtxFmt fmt, const uint8_t* vertices,
     }
 
     if (cursor != end) {
-        return false;
+        return RawDecodeFail(RawDecodeFailReason::CursorMismatch, vtxCount, GX_VA_NULL, GX_NONE,
+                             0, vertexBytes, 0, 0,
+                             static_cast<uint32_t>(cursor - vertices));
     }
 
     GeometryDraw& draw = g_gx.geometry.draws[g_gx.geometry.drawCount++];
@@ -2582,12 +2666,24 @@ void RenderWorkerMain() {
     const uint64_t vglInitBeginUs = sceKernelGetProcessTimeWide();
     RT_LOGF(RT_TAG_GX,
             "init_marker=vglInitExtended phase=begin t_us=%llu renderer=%s vitagl=%s rt_scenes=%u/%u "
-            "frame_draw_cap=%u frame_vertex_cap=%u efb_cap=%u packet_bytes=%u efb_gpu_blit=%u\n",
+            "frame_draw_cap=%u frame_vertex_cap=%u efb_cap=%u packet_bytes=%u efb_gpu_blit=%u "
+            "movies_disabled=%u native_thp=%u lyt_direct=%u lyt_faithful=%u dl_indexed_raw=%u "
+            "perf_skip_efb=%u perf_skip_billboards=%u perf_skip_lighttexture=%u "
+            "perf_force_3d_solid=%u\n",
             static_cast<unsigned long long>(vglInitBeginUs), kRendererVariant, kVitaGlVariant,
             static_cast<unsigned>(kRenderTargetScenes), static_cast<unsigned>(kRenderTargetScenes),
             static_cast<unsigned>(kMaxFrameDraws), static_cast<unsigned>(kMaxFrameVertices),
             static_cast<unsigned>(kMaxFrameEfbCommands), static_cast<unsigned>(sizeof(FramePacket)),
-            static_cast<unsigned>(MKW_VITA_EFB_GPU_BLIT));
+            static_cast<unsigned>(MKW_VITA_EFB_GPU_BLIT),
+            static_cast<unsigned>(MKW_VITA_DISABLE_MOVIES),
+            static_cast<unsigned>(MKW_VITA_NATIVE_THP),
+            static_cast<unsigned>(MKW_VITA_LYT_DIRECT),
+            static_cast<unsigned>(MKW_VITA_LYT_FAITHFUL),
+            static_cast<unsigned>(MKW_VITA_DL_INDEXED_RAW),
+            static_cast<unsigned>(MKW_VITA_PERF_SKIP_EFB),
+            static_cast<unsigned>(MKW_VITA_PERF_SKIP_BILLBOARDS),
+            static_cast<unsigned>(MKW_VITA_PERF_SKIP_LIGHTTEXTURE),
+            static_cast<unsigned>(MKW_VITA_PERF_FORCE_3D_SOLID));
     const bool resolutionFallback =
         vglInitExtended(0, kSurfaceWidth, kSurfaceHeight, kVitaGlUserRamReserve,
                         SCE_GXM_MULTISAMPLE_NONE) == GL_TRUE;
@@ -2751,10 +2847,14 @@ void RenderWorkerMain() {
             if (!g_renderWake.wait_for(lock, std::chrono::milliseconds(100),
                                        [] { return g_renderStop || g_renderPending; })) {
                 lock.unlock();
+#if !defined(MKW_VITA_PORTING_PROBE)
                 GuestStallWatchdog::Poll(sceKernelGetProcessTimeWide());
                 if (bootConsoleActive) {
                     RenderBootConsole();
                 }
+#else
+                (void)bootConsoleActive;
+#endif
                 continue;
             }
             if (g_renderStop) {
@@ -3311,6 +3411,51 @@ void RenderWorkerMain() {
                 auroraDraw.texture.thpChromaWidth = draw.texture.thpChromaWidth;
                 auroraDraw.texture.thpChromaHeight = draw.texture.thpChromaHeight;
                 auroraDraw.texture.thpYuv420 = draw.texture.thpYuv420 != 0;
+#if defined(MKW_VITA_PERF_FORCE_3D_SOLID) && MKW_VITA_PERF_FORCE_3D_SOLID
+                // Diagnostic visibility mode: perspective G3D geometry keeps its real
+                // transform/depth but bypasses the currently incomplete multi-stage TEV,
+                // textures, blending, alpha test and culling. White opaque silhouettes prove
+                // whether missing models are a material problem rather than a geometry problem.
+                if (draw.transform.projectionType == GX_PERSPECTIVE) {
+                    // GX_PASSCLR consumes the raster/vertex color. Disabling the
+                    // texture alone is not a white-material probe: G3D vertices
+                    // can legitimately carry black or zero-alpha colors. This is
+                    // a render-worker copy, so replacing its color does not alter
+                    // guest GX state or the queued producer packet.
+                    for (u16 vertex = 0; vertex < draw.vertexCount; ++vertex) {
+                        RenderVertex& solid = g_renderVertices[draw.firstVertex + vertex];
+                        solid.r = 0xFF;
+                        solid.g = 0xFF;
+                        solid.b = 0xFF;
+                        solid.a = 0xFF;
+                    }
+                    auroraDraw.texture.enabled = false;
+                    auroraDraw.texture.tevMode = static_cast<uint8_t>(GX_PASSCLR);
+                    auroraDraw.cullMode = static_cast<uint32_t>(GX_CULL_NONE);
+                    auroraDraw.blendMode = static_cast<uint32_t>(GX_BM_NONE);
+                    auroraDraw.blendSrc = static_cast<uint32_t>(GX_BL_ONE);
+                    auroraDraw.blendDst = static_cast<uint32_t>(GX_BL_ZERO);
+                    auroraDraw.alphaComp0 = static_cast<uint32_t>(GX_ALWAYS);
+                    auroraDraw.alphaComp1 = static_cast<uint32_t>(GX_ALWAYS);
+                    auroraDraw.alphaOp = static_cast<uint32_t>(GX_AOP_AND);
+                    auroraDraw.alphaRef0 = 0;
+                    auroraDraw.alphaRef1 = 0;
+                    auroraDraw.colorUpdate = true;
+                    auroraDraw.alphaUpdate = true;
+                    static uint64_t s_forceSolidDraws = 0;
+                    const uint64_t forceSolidN = ++s_forceSolidDraws;
+                    if (forceSolidN <= 16u || (forceSolidN & (forceSolidN - 1u)) == 0u) {
+                        RT_LOGF(RT_TAG_GX,
+                                "perf_probe force_3d_solid n=%llu serial=%llu idx=%u verts=%u tev_simple=%u tex=%u\n",
+                                static_cast<unsigned long long>(forceSolidN),
+                                static_cast<unsigned long long>(serial),
+                                static_cast<unsigned>(i),
+                                static_cast<unsigned>(draw.vertexCount),
+                                static_cast<unsigned>(draw.texture.tevSimple),
+                                static_cast<unsigned>(draw.texture.enabled));
+                    }
+                }
+#endif
                 if (auroraDraw.texture.enabled) {
                     if (auroraDraw.texture.sourceGeneration == AURORA_GUEST_WRITE_UNTRACKED) {
                         ++textureCounters.untrackedDraws;
@@ -3502,7 +3647,7 @@ void RenderWorkerMain() {
             RT_LOGF(
                 RT_TAG_GX,
                 "frame=%llu skipped_empty=0 packet_draws=%u packet_vertices=%u calls=%llu raw_ok=%llu raw_fail=%llu "
-                "raw_cap=%llu begin_cap=%llu dropped=%u "
+                "raw_cap=%llu begin_cap=%llu dropped=%u xf_idx=%llu/%llu xf=%llu/%llu "
                 "tex_state=%llu/%llu/%llu/%llu/%llu/%llu recovered=%llu texcoord_gt0=%llu custom=%llu "
                 "custom_mode=%llu/%llu/%llu/%llu/%llu/%llu "
                 "presented_draws=%llu transformed=%llu transform_fail=%llu tex_draws=%llu "
@@ -3519,6 +3664,10 @@ void RenderWorkerMain() {
                 static_cast<unsigned long long>(packet.counters.rawDrawCapacityFailures),
                 static_cast<unsigned long long>(packet.counters.immediateDrawCapacityFailures),
                 packet.geometry.droppedVertices,
+                static_cast<unsigned long long>(packet.counters.xfIndexedLoads),
+                static_cast<unsigned long long>(packet.counters.xfIndexedWords),
+                static_cast<unsigned long long>(packet.counters.xfPacketsApplied),
+                static_cast<unsigned long long>(packet.counters.xfWordsApplied),
                 static_cast<unsigned long long>(packet.counters.textureStateNoTexGen),
                 static_cast<unsigned long long>(packet.counters.textureStateNoTexAttr),
                 static_cast<unsigned long long>(packet.counters.textureStateNoTevStage),
@@ -3806,6 +3955,8 @@ void SubmitFrame() {
         g_stats.xfViewportWrites += frame.xfViewportWrites;
         g_stats.xfMatrixIndexWrites += frame.xfMatrixIndexWrites;
         g_stats.xfUnsupportedWords += frame.xfUnsupportedWords;
+        g_stats.xfIndexedLoads += frame.xfIndexedLoads;
+        g_stats.xfIndexedWords += frame.xfIndexedWords;
         for (size_t i = 0; i < g_stats.primitiveDraws.size(); ++i) {
             g_stats.primitiveDraws[i] += frame.primitiveDraws[i];
         }
@@ -3870,8 +4021,10 @@ void SubmitFrame() {
     lock.unlock();
     g_renderWake.notify_one();
 
+#if !defined(MKW_VITA_PORTING_PROBE)
     GuestStallWatchdog::RecordFrame(submittedSerial, packetCopyEndUs, producerIntervalUs,
                                     TryGetCpuContext());
+#endif
 
 #if defined(MKW_TARGET_VITA)
     if (submittedSerial <= 8u || (submittedSerial % 30u) == 0u ||
@@ -4009,6 +4162,55 @@ Stats SnapshotStats() noexcept {
 bool ApplyXfPacket(const uint8_t* packet, uint32_t packetBytes) noexcept {
     InitializeTransformDefaults();
     return ApplyXfPacketImpl(packet, packetBytes);
+}
+
+bool ApplyIndexedXfPacket(uint32_t value, const uint8_t* source,
+                          uint32_t sourceBytes) noexcept {
+    const uint32_t wordCount = ((value >> 12u) & 0x0Fu) + 1u;
+    const uint32_t requiredBytes = wordCount * sizeof(uint32_t);
+    if (!source || sourceBytes < requiredBytes) {
+        return false;
+    }
+
+    // LOAD_INDX_* copies words from a CP XF array into the XF register file.
+    // The generic Aurora command processor implements this directly, but the
+    // WiiCompiled Vita replay path owns a smaller GX frontend and previously
+    // only rebound the source array. Re-express the indexed load as the
+    // equivalent LOAD_XF_REG packet so position/normal matrices reach the same
+    // state machine as ordinary XF writes.
+    std::array<uint8_t, 5u + 16u * sizeof(uint32_t)> packet{};
+    const uint32_t header = ((wordCount - 1u) << 16u) | (value & 0x0FFFu);
+    packet[0] = 0x10u;
+    packet[1] = static_cast<uint8_t>(header >> 24u);
+    packet[2] = static_cast<uint8_t>(header >> 16u);
+    packet[3] = static_cast<uint8_t>(header >> 8u);
+    packet[4] = static_cast<uint8_t>(header);
+    std::memcpy(packet.data() + 5u, source, requiredBytes);
+
+    InitializeTransformDefaults();
+    const bool applied = ApplyXfPacketImpl(packet.data(), 5u + requiredBytes);
+    if (applied) {
+        ++g_gx.frame.xfIndexedLoads;
+        g_gx.frame.xfIndexedWords += wordCount;
+#if defined(MKW_TARGET_VITA)
+        // Periodic frame telemetry can miss a short-lived G3D scene because the
+        // counters are reset every submitted frame. Emit the first few indexed
+        // loads immediately so real-hardware logs prove whether NW4R/G3D reaches
+        // the new matrix path before a later renderer fault/transition.
+        static uint32_t s_indexedXfTraceCount = 0;
+        ++s_indexedXfTraceCount;
+        if (s_indexedXfTraceCount <= 16u ||
+            (s_indexedXfTraceCount & (s_indexedXfTraceCount - 1u)) == 0u) {
+            RT_LOGF(RT_TAG_GX,
+                    "xf_indexed n=%u dst=0x%03X words=%u source=%p\n",
+                    static_cast<unsigned>(s_indexedXfTraceCount),
+                    static_cast<unsigned>(value & 0x0FFFu),
+                    static_cast<unsigned>(wordCount),
+                    static_cast<const void*>(source));
+        }
+#endif
+    }
+    return applied;
 }
 
 } // namespace WiiCompiledVita::GxBackend
@@ -4735,6 +4937,24 @@ bool submit_raw_draw(GXPrimitive primitive, GXVtxFmt fmt, const uint8_t* vertice
         return true;
     }
     ++g_gx.frame.rawDrawDecodeFailures;
+#if defined(MKW_TARGET_VITA)
+    static uint64_t s_rawFailTrace = 0;
+    const uint64_t trace = ++s_rawFailTrace;
+    if (trace <= 32u || (trace & (trace - 1u)) == 0u) {
+        const RawDecodeFailure failure = g_rawDecodeFailure;
+        RT_LOGF(RT_TAG_GX,
+                "raw_decode_fail n=%llu reason=%s(%u) prim=0x%X fmt=%u verts=%u bytes=%u "
+                "vertex=%u attr=%u desc=%u index=%u elem=%u array=%u stride=%u cursor=%u\n",
+                static_cast<unsigned long long>(trace), RawDecodeFailName(failure.reason),
+                static_cast<unsigned>(failure.reason), static_cast<unsigned>(primitive),
+                static_cast<unsigned>(fmt), static_cast<unsigned>(vtxCount),
+                static_cast<unsigned>(vertexBytes), static_cast<unsigned>(failure.vertex),
+                static_cast<unsigned>(failure.attr), static_cast<unsigned>(failure.desc),
+                static_cast<unsigned>(failure.index), static_cast<unsigned>(failure.elementBytes),
+                static_cast<unsigned>(failure.arraySize), static_cast<unsigned>(failure.arrayStride),
+                static_cast<unsigned>(failure.cursorOffset));
+    }
+#endif
     return false;
 }
 

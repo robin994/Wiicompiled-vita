@@ -294,8 +294,14 @@ Handle EfbManager::capture_from_bound(Handle existing, int32_t srcX, int32_t src
 
   // GPU-only GXCopyTex path. glBlitFramebuffer in vitaGL uses the GXM blit shader and
   // supports scaling, so no glReadPixels/sceGxmTransferFinish round-trip is needed.
-  // Keep READ on the target that was active at the FIFO ordering boundary and DRAW on
-  // the sampled EFB texture, then restore both bindings to the original target.
+  //
+  // M12.6 crashed in vitaGL's update_scissor_test while glBlitFramebuffer was
+  // switching to the destination FBO. The blit is a copy operation and must not
+  // inherit the draw scissor anyway, so disable it across the FBO transition and
+  // restore it only after the original render target is rebound. This keeps
+  // vitaGL from rebuilding a scissor mask against the transient blit target.
+  const GLboolean scissorWasEnabled = glIsEnabled(GL_SCISSOR_TEST);
+  if (scissorWasEnabled) glDisable(GL_SCISSOR_TEST);
   glBindFramebuffer(GL_READ_FRAMEBUFFER, sourceFbo);
   glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dstIt->second.fbo);
   while (glGetError() != GL_NO_ERROR) {}
@@ -307,6 +313,7 @@ Handle EfbManager::capture_from_bound(Handle existing, int32_t srcX, int32_t src
   glBindFramebuffer(GL_READ_FRAMEBUFFER, sourceFbo);
   glBindFramebuffer(GL_DRAW_FRAMEBUFFER, sourceFbo);
   boundFbo_ = sourceFbo;
+  if (scissorWasEnabled) glEnable(GL_SCISSOR_TEST);
   if (blitError != GL_NO_ERROR) {
     destroy(dst);
     return InvalidHandle;

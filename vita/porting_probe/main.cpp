@@ -413,6 +413,24 @@ bool RunRenderWorkerSmokeCheck() {
         return false;
     }
 
+    // G3D shape display lists normally load their PN/normal matrices through
+    // GX_LOAD_INDX_A/B rather than ordinary LOAD_XF_REG packets. Exercise the
+    // Vita-specific indexed-XF bridge directly so the probe catches a replay
+    // path that merely binds the source array without updating XF state.
+    std::array<uint8_t, 48> indexedXfMatrix{};
+    size_t indexedXfCursor = 0;
+    for (float value : xfPn3) {
+        AppendBEFloat(indexedXfMatrix, indexedXfCursor, value);
+    }
+    const uint32_t indexedXfValue =
+        ((12u - 1u) << 12u) | ((static_cast<uint32_t>(GX_PNMTX4) * 4u) & 0x0FFFu);
+    if (!WiiCompiledVita::GxBackend::ApplyIndexedXfPacket(
+            indexedXfValue, indexedXfMatrix.data(), static_cast<uint32_t>(indexedXfCursor))) {
+        Log("[GX] indexed XF packet decode failed");
+        WiiCompiledVita::GxBackend::Shutdown();
+        return false;
+    }
+
     GXClearVtxDesc();
     GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
     GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
@@ -679,7 +697,7 @@ bool RunRenderWorkerSmokeCheck() {
     const auto stats = WiiCompiledVita::GxBackend::SnapshotStats();
     char result[3072];
     std::snprintf(result, sizeof(result),
-                  "[GX] result: submitted=%llu completed=%llu presented=%llu gpu=%d fallback=%d affinity=0x%X stackFree=%d queuedDraws=%llu queuedVertices=%llu geometryDraws=%llu geometryVertices=%llu dropped=%llu transformed=%llu pnMatrixVertices=%llu transformFailed=%llu rawDecoded=%llu rawFailed=%llu directAttrs=%llu indexedAttrs=%llu xfPackets=%llu xfWords=%llu xfPos=%llu xfNrm=%llu xfProjection=%llu xfViewport=%llu xfMtxIdx=%llu xfUnsupported=%llu depthCompare=%llu depthWrite=%llu cullNone=%llu cullFront=%llu cullBack=%llu cullAllSkipped=%llu blend=%llu blendFallback=%llu alphaTest=%llu alphaFallback=%llu tevSimple=%llu tevFallback=%llu textureDraws=%llu texHits=%llu texMisses=%llu texUploads=%llu texUploadFailed=%llu texUnsupported=%llu texSourceRace=%llu texMipFallback=%llu texBytes=%llu rgb565Uploads=%llu rgb5a3Uploads=%llu rgba8Uploads=%llu rgba8PcUploads=%llu i4Uploads=%llu i8Uploads=%llu ia4Uploads=%llu ia8Uploads=%llu cmprUploads=%llu quads=%llu triangles=%llu vtxFmt0=%llu",
+                  "[GX] result: submitted=%llu completed=%llu presented=%llu gpu=%d fallback=%d affinity=0x%X stackFree=%d queuedDraws=%llu queuedVertices=%llu geometryDraws=%llu geometryVertices=%llu dropped=%llu transformed=%llu pnMatrixVertices=%llu transformFailed=%llu rawDecoded=%llu rawFailed=%llu directAttrs=%llu indexedAttrs=%llu xfPackets=%llu xfWords=%llu xfPos=%llu xfNrm=%llu xfProjection=%llu xfViewport=%llu xfMtxIdx=%llu xfUnsupported=%llu xfIndexed=%llu/%llu depthCompare=%llu depthWrite=%llu cullNone=%llu cullFront=%llu cullBack=%llu cullAllSkipped=%llu blend=%llu blendFallback=%llu alphaTest=%llu alphaFallback=%llu tevSimple=%llu tevFallback=%llu textureDraws=%llu texHits=%llu texMisses=%llu texUploads=%llu texUploadFailed=%llu texUnsupported=%llu texSourceRace=%llu texMipFallback=%llu texBytes=%llu rgb565Uploads=%llu rgb5a3Uploads=%llu rgba8Uploads=%llu rgba8PcUploads=%llu i4Uploads=%llu i8Uploads=%llu ia4Uploads=%llu ia8Uploads=%llu cmprUploads=%llu quads=%llu triangles=%llu vtxFmt0=%llu",
                   static_cast<unsigned long long>(stats.framesSubmitted),
                   static_cast<unsigned long long>(stats.framesCompleted),
                   static_cast<unsigned long long>(stats.framesPresented),
@@ -707,6 +725,8 @@ bool RunRenderWorkerSmokeCheck() {
                   static_cast<unsigned long long>(stats.xfViewportWrites),
                   static_cast<unsigned long long>(stats.xfMatrixIndexWrites),
                   static_cast<unsigned long long>(stats.xfUnsupportedWords),
+                  static_cast<unsigned long long>(stats.xfIndexedLoads),
+                  static_cast<unsigned long long>(stats.xfIndexedWords),
                   static_cast<unsigned long long>(stats.geometryDepthCompareDraws),
                   static_cast<unsigned long long>(stats.geometryDepthWriteDraws),
                   static_cast<unsigned long long>(stats.geometryCullNoneDraws),
@@ -759,14 +779,16 @@ bool RunRenderWorkerSmokeCheck() {
         stats.rawDrawDecodeFailures == 0 &&
         stats.rawDirectAttributesDecoded == 21 &&
         stats.rawIndexedAttributesDecoded == 6 &&
-        stats.xfPacketsApplied == 4 &&
-        stats.xfWordsApplied == 26 &&
-        stats.xfPositionMatrixWords == 12 &&
+        stats.xfPacketsApplied == 5 &&
+        stats.xfWordsApplied == 38 &&
+        stats.xfPositionMatrixWords == 24 &&
         stats.xfNormalMatrixWords == 0 &&
         stats.xfProjectionWrites == 7 &&
         stats.xfViewportWrites == 6 &&
         stats.xfMatrixIndexWrites == 1 &&
         stats.xfUnsupportedWords == 0 &&
+        stats.xfIndexedLoads == 1 &&
+        stats.xfIndexedWords == 12 &&
         stats.geometryDepthCompareDraws == 2 &&
         stats.geometryDepthWriteDraws == 2 &&
         stats.geometryCullNoneDraws == 16 &&

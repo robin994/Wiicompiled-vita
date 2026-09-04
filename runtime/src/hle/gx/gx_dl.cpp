@@ -39,6 +39,22 @@ namespace {
 thread_local GxCpuPerfSnapshot g_cpuPerf{};
 thread_local std::chrono::steady_clock::time_point g_lastGxBeginRecordTime{};
 thread_local std::chrono::steady_clock::time_point g_lastGxPerfSnapshotTime{};
+#if defined(MKW_TARGET_VITA)
+thread_local bool g_allowIndexedRawDisplayList = false;
+
+class ScopedIndexedRawDisplayList {
+public:
+    explicit ScopedIndexedRawDisplayList(bool enable) noexcept
+        : previous_(g_allowIndexedRawDisplayList) {
+        g_allowIndexedRawDisplayList = enable;
+    }
+    ~ScopedIndexedRawDisplayList() noexcept {
+        g_allowIndexedRawDisplayList = previous_;
+    }
+private:
+    bool previous_;
+};
+#endif
 
 class ScopedGxCpuPerfTimer {
 public:
@@ -933,6 +949,14 @@ struct DlInterpretVisitor {
     static constexpr int kMaxDepth = 8;
     static constexpr bool kHandlesDraw = true;
 
+#if defined(MKW_TARGET_VITA)
+    // One failed indexed raw draw switches the rest of this display list to the
+    // established expanded/direct fallback. That fallback deliberately changes
+    // Aurora's live VCD to GX_DIRECT, so retrying indexed raw draws in the same
+    // visitor would only reinterpret index bytes as direct vertex components.
+    bool indexedRawFailed = false;
+#endif
+
     bool OnNop(uint8_t) { return true; }
     bool OnInvalidateVertexCache(uint8_t) { return true; }
     bool OnUnknownCommand(uint8_t) { return true; }
@@ -951,8 +975,17 @@ struct DlInterpretVisitor {
         return true;
     }
     bool OnIndexedXf(const uint8_t* cmdPtr, uint8_t cmd, uint32_t value) {
-        ApplyIndexedXfArrayForPacket(cmd, value);
+        IndexedXfLoad indexedLoad{};
+        const bool indexedResolved =
+            ApplyIndexedXfArrayForPacket(cmd, value, &indexedLoad);
+#if defined(MKW_TARGET_VITA)
+        if (indexedResolved) {
+            WiiCompiledVita::GxBackend::ApplyIndexedXfPacket(
+                value, indexedLoad.source, indexedLoad.bytes);
+        }
+#else
         GXCallDisplayList(cmdPtr, 5);
+#endif
         GXMarkFrameWork();
         return true;
     }
@@ -969,23 +1002,64 @@ struct DlInterpretVisitor {
                 const uint8_t* vertices, uint32_t& payloadBytes) {
         EnsureAuroraFrameActive();
         const HleGxVertexStateSnapshot drawGuestState = CaptureGxVertexState();
-        ApplyAuroraVtxStateForDlBegin(vtxfmt);
 
 #if defined(MKW_TARGET_VITA)
-        // The Vita backend consumes packed direct vertices itself. Keep indexed
-        // display lists on the established per-vertex HLE expansion path for
-        // now; this fast path is allocation-free and shares the same decoder as
-        // the live FIFO raw-draw bridge.
-        if (DlVertexLayoutIsAllDirect()) {
+        // The Vita backend can decode both direct and indexed packed vertices.
+        // For indexed lists this is only enabled when the outer scan proved the
+        // list does not mutate array bases/strides or recurse into nested lists;
+        // those arrays were published immediately before replay. Any unexpected
+        // decode failure falls back to the established per-vertex HLE path.
+        const bool allDirect = DlVertexLayoutIsAllDirect();
+#if defined(MKW_VITA_DL_INDEXED_RAW) && MKW_VITA_DL_INDEXED_RAW
+        const bool tryIndexedRaw = !allDirect && g_allowIndexedRawDisplayList &&
+                                   !indexedRawFailed;
+#else
+        const bool tryIndexedRaw = false;
+#endif
+        if (tryIndexedRaw) {
+            // GX__CallDisplayList published the real indexed VCD/VAT and array
+            // bounds immediately before entering this visitor. Do not call
+            // ApplyAuroraVtxStateForDlBegin here: that helper is for the old
+            // per-vertex path and intentionally rewrites GX_INDEX8/16 to
+            // GX_DIRECT after expanding the attributes. Doing so before raw
+            // decode made two-byte index payloads look like direct POS/NRM data.
+            g_hleGxState.currentVtxFmt = vtxfmt;
             const uint32_t vertexSize = CalcDLVertexSize(vtxfmt);
             const uint32_t rawBytes = vertexSize * static_cast<uint32_t>(vtxCount);
             if (vertexSize != 0 && aurora::gx::fifo::submit_raw_draw(
                     OpcodeToGXPrimitive(opcode), vtxfmt, vertices, vtxCount, rawBytes)) {
+                ++g_cpuPerf.dlRawFastDraws;
+                g_cpuPerf.dlRawFastVertices += vtxCount;
+                ++g_cpuPerf.dlRawIndexedDraws;
                 GXMarkFrameWork();
                 RestoreGxVertexState(drawGuestState);
                 payloadBytes = rawBytes;
                 return true;
             }
+            ++g_cpuPerf.dlRawFastFailures;
+            indexedRawFailed = true;
+        }
+#endif
+
+        // The fallback expands indexed attributes one by one, so publish the
+        // direct layout it emits. All-direct display lists also use this state
+        // before taking their existing raw fast path.
+        ApplyAuroraVtxStateForDlBegin(vtxfmt);
+
+#if defined(MKW_TARGET_VITA)
+        if (allDirect) {
+            const uint32_t vertexSize = CalcDLVertexSize(vtxfmt);
+            const uint32_t rawBytes = vertexSize * static_cast<uint32_t>(vtxCount);
+            if (vertexSize != 0 && aurora::gx::fifo::submit_raw_draw(
+                    OpcodeToGXPrimitive(opcode), vtxfmt, vertices, vtxCount, rawBytes)) {
+                ++g_cpuPerf.dlRawFastDraws;
+                g_cpuPerf.dlRawFastVertices += vtxCount;
+                GXMarkFrameWork();
+                RestoreGxVertexState(drawGuestState);
+                payloadBytes = rawBytes;
+                return true;
+            }
+            ++g_cpuPerf.dlRawFastFailures;
         }
 #endif
 
@@ -1684,6 +1758,10 @@ extern "C" void GX__CallDisplayList_80172f64(uint32_t listAddr, uint32_t nbytes)
             if (applyOk) {
                 EnsureAuroraFrameActive();
                 GXMarkFrameWork();
+#if defined(MKW_TARGET_VITA)
+                const bool allowIndexedRaw = !dlHasNestedDl && !dlHasArrayStateWrites;
+                ScopedIndexedRawDisplayList indexedRawScope(allowIndexedRaw);
+#endif
                 GXCallDisplayList(list, nbytes);
 
                 SyncAppliedVtxStateFromHleReal();

@@ -134,7 +134,11 @@ void NativeThpVideoDecode(CpuContext* ctx) {
         planes[c] = t_plane[c].data();
     }
 
-    if (tjDecompressToYUVPlanes(tj, src, jpegSize, planes, width, strides, height, 0) != 0) {
+    // THP is Motion-JPEG and its frames are transient. FASTDCT is materially
+    // cheaper on the Vita's Cortex-A9 while remaining more than adequate for a
+    // 960x544 display; avoid spending guest-core time on the accurate DCT path.
+    if (tjDecompressToYUVPlanes(tj, src, jpegSize, planes, width, strides, height,
+                                TJFLAG_FASTDCT) != 0) {
         ctx->gpr[3] = kThpErrDecode;
         return;
     }

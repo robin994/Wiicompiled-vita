@@ -95,11 +95,25 @@ MKW_VITA_PLATFORM_OBJ := $(MKW_RUNTIME_BUILD_DIR)/vita/firstboot_platform_vita.o
 MKW_VITA_DEBUG_FONT_OBJ := $(MKW_RUNTIME_BUILD_DIR)/vita/debug_screen_font.o
 MKW_VITA_AURORA_RENDERER ?= 1
 MKW_VITA_VITAGL ?= speedhack
-MKW_VITA_LYT_DIRECT ?= 1
-MKW_VITA_LYT_FAITHFUL ?= 0
-MKW_VITA_DISABLE_MOVIES ?= 1
+# Keep the hardware-proven faithful NW4R/lyt path as the M12.8 correctness
+# baseline. The direct path remains available as an explicit later A/B once 3D
+# matrices and movie playback are confirmed, rather than changing four graphics
+# variables in the same hardware run.
+MKW_VITA_LYT_DIRECT ?= 0
+MKW_VITA_LYT_FAITHFUL ?= 1
+MKW_VITA_DISABLE_MOVIES ?= 0
 MKW_VITA_DVD_DEFER ?= 0
 MKW_VITA_NATIVE_THP ?= 1
+MKW_VITA_DL_INDEXED_RAW ?= 1
+# Profiling-only visual bypasses. Defaults preserve the correctness build.
+MKW_VITA_PERF_SKIP_EFB ?= 0
+MKW_VITA_PERF_SKIP_BILLBOARDS ?= 0
+MKW_VITA_PERF_SKIP_LIGHTTEXTURE ?= 0
+MKW_VITA_PERF_FORCE_3D_SOLID ?= 0
+# M12.8 hardware still data-aborts inside SceGxm while servicing the
+# glBlitFramebuffer EFB path (same SceGxm+0x1E638 / DFAR=0xFFFFFFFF signature
+# as M12.6). Keep the stable CPU-readback/upload path as the default until the
+# GPU copy implementation can be replaced without transient FBO switches.
 MKW_VITA_EFB_GPU_BLIT ?= 0
 AURORA_VITAGL_LIB ?= ../aurora-vita-max-prehardware/third_party/vitaGL-speedhack-src/libvitaGL-m12_5-custom-heap.a
 AURORA_VITA_GFX_DIR := aurora-main/platforms/vita/gfx
@@ -142,6 +156,13 @@ $(error MKW_VITA_EFB_GPU_BLIT must be 0 or 1)
 endif
 
 MKW_VITA_BUILD_VARIANT := $(MKW_VITA_RENDERER_VARIANT)-$(MKW_VITA_VITAGL_VARIANT)-$(MKW_VITA_EFB_VARIANT)
+# Native runtime objects also depend on compile-time gameplay/HLE switches. Make
+# does not otherwise notice a changed -D value, so keep a content-addressed-ish
+# stamp whose mtime changes only when those switches change. This prevents a
+# movie-disabled task_thread.o (or another stale HLE object) from being silently
+# reused after changing the configuration.
+MKW_VITA_RUNTIME_CONFIG_STAMP := $(MKW_RUNTIME_BUILD_DIR)/.native-config
+MKW_VITA_RUNTIME_CONFIG_TEXT := lyt_direct=$(MKW_VITA_LYT_DIRECT) lyt_faithful=$(MKW_VITA_LYT_FAITHFUL) movies_disabled=$(MKW_VITA_DISABLE_MOVIES) dvd_defer=$(MKW_VITA_DVD_DEFER) native_thp=$(MKW_VITA_NATIVE_THP) dl_indexed_raw=$(MKW_VITA_DL_INDEXED_RAW) perf_skip_efb=$(MKW_VITA_PERF_SKIP_EFB) perf_skip_billboards=$(MKW_VITA_PERF_SKIP_BILLBOARDS) perf_skip_lighttexture=$(MKW_VITA_PERF_SKIP_LIGHTTEXTURE) perf_force_3d_solid=$(MKW_VITA_PERF_FORCE_3D_SOLID)
 # Objects compiled with renderer/vitaGL-specific flags live under this variant tag.
 # Common runtime/third-party objects remain shared because their compile flags are identical.
 MKW_VITA_VARIANT_OBJ_DIR := $(MKW_RUNTIME_BUILD_DIR)/variants/$(MKW_VITA_BUILD_VARIANT)
@@ -169,7 +190,9 @@ MKW_FIRSTBOOT_VPK := $(BUILD_DIR)/$(MKW_FIRSTBOOT_TARGET).vpk
 
 COMMON_FLAGS := -O2 -g -ffunction-sections -fdata-sections -D__vita__ -DMKW_TARGET_VITA=1 -DTARGET_PC=1 -DLIBCO_MP=1 -DMKW_VITA_LYT_DIRECT=$(MKW_VITA_LYT_DIRECT) -DMKW_VITA_LYT_FAITHFUL=$(MKW_VITA_LYT_FAITHFUL) \
 	-DMKW_VITA_DISABLE_MOVIES=$(MKW_VITA_DISABLE_MOVIES) -DMKW_VITA_DVD_DEFER=$(MKW_VITA_DVD_DEFER) \
-	-DMKW_VITA_NATIVE_THP=$(MKW_VITA_NATIVE_THP) \
+	-DMKW_VITA_NATIVE_THP=$(MKW_VITA_NATIVE_THP) -DMKW_VITA_DL_INDEXED_RAW=$(MKW_VITA_DL_INDEXED_RAW) \
+	-DMKW_VITA_PERF_SKIP_EFB=$(MKW_VITA_PERF_SKIP_EFB) -DMKW_VITA_PERF_SKIP_BILLBOARDS=$(MKW_VITA_PERF_SKIP_BILLBOARDS) \
+	-DMKW_VITA_PERF_SKIP_LIGHTTEXTURE=$(MKW_VITA_PERF_SKIP_LIGHTTEXTURE) -DMKW_VITA_PERF_FORCE_3D_SOLID=$(MKW_VITA_PERF_FORCE_3D_SOLID) \
 	-DCRYPTOPP_DISABLE_ASM -DCRYPTOPP_NO_GLOBAL_BYTE \
 	-Iruntime/third_party -Iruntime/third_party/libco -Iruntime/third_party/toml11 \
 	-Iruntime/third_party/pugixml -Iruntime/include -Iruntime/src -Iaurora-main/include -Ivita/include
@@ -192,7 +215,7 @@ LIBS := -lSceFiber_stub -lSceSysmodule_stub -lSceIofilemgr_stub -lSceKernelThrea
 	runtime-check runtime-os-check runtime-hle-check runtime-gx-bridge-check \
 	runtime-gx-symbol-audit runtime-gx-backend-check runtime-gx-vi-check translator-vita-check runtime-abi-check \
 	runtime-native-check aurora-gx-frontend-check vita-sync-game-assets mkw-first-boot \
-	mkw-first-boot-package clean check-vitasdk check-vitagl-variant verify-mkw-firstboot-vpk
+	mkw-first-boot-package clean check-vitasdk check-vitagl-variant verify-mkw-firstboot-vpk FORCE
 
 all: probe
 
@@ -294,9 +317,15 @@ runtime-gx-vi-check: $(GX_VITA_VI_LINK_OBJ)
 	@arm-vita-eabi-nm -uC $(BUILD_DIR)/gx_bridge_gx_dl.o | \
 		grep -q 'WiiCompiledVita::GxBackend::ApplyXfPacket' || \
 		(echo "Vita display-list replay is not wired to the XF backend" && false)
+	@arm-vita-eabi-nm -uC $(BUILD_DIR)/gx_bridge_gx_dl.o | \
+		grep -q 'WiiCompiledVita::GxBackend::ApplyIndexedXfPacket' || \
+		(echo "Vita display-list replay is not wired to indexed XF loads" && false)
 	@arm-vita-eabi-nm -uC $(BUILD_DIR)/gx_bridge_gx_fifo.o | \
 		grep -q 'WiiCompiledVita::GxBackend::ApplyXfPacket' || \
 		(echo "Vita live FIFO is not wired to the XF backend" && false)
+	@arm-vita-eabi-nm -uC $(BUILD_DIR)/gx_bridge_gx_fifo.o | \
+		grep -q 'WiiCompiledVita::GxBackend::ApplyIndexedXfPacket' || \
+		(echo "Vita live FIFO is not wired to indexed XF loads" && false)
 
 translator-vita-check: | $(BUILD_DIR) check-vitasdk
 	python3 vita/tools/generate_translator_probe.py $(TRANSLATOR_PROBE_DIR)
@@ -362,8 +391,8 @@ $(HOST_JOBS_OBJ): vita/host_jobs.cpp vita/include/wiicompiled_vita/host_jobs.h \
 	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
 $(VITA_GX_BACKEND_OBJ): vita/gx_backend.cpp vita/include/wiicompiled_vita/gx_backend.h \
-				vita/include/wiicompiled_vita/host_thread.h | $(BUILD_DIR) check-vitasdk
-	$(CXX) $(CXXFLAGS) -Werror=infinite-recursion -MMD -MP -c $< -o $@
+					vita/include/wiicompiled_vita/host_thread.h | $(BUILD_DIR) check-vitasdk
+	$(CXX) $(CXXFLAGS) -DMKW_VITA_PORTING_PROBE=1 -Werror=infinite-recursion -MMD -MP -c $< -o $@
 
 $(VITA_SETTINGS_OVERLAY_OBJ): vita/settings_overlay_vita.cpp runtime/include/settings_overlay.h | $(BUILD_DIR) check-vitasdk
 	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
@@ -432,7 +461,15 @@ $(MKW_TRANSLATED_BUILD_DIR)/%.o: $(MKW_GENERATED_DIR)/%.S | check-vitasdk
 	# while streaming the generated assembly; keep generated sources untouched.
 	sed 's/@progbits/%progbits/g' $< | $(CXX) $(CXXFLAGS) -I. -x assembler -c - -o $@
 
-$(MKW_RUNTIME_BUILD_DIR)/runtime/%.o: runtime/src/%.cpp | check-vitasdk
+$(MKW_VITA_RUNTIME_CONFIG_STAMP): FORCE
+	@mkdir -p $(dir $@)
+	@printf '%s\n' '$(MKW_VITA_RUNTIME_CONFIG_TEXT)' > $@.tmp
+	@if test -f $@ && cmp -s $@.tmp $@; then rm -f $@.tmp; else mv -f $@.tmp $@; fi
+
+FORCE:
+	@true
+
+$(MKW_RUNTIME_BUILD_DIR)/runtime/%.o: runtime/src/%.cpp $(MKW_VITA_RUNTIME_CONFIG_STAMP) | check-vitasdk
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -I. -I$(MKW_GENERATED_DIR) -I$(MKW_BUILD_SHARDS_DIR)/base_common \
 		-MMD -MP -c $< -o $@
@@ -454,7 +491,8 @@ $(MKW_VITA_SETTINGS_OBJ): vita/settings_overlay_vita.cpp | check-vitasdk
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -I. -MMD -MP -c $< -o $@
 
-$(MKW_VITA_GX_OBJ): vita/gx_backend.cpp vita/include/wiicompiled_vita/gx_backend.h | check-vitasdk
+$(MKW_VITA_GX_OBJ): vita/gx_backend.cpp vita/include/wiicompiled_vita/gx_backend.h \
+			$(MKW_VITA_RUNTIME_CONFIG_STAMP) | check-vitasdk
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(MKW_AURORA_CPPFLAGS) -I. -Werror=infinite-recursion -MMD -MP -c $< -o $@
 
