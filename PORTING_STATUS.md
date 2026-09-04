@@ -2073,17 +2073,99 @@ Hardware-test artifacts:
 This is still a deliberately non-faithful probe: EFB, billboards, LightTexture and movies remain
 disabled. It is not the candidate for restoring final race graphics.
 
+### M13.2 hardware result — indexed raw passes; forced-white 3D still absent
+
+The updated append-mode `runtime.log` is 16,189,658 bytes / 170,289 lines, SHA-256
+`d0b58c6224682babd31290d1a1565f416595cb66e801bea9b21d692fca60cf2e`. Its latest session starts
+at line 119137 and reports the expected M13.2 configuration: indexed raw enabled, all four
+`perf_*` probes enabled, stable CPU-readback EFB selected, movies/native THP disabled and faithful
+LYT retained. The log ends after `render_large phase=completed serial=1834 total_us=512992`; there
+is no terminal crash marker in this session.
+
+The M13.2 indexed-VCD fix is a **hardware pass for the representative G3D display lists**:
+
+- repeated menu/G3D samples report `dl_raw=3062/3062`, `verts=21756`, `fail=0`;
+- their `dl_us` is approximately 141-143 ms, compared with approximately 246 ms for the same
+  3062-draw M13.1 case that failed raw decoding and used the expanded fallback;
+- later samples reach `dl_raw=3872/3872`, `verts=26412`, `fail=0`, at approximately 174-175 ms;
+- the raw path therefore removes about 104 ms, roughly 42%, from the representative 3062-draw
+  case, but display-list processing is still much too slow for real time.
+
+The run also reaches heavier race packets. Most continue to use the raw path successfully, but
+frames that approach the 49,152-vertex packet limit report bounded capacity failures, for example
+frame 1170 with `verts=49149 fail=216`. These failures are a separate packet-capacity/streaming
+issue; they do not invalidate the representative M13.2 raw-decoder pass and must not be conflated
+with the fixed M13.1 indexed-VCD bug.
+
+The visual A/B result was reported from real hardware: **the 3D models remain invisible even with
+the actual RGBA=255 forced-white, untextured, opaque perspective probe, while the in-race text is
+now readable**. Unlike M13.1, this is a valid material-free visibility result. Incomplete TEV and
+materials still require implementation for final graphics, but they are no longer a sufficient
+explanation for completely absent solid geometry. The immediate correctness investigation moves
+to the position-to-clip path, PN-matrix selection, depth range/test, viewport/scissor and the
+compact vertex/draw ranges consumed by the renderer.
+
+### M13.2 performance architecture analysis
+
+The latest hardware log and a source audit of WiiCompiled, the active Aurora packet bridge and
+`vitaGL-speedhack` identify two independent CPU bottlenecks rather than a simple lack of Vita GPU
+fill rate.
+
+1. **USER_1 renderer preparation is dominated by per-logical-draw CPU work.** Representative
+   race samples spend 293-567 ms in `submit_us`, while `swap` is about 5-7 ms. Thousands of GX
+   draws are already collapsed into only a few dozen physical GPU draws, so the expensive work is
+   vertex conversion, index construction, state/pipeline hashing, texture lookup and streaming
+   upload before the final draw calls.
+2. **USER_0 remains independently expensive.** The UI example with 665 logical draws renders in
+   about 22.8 ms but takes about 153 ms in the producer. Heavy producer intervals reach about
+   0.8-1.0 s, and multi-second RFL/guest stalls also occur with negligible renderer wait. Aurora
+   cannot explain those intervals.
+3. **The active vertex path is over-general for WiiCompiled.** A compact bridge vertex of about
+   24 bytes is expanded into Aurora's approximately 168-byte `CanonicalVertex`, copied through a
+   temporary vector and staging arena, then copied again into a vitaGL-mapped VBO. Batching occurs
+   only after most per-draw preparation has already been paid.
+4. **The frame packet duplicates state.** Each logical draw carries projection and a full matrix
+   palette; the bounded packet is about 7.5 MiB and heavy-frame packet copies cost roughly
+   13-45 ms in the latest run.
+5. **Current logging contaminates the profile.** The M13.2 session contains 37,967
+   `render_large phase=draw_progress` lines plus thousands of repeated warnings. stdout/stderr are
+   line-buffered into an append-mode file, so hot-path telemetry can add synchronous storage I/O
+   inside the measured submit loop.
+
+The recommended design is not an immediate full GXM rewrite. Keep Aurora's validated shader,
+texture and pipeline ownership, but add a WiiCompiled-specific compact frame submission path:
+
+- compact 24/32-byte vertex layout consumed directly by the Vita shader;
+- frame-wide batching before vertex packing, hashing and texture lookup;
+- direct writing into a once-mapped VBO/IBO without the generic `CanonicalVertex` staging copy;
+- immutable per-frame state tables with small IDs instead of per-draw matrix/state duplication;
+- after packet compaction, a bounded two-slot SPSC producer/renderer queue with explicit EFB/XFB
+  synchronization;
+- a decoded display-list template cache with guest-write invalidation;
+- faithful adjacent-quad batching for LYT/UI, retaining the already successful glyph fast path;
+- selective `-O2`/`-O3` only for profiled hot ARM32 shards rather than the full translated image.
+
+The complete ordered plan, proposed build flags, performance targets and hardware A/B procedure
+are recorded in [`PERFORMANCE_OPTIMIZATION_PLAN.md`](PERFORMANCE_OPTIMIZATION_PLAN.md).
+
 ## Next
 
-- Archive/remove the append-mode Vita log before launch, then hardware-test the uniquely named
-  M13.2 VPK. Confirm that startup reports all four `perf_*` flags as 1.
-- Explicitly report whether **white/solid 3D silhouettes** now appear in character/kart selection
-  and in-race. This M13.2 observation, unlike M13.1, is a valid material-free visibility A/B.
-- If white 3D appears, treat geometry/XF/projection as sufficiently proven and move correctness work to NW4R/G3D **multi-stage TEV/material/alpha translation**. Re-enable visual features one at a time after the material path is correct.
-- If white 3D is still completely absent, inspect depth, viewport/scissor, clip/projection and PN matrix selection before touching TEV again; culling/blending/alpha/texture will already have been removed from the A/B.
-- Verify that representative G3D/race `gx_cpu_perf` records now report non-zero indexed `dl_raw`
-  successes with `fail` near zero. Preserve any remaining `raw_decode_fail`; its new reason would be
-  the next concrete decoder issue rather than the fixed VCD conversion bug.
-- Compare gx_cpu_perf dl_us against the M13.0 hardware baseline and compare producer/render frame intervals. Do not infer a speedup merely from the disabled visual features.
+- For the missing models, capture one bounded perspective draw end to end: source position and
+  PN index, selected matrix, clip-space output, NDC, viewport/scissor/depth state, packed vertex
+  bytes and final draw range. Add a clip-space overlay A/B with depth disabled to distinguish a
+  transform/depth failure from a packet/layout/submission failure.
+- Preserve the successful indexed raw path. Account separately for the capacity failures at the
+  49,152-vertex boundary; do not treat them as the old indexed descriptor bug or solve them only
+  by indefinitely enlarging the current 7.5 MiB packet.
+- Start performance phase P0: compile out per-128-draw progress logs and repeated hot warnings,
+  retain bounded in-memory counters, clear/rename `runtime.log`, then repeat the same hardware
+  route to obtain an uncontaminated baseline.
+- Profile `submit_us` into vertex transform/packing, index build, pipeline key, texture resolution,
+  staging copy and final vitaGL work. Then implement the compact vertex plus frame-wide batching
+  path behind build flags, one change per hardware A/B.
+- Add the decoded display-list cache and faithful adjacent-quad UI batching only after the compact
+  renderer baseline. The glyph raw fast path is already active and is not the first UI target.
+- Re-enable EFB, billboards, LightTexture, textures/materials, movies and native THP one at a time
+  only after the solid-geometry path is visible and the performance baseline is clean.
 - Keep the old transient-FBO GPU EFB implementation rejected. A future EFB speedup must use a different persistent/offscreen architecture rather than re-enabling the path that crashes inside SceGxm.
 - RFL/default RFL_DB.dat and native THP remain independent follow-up tasks after the 3D/material and indexed-DL blockers are understood.
