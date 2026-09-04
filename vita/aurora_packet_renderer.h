@@ -78,6 +78,11 @@ struct AuroraPacketSubmitResult {
     bool textureUploadFailed = false;
     bool textureUnsupported = false;
     std::uint64_t textureBytesUploaded = 0;
+    // gfx::PrepareDrawError when submitted == false and the draw reached enqueue:
+    // 0 None, 1 InvalidInput, 2 VertexDecodeFailed, 3 VertexTransformFailed,
+    // 4 TooManyVertices, 5 UnsupportedLineExpansion, 6 StreamingOverflow, 7 PipelineFailed.
+    // 255 = never reached enqueue (frame inactive / no vertices / bad index build).
+    std::uint8_t prepareError = 0;
 };
 
 struct AuroraPacketEfbCopy {
@@ -115,6 +120,19 @@ struct AuroraPacketFrameStats {
     std::uint64_t textureBudgetBytes = 0;
     std::uint64_t textureEvictions = 0;
     std::uint32_t textureEntries = 0;
+    // M12.1 texture OOM hardening
+    std::uint64_t textureAllocFailTotal = 0;
+    std::uint64_t texturePreEvictions = 0;
+    std::uint64_t texturePreEvictedBytes = 0;
+    std::uint64_t textureRequestedBytes = 0;
+    // M12.4 EFB budget telemetry. Avoid vitaGL free-space queries here: the
+    // M12.3 hardware core crashed inside sceClibMspaceMallocStats.
+    std::uint64_t efbBytes = 0;
+    std::uint64_t efbHighWaterBytes = 0;
+    std::uint32_t efbEntries = 0;
+    std::uint64_t efbAllocationBlocked = 0;
+    std::uint64_t efbAllocationBlockedBytes = 0;
+    std::uint64_t efbBudgetBytes = 0;
 };
 
 bool AuroraPacketRendererInitialize() noexcept;

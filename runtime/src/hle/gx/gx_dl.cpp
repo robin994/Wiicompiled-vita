@@ -1465,6 +1465,7 @@ void GX_HLE_RecordBeginCaller(uint32_t lr) noexcept {
         gapUs = static_cast<uint64_t>(elapsed > 0 ? elapsed : 0);
     }
     g_lastGxBeginRecordTime = now;
+    WiiCompiledVita::GxBackend::SetGuestBeginLr(lr);
 
     ++g_cpuPerf.gxBeginCalls;
     if (lr == 0 || g_cpuPerf.gxBeginCallerCount >= GxCpuPerfSnapshot::kGxBeginCallerCapacity) {

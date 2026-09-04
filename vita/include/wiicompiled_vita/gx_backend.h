@@ -75,4 +75,7 @@ void Shutdown() noexcept;
 Stats SnapshotStats() noexcept;
 bool ApplyXfPacket(const uint8_t* packet, uint32_t packetBytes) noexcept;
 
+// M12 trace: guest return address of the current GXBegin, threaded into GeometryDraw.
+void SetGuestBeginLr(uint32_t lr) noexcept;
+
 } // namespace WiiCompiledVita::GxBackend

@@ -1,6 +1,7 @@
 # WiiCompiled Vita / Mario Kart Wii – Porting Status
 
-> **Snapshot:** 2026-09-03 (session 2 — see section 16 for the milestone log; M7/M8 latest)  
+> **Snapshot:** 2026-09-03 (session 2 — see section 16 for the milestone log; M10 + M11 hardware
+> PASS; M12 arena fix crashed on texture OOM; M12.1 = texture-OOM hardening, built)  
 > **Repository:** `/Users/robin994/Documents/Code/PSVita/wiicompiled-vita`  
 > **Target:** Mario Kart Wii PAL `RMCP01`, static recompile PowerPC → ARM32, PS Vita hardware  
 > **Current HEAD observed:** `c2d6db0 checkpoint` (external checkpoint commits appear in this
@@ -1357,15 +1358,412 @@ separately and documented.
 1. `vi_poll_total` keeps advancing; 2. `retrace_count` keeps advancing;
 3. `last_vi_poll_age_us` stops climbing for seconds; 4. `post_cb_total` keeps advancing;
 5. AsyncDisplay keeps getting postRetrace; 6. root `0x80347498` woken from `0x804294A4`.
-Best case: `Scene Enter` and progress past the black screen. If VI recovers but root still
-doesn't run, the next blocker is prio-4 SoundThread vs prio-16 root scheduling starvation —
-analyse that, do not call M10 failed.
 
-## Next (after the VI deadlock is fixed and confirmed on hardware)
+### M10 HARDWARE RESULT — PASS. VI/audio starvation fixed; black-screen blocker cleared.
+
+The black screen after "Single Player" now **advances** — a subsequent scene/screen renders
+(with a lot of graphics still missing). Log confirms the fix: `sched_idle_total=1882`,
+`vi_poll_total=1882` (VI serviced every idle pass), `idle_audio_pending_total=994`,
+`idle_vi_after_audio_total=994` (every pass where audio made SoundThread runnable, VI still
+ran). Card-menu perf also improved: ~272 ms/frame (pre-M8) → ~122-140 ms/frame (~7-8 FPS).
+**Do not revisit the old VI deadlock without new evidence.** Do not restore the `break` after
+`Audio_HLE_Poll`; keep the order: temporal sources → Audio → VI → timers/alarms → only then
+scheduler break/reschedule. `Audio_HLE_Tick` bounded catch-up is still a possible later fix
+(`idle_audio_pending_total` ≈ half of `sched_idle_total` here — survivable, not urgent).
+
+## Native THP (Motion-JPEG) decode  (ACTIVE — built into the M11 combined vpk)
+
+`runtime/src/hle/thp_video_decode.cpp` — `PPC_NATIVE_OVERRIDE_VOID(801B3BAC, NativeThpVideoDecode)`
+replaces the RVL SDK software MJPEG decoder `THPVideoDecode`.
+
+RE of `func_801B3BAC` / `func_801B3E6C` (`__THPReadFrameHeader`) / `func_80552BA4`
+(`THP::VideoDecode`): each THP frame handed to `THPVideoDecode` is a **complete baseline JPEG
+bitstream** (`FF D8` … DQT/DHT/SOF0/SOS/entropy/`FF D9`), 3-component YCbCr. Args:
+`r3` = guest ptr to the JPEG frame, `r4/r5/r6` = guest dst Y/U/V planes, `r7` = SDK scratch
+(unused by the override). No size arg — the override scans for `FF D9` (safe: real EOI only;
+entropy `FF` is always stuffed `00` or a marker). Return code in `r3` (0 = ok).
+
+The guest dst planes are **GX I8-tiled** (8×4 tiles, 32 B/tile, row-major — matches
+`ReadTiledI8` in `vita/aurora_packet_renderer.cpp`). The override decodes with turbojpeg
+(`tjDecompressToYUVPlanes`, thread-local `tjhandle`) into linear temp planes, then re-tiles into
+the guest buffers. Bypasses the whole translated `__THPDecompressYUV` (0x801B4A58) + paired-single
+IDCT chain — so the GQR2-5 setup in `os_thread.cpp` `IsThpVideoDecoderEntry` no longer matters for
+the decode itself (the decoder *thread* 0x805529A8 still runs translated for its message-queue
+plumbing and calls straight into the override).
+
+The file is guarded by `#if defined(MKW_VITA_NATIVE_THP) && MKW_VITA_NATIVE_THP`; **`Makefile.vita`
+now sets `MKW_VITA_NATIVE_THP ?= 1` and `LIBS += -lturbojpeg`.** `make generate` was re-run — the
+translator (preprocessor-blind regex scan of `runtime/src`) now excludes 0x801B3BAC from base
+translation: `generated/functions/func_801B3BAC.cpp` is stale/unused, no shard compiles its body,
+no `RECOMP_REGISTRATION` for it; the call site `InvokeDirectCpu<0x801B3BACu>` dispatches through
+the registry to `NativeThpVideoDecode`. Only 8 shards + registration/dispatch shards + the two
+native files recompiled; the rest of `mkwii_translated_neon_os` is untouched.
+
+Built into the M11 combined vpk with `MKW_VITA_DISABLE_MOVIES=0` (movies re-enabled — the
+`task_thread.cpp` "THP playback disabled" branch is compiled out; verified absent from the elf).
+`turbojpeg` symbols + `NativeThpVideoDecode` + its registration ctor verified linked.
+
+**Gotcha hit:** the Makefile has no `-D` flag-change tracking, so flipping `MKW_VITA_NATIVE_THP` /
+`MKW_VITA_DISABLE_MOVIES` does NOT rebuild `thp_video_decode.o` / `task_thread.o` on its own —
+`rm` those two objects (only files referencing those macros) before the build.
+
+**To revert to translated THP:** `MKW_VITA_NATIVE_THP=0` in Makefile + `make generate` again
+(re-includes 0x801B3BAC) + `rm` the two objects. Log marker when active:
+`thp: native decode n=… WxH subsamp=… jpeg=…`.
+
+## M11 — remove frame draw truncation + native THP  (COMBINED vpk)
+
+- `...-m11-full-draw-capacity.vpk` SHA `84901a178f2f46e42ce6fb7cd5b62f53e76347cabab4283e7a129e5aff75af28`
+  — draw-cap fix only, `MKW_VITA_DISABLE_MOVIES=1`, no re-translation. Kept for isolation.
+- **`...-m11-drawcap-thp-native.vpk` SHA
+  `2e70c6bd724e94e558e0e7c5163c1ab346bbf30c7069b3737e7b4082e5faffaf`** — draw-cap fix **+**
+  native THP decode **+** movies re-enabled (`MKW_VITA_DISABLE_MOVIES=0 MKW_VITA_NATIVE_THP=1`),
+  after `make generate`. This is the build to hardware-test (user chose the combined vpk).
+
+Post-M10 the game reaches a much heavier scene: `producer_frame` shows `requested_draws≈3382`
+but `stored_draws=2048`, `begin_cap≈1334` rejected, `dropped≈9394` vertices — every frame. The
+truncated packet is the prime suspect for the missing graphics on hardware.
+
+**Root cause:** `vita/gx_backend.cpp` `constexpr kMaxFrameDraws = 2048` / `kMaxFrameVertices =
+16384` — a self-imposed bridge bound, not an ABI/renderer limit. Everything else derives from
+those two constants via `.array.size()` (single source of truth): `FrameGeometry.draws/vertices/
+pnMtxRefs`, `g_renderVertices`, all `>=`/`+n>` capacity checks, `drawCount`/`firstVertex` are
+`u16` (fine to 65535). The Aurora consumer processes draws one at a time into growable
+`std::vector`s — no cap there. `sizeof(GeometryDraw)=760` (dominated by `DrawTransform`'s
+per-draw `posMtx[10][12]`=480 B palette copy), `sizeof(FrameGeometry)=1.97 MiB` at 2048.
+
+**Fix:** `kMaxFrameDraws` 2048 → **4096**, `kMaxFrameVertices` 16384 → **32768**. Cost: two
+`FrameGeometry` instances (`g_gx.geometry`, `g_pendingFrame.geometry`) + `g_renderVertices` →
+**+~4.1 MiB static** (`.data`; `sizeof(FramePacket)` 1.97 → 3.75 MiB, verified
+`g_pendingFrame`=0x3c0ba8, `g_renderVertices`=0xc0000). `static_assert` ceiling 2 → 5 MiB.
+Not dynamic/chunked: RAM cost is acceptable, arrays are file/BSS globals (never stack).
+
+**Logging:** folded `frame_capacity_summary` into the periodic `producer_frame` line, which now
+carries `requested_draws` / `begin_cap` (`immediateDrawCapacityFailures`) / `dropped`
+(`droppedVertices`) and also fires whenever `begin_cap != 0`. `frame_draw_capacity` trace
+(≤8 total) and all counters kept.
+
+Build (combined): `make -f Makefile.vita mkw-first-boot-package
+MKW_TRANSLATED_BUILD_DIR=build/vita/mkwii_translated_neon_os
+MKW_TRANSLATED_OPT='-Os -fno-asynchronous-unwind-tables -mfpu=neon -mfloat-abi=hard'
+MKW_VITA_LYT_DIRECT=0 MKW_VITA_LYT_FAITHFUL=1 MKW_VITA_DISABLE_MOVIES=0 MKW_VITA_DVD_DEFER=0
+MKW_VITA_NATIVE_THP=1` — preceded by `make generate` and `rm` of `thp_video_decode.o` +
+`task_thread.o` (no flag tracking). ~8 translated shards + registration/dispatch + gx_backend.o
++ the two native files recompiled; the bulk of neon_os is preserved.
+
+### M11 HARDWARE RESULT — PASS (draw truncation fixed)
+
+`kMaxFrameDraws 4096` removed the cap: the post-Single-Player scene issues ~3381 draws / ~23032
+vertices and the producer captures all of them — `requested_draws=3381 draws=3381 begin_cap=0
+dropped=0`. `transform_fail=0`, `raw_fail=0`, NDC back to sane ranges, no old graphic overflow.
+Aurora completes the heavy frames end to end (~330-350 ms/frame). **Graphics still incomplete on
+that screen** — cause found in M12 below (Aurora streaming-arena overflow, not the producer).
+
+## M12 — graphics-correctness: Aurora streaming-arena overflow  (built: `...-m12-graphics-correctness.vpk`, SHA `079eedeaa4…`)
+
+**Root cause of the missing graphics (found, fixed).** `vita/aurora_packet_renderer.cpp`
+`StreamingArenaConfig` was `vertexBytes = 512 KiB`, `indexBytes = 64 KiB`, `slots = 3`. The
+arena is filled linearly by `enqueue_draw` and **never recycles within a frame** (`flush()`
+uploads staged bytes but does not reset `slot.voff`; only `begin_frame` resets). `CanonicalVertex`
+is 120 B, so 512 KiB holds ~4369 vertices; every `upload_vertices` past that returns `{}` →
+`enqueue_draw` fails `StreamingOverflow` → the draw is silently dropped. Log evidence:
+`aurora_frame=960 logical_draws=407 physical_draws=18 stream_bytes=524160 stream_overflow=357905`
+— ~95 % of draws never reached GXM. The heavy scene needs ~2.8 MiB of vertices per frame.
+
+**Fix:** `vertexBytes = 3 MiB`, `indexBytes = 512 KiB`, `slots = 2` (the render worker processes
+one frame start-to-finish; 2 slots cover the Vita's one-frame GPU read latency). +~5.3 MiB
+dynamic VBO (`VGL_MEM_RAM`). **Risk:** if the vitaGL pool cannot allocate it the log shows
+`init_marker=aurora_streaming_arena phase=failed` and Aurora renders nothing — dial the size
+back or grow the pool if that appears.
+
+**Diagnostics added (all `#if MKW_TARGET_VITA`, low overhead):**
+- `AuroraPacketSubmitResult.prepareError` — the `gfx::PrepareDrawError` (0 None … 6 StreamingOverflow
+  … 7 PipelineFailed, 255 never-enqueued) is now returned instead of discarded.
+- `m12_submit serial=… presented=… none/invalid/decode/xform/toomany/lineexp/overflow/pipeline/noenqueue=…`
+  once per logged frame (serial ≤ 8 or % 120): the submit-rejection histogram.
+- `m12_draw serial=… idx=… lr=… prim=… verts=… proj=… pnmtx=… vp=… sc=… ndc_x/ndc_y=… proj_diag=…
+  tex=… fmt=… WxH tevmode=… tevsimple=… texgen=… submitted=… prepare_err=… tex_unsupported=…` —
+  first 16 *unusual* draws per session (not submitted / texture unsupported / texgen fallback /
+  oversize NDC). `lr` is the guest GXBegin return address, mappable via
+  `vita/tools/decode_gx_begin_hot.py` / the guest symbol table.
+- `GeometryDraw` gained `guestLr` (set from `GX_HLE_RecordBeginCaller` via
+  `GxBackend::SetGuestBeginLr`; immediate-mode path only, G3D/FIFO draws leave it stale) and
+  `pnMtxIndex` (= `g_gx.currentMtx`). +8 B/draw × 2 instances = +64 KiB static.
+
+### M12 HARDWARE RESULT — native Vita crash in the texture upload path
+
+`psp2core-…-GPUCRASH.psp2dmp`, symbolized against the M12 ELF. Native, not guest PPC:
+`AuroraPacketRendererSubmit` → `Renderer::create_texture` (`aurora_packet_renderer.cpp:583`) →
+`TextureCache::get_or_upload` (`vita_renderer.cpp:24`, `vita_texture_cache.cpp`) →
+`glTexImage2D` → vitaGL-speedhack `gpu_alloc_mapped_for_gpu` /
+`gpu_alloc_mapped_aligned_for_gpu_inner` → `write_rgba8888` → SceLibKernel. **DFAR ≈ 0x3
+(near-null)** — a write into a failed/NULL texture allocation. The M12 streaming-arena bump
+(+5.3 MiB) plus M11 pushing every scene draw through raised total GPU pressure; the texture
+cache was already ~10.7/12 MiB before the transition, and vitaGL's speedhack build is
+`-DSKIP_ERROR_HANDLING` + `-DHAVE_TEX_CACHE` — it does not fail cleanly on OOM.
+
+Null-unsafe vitaGL spots found (cannot be patched without rebuilding the pinned "tested"
+archive, so worked around from our side): `gpu_alloc_mipmaps()` (`gpu_utils.c:857`,
+`vgl_memcpy(texture_data=NULL, …)` after `gpu_alloc_mapped_for_gpu`), and a bound texture with
+`status != TEX_VALID` / `data == NULL` reaching a draw (GPU crash).
+
+## M12.1 — texture-OOM hardening  (built: `...-m12_1-texture-oom-hardening.vpk`, SHA `19d42d84cc…`)
+
+**Config:** `MKW_VITA_DISABLE_MOVIES=1` (movies OFF, THP dormant), `MKW_VITA_NATIVE_THP=1`,
+`MKW_VITA_DVD_DEFER=0`, `MKW_VITA_LYT_DIRECT=0`, `MKW_VITA_LYT_FAITHFUL=1`. No re-translation.
+
+Our-code-only (vitaGL archive untouched):
+
+1. **`vita_texture_cache.cpp` pre-eviction (before any vitaGL call).**
+   `estimate_gpu_bytes(desc)` — conservative: per level `VGL_ALIGN(w,8)*h*4`, mip chain if
+   generateMipmaps, `+20% +64 KiB`. `pre_evict(est, frame, key)` evicts LRU until
+   `bytes_ + est + 512 KiB ≤ budget_`, **never evicting a texture already used this frame**
+   (its GL id may sit in an enqueued Aurora draw). If it still will not fit → return
+   `InvalidHandle` **without calling `glTexImage2D`** (deterministic; vitaGL never sees an
+   allocation it cannot serve). Entry accounting switched to the estimate (`e.bytes = est`) so
+   `bytes_` tracks real GPU footprint, not the CPU decode size.
+2. **Post-upload backing check.** After the `glTexImage2D` loop,
+   `vglGetTexDataPointer(GL_TEXTURE_2D) == nullptr` ⇒ vitaGL OOM'd (fragmentation etc.) →
+   `glDeleteTextures`, return `InvalidHandle`. Fresh GL slots have `data == NULL`, so this is
+   reliable.
+3. **`glGenerateMipmap` removed** from the cache path — it routes into the null-unsafe
+   `gpu_alloc_mipmaps`; menu textures render ~1:1 and don't need a generated chain.
+   `hasMipmaps` now = "≥2 real levels uploaded".
+4. **Failure reaches Aurora unchanged:** `create_texture` → `InvalidHandle` →
+   `AuroraPacketSubmitResult.textureUploadFailed = 1`, `textured = false`, draw proceeds
+   **untextured** (already the existing behaviour — a draw without texture, not a crash).
+5. **Budget 12 → 10 MiB** (`aurora_packet_renderer.cpp`). Graceful-OOM + eviction, not more
+   memory. The M12 arena (3 MiB / slots 2) and M11 draw cap are unchanged.
+6. **Telemetry:** `m12_1_tex serial=… cache_bytes=… budget=… high=… entries=… alloc_fail=…
+   pre_evict=… pre_evict_bytes=… requested=… pool_ram_free=… pool_vram_free=… pool_slow_free=…`
+   every logged frame; `m12_1_tex_fail w=… h=… fmt=… mips=… source=… est=… cache_bytes=…
+   budget=…` on the first alloc failure then power-of-two. `m12_draw` gained `tex_upload_fail`.
+
+**Not hardware-validated:** whether 10 MiB + pre-eviction fully clears the OOM on the heavy
+scene, whether pre-eviction thrashes (watch `pre_evict` vs `alloc_fail` in `m12_1_tex`), and
+whether losing generated mipmaps causes visible shimmer on the 3D menu models. If `alloc_fail`
+stays high with `pool_*_free` showing plenty free, it is fragmentation — then the remaining
+option is rebuilding the speedhack vitaGL archive with the null checks + a real failure flag.
+
+## M12.2 — Aurora incremental ABI dependency fix
+
+Second M12.1 hardware core (Data abort, DFAR 0x00000011) was symbolized against the exact 22:43 Aurora-speedhack ELF. The native crash is in BufferPool::gl_id() / its std::unordered_map lookup, called by Renderer::draw(). Core memory shows an impossible empty-map state: bucket_count=1, element_count=0, but _M_before_begin._M_nxt=0x0000000D. This is host-side object corruption, not guest PPC and not a missing BufferPool handle.
+
+Root cause confirmed in the build system: M12.1 enlarged TextureCache by adding telemetry members. Renderer stores TextureCache textures_ immediately before BufferPool buffers_, so that header change moves buffers_. Aurora objects are compiled with -MMD -MP, and vita_renderer.d correctly depends on vita_texture_cache.hpp, but Makefile.vita did not include the packet-renderer/Aurora-gfx dependency files. Consequently vita_texture_cache.o was rebuilt at 22:42 while vita_renderer.o was still the 09:29 object compiled against the old class layout. TextureCache writes therefore landed in the old BufferPool offset and corrupted its unordered_map.
+
+Fix: Makefile.vita now includes the Aurora packet-renderer and all Aurora Vita gfx .d files. Rebuilding without cleaning correctly recompiled all header-affected objects (including vita_renderer.cpp and vita_draw_adapter.cpp) before relinking. Do not add defensive BufferPool-map hacks: they would only mask this ABI mismatch. M10 fairness, M11 draw capacity, M12 streaming-arena changes, and M12.1 texture-OOM hardening are preserved. Hardware validation pending.
+
+## M12.3 — VRAM allocator headroom / EFB allocation guard
+
+M12.2 fixed the stale-Aurora-object ABI mismatch, but the next hardware run still crashed after
+Single Player. This core is **not** the BufferPool/unordered_map failure: crash thread is the
+native render pthread (TID 0x40010139), stop reason is Data Abort, and DFAR is again
+`0x00000003`. App relocation is +0x7000.
+
+The exact stack around SP plus the M12.2 ELF maps the active path to:
+`AuroraPacketRendererCopyEfb` -> `Renderer::capture_current` ->
+`EfbManager::capture_from_bound` -> `EfbManager::create` -> `glTexImage2D` ->
+`gpu_alloc_texture` -> `gpu_alloc_mapped_for_gpu` ->
+`gpu_alloc_mapped_aligned_for_gpu`. The failing EFB is a 128x128 RGBA backing (64 KiB).
+Disassembly is decisive: the saved return `0x84EDC741` (core) relocates to `0x84ED5741`,
+the instruction immediately after the **first** `vgl_memalign` call with type
+`VGL_MEM_VRAM` (CDRAM). Therefore the current failure is inside the VRAM mspace allocator,
+not a guest PPC fault and not the M12.2 object-layout bug. The earlier `write_rgba8888` address
+was present as a preserved callback/register/stack value; it is not sufficient evidence that the
+faulting store itself was in that callback.
+
+M12.3 keeps M10/M11/M12/M12.1/M12.2 intact and adds a conservative allocation firewall:
+
+- `TextureCache::get_or_upload` checks live `VGL_MEM_VRAM` before entering
+  `glTexImage2D`; an upload is rejected with `InvalidHandle` if its conservative estimated
+  footprint would leave less than **4 MiB CDRAM headroom**. Failure remains recoverable as an
+  untextured draw and emits rate-limited `m12_3_tex_guard`.
+- New EFB backings are gated the same way in `AuroraPacketRendererCopyEfb`. Existing EFB
+  handles with matching dimensions continue to be reused without a new allocation. If a copy is
+  blocked, GX clear side effects are still applied and the copy returns failure instead of
+  entering the unstable VRAM allocator.
+- `EfbManager::create` and the readback `upload_rgba` path now reject a texture whose
+  `vglGetTexDataPointer(GL_TEXTURE_2D)` is null after upload, so a failed speedhack allocation
+  is never attached/sampled as a valid GXM texture.
+- Added `m12_3_efb` telemetry: EFB bytes/high-water/entries, blocked allocation count/bytes,
+  and last observed VRAM-free value.
+
+Last completed pre-transition hardware sample before the crash had texture cache
+`10205075/10485760`, `pre_evict=27`, `pre_evict_bytes=6203204`, and
+`pool_vram_free=13158816`; the crash happened later while executing the 45-EFB-command
+transition frame, so the exact allocator headroom immediately before the fault was previously
+unknown. M12.3 makes that state observable and prevents allocations once the reserve is crossed.
+
+Build artifact: `...-m12_3-vram-headroom.vpk`, SHA-256
+`0628e9ca4741e60ad32ed82e5bd0aeed16bb57c2686fa6bbbdf5523b19558883`. Exact ELF SHA-256
+`68de1670017391515ebdff141073c5e04afce7276e179828a02106505d674c62`. Hardware validation
+pending. If the same VRAM-mspace Data Abort occurs while telemetry proves >4 MiB headroom, the
+next step is to treat it as allocator metadata corruption rather than exhaustion and harden/rebuild
+the pinned vitaGL-speedhack allocator itself.
+
+## M12.4 — single-thread vitaGL GC / no mspace-stat probes
+
+M12.3 hardware **FAIL**. The new core changes the diagnosis: render pthread TID 0x40010139,
+Data Abort 0x30004, DFAR 0x0000000B. The app frames on the crashed stack symbolize to
+`vgl_mem_get_free_space` (return immediately after `sceClibMspaceMallocStats`) <-
+`AuroraPacketRendererCopyEfb` <- RenderWorkerMain. Therefore the M12.3
+`vglMemFree(VGL_MEM_VRAM)` headroom query itself crashed before the guarded EFB allocation.
+The last completed card frame was otherwise healthy (664/664 draws, no transform/submit failures),
+and reported about 13 MiB free CDRAM before the transition. This is no longer consistent with a
+simple low-memory threshold failure.
+
+Targeted M12.4 A/B:
+
+- Rebuilt the pinned vitaGL speedhack archive with the same NO_DEBUG/DRAW/INDICES speedhacks but
+  `SINGLE_THREADED_GC=1`. Deferred frees now run synchronously on the render lane at vitaGL
+  frame/GC boundaries instead of a separate garbage-collector thread. This removes concurrent
+  mspace free activity as a variable while allocations/EFB work happen on USER_1.
+- Explicitly built with `HAVE_TEXTURE_CACHE=0`; Aurora continues to own its 10 MiB texture LRU.
+- Removed every runtime `vglMemFree(...)` probe from the WiiCompiled/Aurora path, including the
+  M12.3 texture/EFB guards and periodic free-space telemetry. We must not call
+  `sceClibMspaceMallocStats` as a safety check when that query is itself faulting.
+- Replaced the EFB guard with safe application-side accounting only: sampled EFB allocations are
+  bounded to a 4 MiB `EfbManager::bytes()` budget. Existing same-size EFBs are reused; a new
+  backing that would exceed the app-side budget is skipped while preserving GX clear side effects.
+- M12.1 texture pre-eviction remains based on Aurora-owned byte accounting. Post-upload
+  `vglGetTexDataPointer` checks remain. M10/M11/M12/M12.1/M12.2 semantics are otherwise preserved.
+- Build identifies itself as `vitagl=speedhack-single-gc` and emits `m12_4_mem` /
+  `m12_4_efb_budget` telemetry without querying mspace free-space stats.
+
+This does **not** yet prove a background-GC race is the unique allocator root cause. It is the
+smallest hardware A/B that removes the strongest remaining concurrency source after two crashes in
+the same mspace family (M12.2 allocation path, M12.3 stats query). If M12.4 still faults inside
+sceClib mspace code, the next step is to harden/replace the vitaGL mspace allocator path itself.
+
+Artifact: `...-m12_4-single-gc-mspace-stability.vpk`, SHA-256
+`0c7ad2973e20156c0a22faa08999d6c795594b3df20c4229e894740f0e499be7`. Exact ELF SHA-256
+`5cd6ce0435c3dd0a4ce6e66af382ca15215393586ef02a676bd807e4737b01a5`. Hardware validation pending.
+
+## M12.5 — vitaGL custom heap (sceClib mspace bypass)
+
+M12.4 hardware **FAIL**. Single-threading the vitaGL GC did not remove the crash. The new core
+(`psp2core-1788472853-0x00072c3203-eboot.bin.psp2dmp`) is again a native render-thread
+Data Abort (0x30004), DFAR `0x00000003`. Runtime app relocation is +0x8000. The active
+stack candidates symbolize to `write_rgba8888` -> `gpu_alloc_mapped_aligned_for_gpu_inner` ->
+`gpu_alloc_mapped_for_gpu` -> `_glTexImage2D_FlatIMPL` -> `EfbManager::create` ->
+`EfbManager::capture_from_bound` -> `Renderer::capture_current` ->
+`AuroraPacketRendererCopyEfb` -> `RenderWorkerMain`. The saved return from
+`gpu_alloc_mapped_aligned_for_gpu` is immediately after its first `vgl_memalign(..., VGL_MEM_VRAM)`
+call. The fault therefore remains in the CDRAM allocation family even with background GC removed.
+
+The last completed pre-transition frames are healthy and the transition still reaches 535 draws /
+3624 vertices / 45 EFB commands with no frame-cap drops. This falsifies the background-GC race as
+the sole explanation and makes the pinned vitaGL `sceClibMspace*` allocator itself (or metadata
+corruption observed through it) the next isolation target.
+
+M12.5 rebuilds the pinned vitaGL archive with `HAVE_CUSTOM_HEAP=1` plus
+`SINGLE_THREADED_GC=1`, keeping `DRAW_SPEEDHACK=1` and `INDICES_DRAW_SPEEDHACK=1`.
+`NO_DEBUG` is deliberately omitted so the custom heap's overflow/double-free/realloc corruption
+checks remain active. This bypasses `sceClibMspaceMalloc/Memalign/Free/MallocStats` for vitaGL
+managed pools and uses vitaGL's own allocator, documented upstream as the safer diagnostic heap.
+The M12.4 app-side 4 MiB EFB budget and M12.1 texture-accounting/pre-eviction remain; no runtime
+`vglMemFree` probes are reintroduced. Build identifies itself as `speedhack-custom-heap` and
+uses `m12_5_mem` / `m12_5_efb_budget` telemetry.
+
+Artifact: `...-m12_5-custom-heap.vpk`, SHA-256
+`11331a13e8997c3459bad541d1ce99f9b3a3392725c0cc780f54a4feb9046bc3`. Exact ELF SHA-256
+`5f96226047312ffb5ef9921a51dacc75c746894da11efeed26be4bbb0aaf5f31`. vitaGL archive SHA-256
+`de04978951a09cdc28da1710face48051530be17358df7f50273d7a9a262600d`. Hardware validation pending.
+
+## M12.6 — Select Class streaming-arena completion
+
+M12.5 hardware PASS for allocator stability: with the vitaGL custom heap the previous
+sceClibMspace crash is gone. The run survives the Single Player transition and continues for
+thousands of heavy frames (producer serial >3160). The screen is still black instead of the
+expected Select Class UI (50cc / 100cc / 150cc).
+
+The new log exposes a deterministic renderer-side truncation that remained after M11. Every sampled
+Select Class frame requests 3381 draws / 23032 vertices, but Aurora presents only 2580.
+m12_submit reports exactly overflow=801 every frame. The streaming vertex arena is pinned at
+stream_bytes=3145464, essentially the full 3 MiB capacity; index usage is only ~75 KiB. Therefore
+the packet draw cap is healthy (begin_cap=0, dropped=0), but the later 801 draws are rejected by
+StreamingArena::upload_vertices. This is especially consistent with the visual symptom because
+the lost draws are the tail of the frame, where the NW4R layout/UI overlay is composed.
+
+M12.6 raises only the per-slot vertex streaming arena from 3 MiB to 4 MiB. With two slots this costs
++2 MiB total and covers the observed ~23k-vertex frame with bounded headroom; the 512 KiB index arena
+is unchanged. No scheduler, GX packet-cap, texture/EFB, custom-heap, TEV, matrix, THP, or guest-thread
+semantics are changed. Hardware success criterion: m12_submit overflow=0, presented draws rise to
+all non-transform-rejected draws, and stream_overflow stops increasing. Remaining transform_fail=148
+and huge-NDC/oversize telemetry are a separate graphics-correctness issue to evaluate only after the
+stream truncation is gone.
+
+Artifact: ...-m12_6-full-stream.vpk, SHA-256
+99fd874b38a2cea78430850b9867ccc9c5a1d1da8e907f12000d0e766d7fef65. Exact ELF SHA-256
+6985faa721c94360760200f52346ce2be56949e895eaf4040674e8a3cb072d20.
+
+### M12.6 hardware result — menu progression now reaches race start
+
+M12.6 is a **hardware PASS for the 4 MiB streaming-arena fix**. The former per-frame Aurora
+`StreamingOverflow` no longer blocks the menu path: sampled menu frames report `m12_submit
+overflow=0`, and on hardware the game now progresses through multiple post-Single-Player screens.
+The user was able to reach Select Class, continue through the following menu flow, select a race,
+and start it. This is the furthest confirmed gameplay progression so far.
+
+Visual correctness is still incomplete. The 2D/NW4R menu composition is now usable enough to
+navigate, but the expected 3D character/kart/background models are still absent. Large frames still
+show the previously known transform/XF anomaly (`transform_fail=148` in representative samples,
+plus extreme NDC/oversize values), so 3D model visibility remains a separate graphics-correctness
+blocker; do not treat the arena fix as solving matrices/XF/TEV semantics.
+
+Embedded animated/video content is also still absent. The current diagnostic baseline keeps
+`MKW_VITA_DISABLE_MOVIES=1`, and the existing generic texture path is not a complete solution for
+MKW's THP/Motion-JPEG style video assets. Re-enabling these reliably on Vita requires a dedicated
+decode/presentation path (preferred direction: native Vita JPEG decode where applicable, then a
+bounded YUV->RGB path / GPU upload rather than replaying the current generic texture fallback).
+Do not mark THP/video as renderer-complete until this dedicated path is hardware-validated.
+
+The first attempt to enter the actual race exposes a **new, larger frame-capacity boundary**. Near
+the end of the M12.6 hardware log, after another `Scene Exit`, the next heavy frame requests about
+`6154` draw calls but the packet stores only `4096`: `begin_cap=2058`, with `32117` stored vertices,
+`dropped=4340`, and `efb_cmds=64`. The render worker starts consuming this truncated frame and the
+log ends during its submission (around draw 384/4096), coincident with the hardware crash. Therefore
+the old 2048-draw blocker is solved for menus, but **4096 is not sufficient for the first in-race
+workload**. The accompanying core dump is `psp2core-1788502217-0x00064f390b-eboot.bin.psp2dmp`;
+its exact crash site still needs to be symbolized against the M12.6 ELF before choosing the crash fix.
+Also validate whether `efb_cmds=64` is merely the observed count or another saturated command-array
+limit before increasing any EFB capacity.
+
+Next correctness milestone should therefore separate three issues rather than mixing them:
+
+1. **M12.7 frame capacity / crash:** support the ~6154-draw first-race frame without truncation,
+   then symbolize and fix the crash using the M12.6 core. Prefer measuring packet/vertex RAM cost
+   before blindly raising 4096; chunking is acceptable if a larger bounded packet is too expensive.
+2. **3D model correctness:** once the full in-race/menu frame is delivered, isolate the persistent
+   transform/XF/projection failures that keep 3D models invisible.
+3. **THP/Motion-JPEG video:** add the dedicated Vita decode/presentation path and only then re-enable
+   movies for hardware validation.
+
+## Performance hotspot for M13 — `0x8022DEA4` = `EGG::LightTexture::SetupTevInfo+0x13C`
+
+`gx_gap_hot rank=0 lr=8022dea4 gap_us=252750 max_gap_us=108417 count=10` on the heavy scene —
+~250 ms/frame of guest CPU between GXBegin calls, only 10 begins, so ~25 ms *per* begin.
+- Function: `EGG::LightTexture::SetupTevInfo`, guest `func_8022DD68` (0x8022DD68–0x8022DFA8),
+  translated shard `generated/build_shards/base_common/shard_a848944f84522dfd842c73c3.cpp`.
+  Related hot LRs: `8022e230` `SetupNextTevStage+0x288`, `8022dd34` `LightTexture::Draw+0x4C`.
+- It is EGG's per-material lighting/projected-texture TEV setup for lit 3D menu models (kart /
+  character showcase). The cost is translated PPC matrix work + the GX HLE calls it makes
+  (`GXLoadTexObj` / `GXSetTevColor*` / `GXSetTexCoordGen` for the light projection), 10×/frame.
+- Also present but transition-only: `0x800C23C0` `RFLiInitShapeRes+0x580` (Mii), `0x800c4ca4`
+  `RFLiDrawQuad+0x134`.
+- **M13 strategy (not started):** first per-shard-sample `func_8022DD68` on hardware to split
+  translated-CPU vs GX-HLE cost. If GX-HLE dominates, HLE `EGG::LightTexture::SetupTevInfo` /
+  `SetupNextTevStage` directly (mirror the TEV/texgen state into `g_hleGxState` without replaying
+  every GX call). If translated PPC dominates, it is matrix math — candidate for a NEON
+  `PPC_NATIVE_OVERRIDE` of the inner transform, same pattern as the fpu helpers. Keep it behind a
+  flag and measure against `gx_gap_hot`.
+
+## Next
 
 - ~230-260 ms/frame guest CPU pre-GX on the card menu (nw4r `lyt::Layout::Animate`/calc + EGG
-  heap on translated code); per-shard sampling before HLE-ing nw4r::lyt.
-- native THP decode (`sceJpegDecodeMJpegYCbCr` -> 3 planes, skip CPU YUV) + re-enable movies.
+  heap on translated code); per-shard sampling before HLE-ing nw4r::lyt. RFL hotspot
+  `0x800C23C0` still costs seconds during the transition. Deferred until the new scene renders.
 - generated default `RFL_DB.dat` (~6 s `RFLiInitShapeRes` on the licence screen).
 - Aurora: texture-cache lifetime split, per-frame `GXInvalidateTexAll`, streaming arena size,
   vertex-representation collapse, persistent pipeline cache. 360p only after USER_0 < 30 ms.
+- native THP decode (deferred section above); re-enable movies.

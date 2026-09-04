@@ -146,6 +146,15 @@ Handle EfbManager::create(uint32_t w, uint32_t h, bool depth) noexcept {
     return InvalidHandle;
   }
   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, initialPixels.data());
+  // A failed speedhack upload does not reliably set a GL error. Never attach a
+  // texture slot that has no backing store: the caller can skip this GXCopyTex
+  // instead of submitting an invalid GXM texture.
+  if (vglGetTexDataPointer(GL_TEXTURE_2D) == nullptr) {
+    if (tex) glDeleteTextures(1, &tex);
+    if (fbo) glDeleteFramebuffers(1, &fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, previousFbo);
+    return InvalidHandle;
+  }
   glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
   if (depth) {
     glGenRenderbuffers(1, &rb);
@@ -344,7 +353,7 @@ Handle EfbManager::upload_rgba(Handle existing, uint32_t w, uint32_t h, const vo
   // glTexImage2D(..., nullptr). Supplying the already-read pixels takes the normal,
   // hardware-tested texture upload path and removes the extra FBO/capture allocation.
   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
-  if (glGetError() != GL_NO_ERROR) {
+  if (vglGetTexDataPointer(GL_TEXTURE_2D) == nullptr || glGetError() != GL_NO_ERROR) {
     glDeleteTextures(1, &tex);
     return InvalidHandle;
   }

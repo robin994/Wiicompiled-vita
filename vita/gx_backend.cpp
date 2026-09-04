@@ -68,13 +68,12 @@ constexpr uint32_t kSurfaceWidth = 960;
 constexpr uint32_t kSurfaceHeight = 544;
 constexpr size_t kRenderWorkerStack = 128 * 1024;
 constexpr int kVitaGlUserRamReserve = 8 * 1024 * 1024;
-constexpr size_t kMaxFrameVertices = 16384;
-// MKW's main-menu compositor performs many offscreen preview passes before the
-// final NW4R layout. The old 192-draw cap was reached before the preview textures
-// were sampled, so the visible four-card composition was silently truncated.
-// 512 draws / 4096 vertices keeps the packet bounded while covering the observed
-// compositor with substantial headroom.
-constexpr size_t kMaxFrameDraws = 2048;
+constexpr size_t kMaxFrameVertices = 32768;
+// Post-Single-Player scenes issue ~3400 draws / ~26k vertices per frame; the
+// previous 2048/16384 cap truncated >1300 draws. 4096/32768 covers the observed
+// worst case with headroom. Two FrameGeometry instances + g_renderVertices, so
+// each slot costs ~1.5 KiB static; the whole frame packet is ~3.75 MiB.
+constexpr size_t kMaxFrameDraws = 4096;
 constexpr size_t kMaxFrameEfbCommands = 64;
 constexpr size_t kPnMtxCount = 10;
 constexpr u8 kPnMtxExplicitBit = 0x80u;
@@ -94,7 +93,7 @@ constexpr const char* kRendererVariant = "aurora";
 constexpr const char* kRendererVariant = "legacy";
 #endif
 #if defined(MKW_VITA_VITAGL_SPEEDHACK)
-constexpr const char* kVitaGlVariant = "speedhack";
+constexpr const char* kVitaGlVariant = "speedhack-custom-heap";
 #else
 constexpr const char* kVitaGlVariant = "stock";
 #endif
@@ -612,6 +611,8 @@ struct GeometryDraw {
     GXPrimitive primitive = GX_TRIANGLES;
     u16 firstVertex = 0;
     u16 vertexCount = 0;
+    u32 guestLr = 0;
+    u32 pnMtxIndex = 0;
     DrawTransform transform{};
     DrawRasterState raster{};
     DrawTextureState texture{};
@@ -655,8 +656,8 @@ struct FramePacket {
     std::array<f32, 6> viewport{0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 1.0f};
     std::array<u32, 4> scissor{0, 0, 640, 480};
 };
-static_assert(sizeof(FramePacket) < 2 * 1024 * 1024,
-              "Vita GX frame packet must stay bounded below 2 MiB");
+static_assert(sizeof(FramePacket) < 5 * 1024 * 1024,
+              "Vita GX frame packet must stay bounded below 5 MiB");
 
 struct GxState {
     std::array<GXAttrType, GX_VA_MAX_ATTR> vtxDesc{};
@@ -752,6 +753,11 @@ u32 g_textureRevisionSerial = 1;
 GXFifoObj g_defaultFifo{};
 GXFifoObj* g_cpuFifo = &g_defaultFifo;
 GXFifoObj* g_gpFifo = &g_defaultFifo;
+
+// Best-effort guest return address of the most recent GXBegin (immediate-mode
+// wrapper path only; G3D/FIFO display-list draws leave it stale). Captured into
+// each GeometryDraw for the M12 graphics-correctness trace.
+std::atomic<u32> g_lastGuestBeginLr{0};
 
 std::mutex g_renderMutex;
 std::condition_variable g_renderWake;
@@ -1036,6 +1042,8 @@ void CaptureDrawTransform(GeometryDraw& draw) {
     draw.transform.projection = g_gx.projection;
     draw.transform.posMtx = g_gx.posMtx;
     draw.transform.projectionType = g_gx.projectionType;
+    draw.guestLr = g_lastGuestBeginLr.load(std::memory_order_relaxed);
+    draw.pnMtxIndex = g_gx.currentMtx;
 }
 
 void CaptureDrawRasterState(GeometryDraw& draw) {
@@ -2568,12 +2576,9 @@ void RenderWorkerMain() {
             static_cast<unsigned long long>(vglInitEndUs - vglInitBeginUs),
             static_cast<unsigned>(resolutionFallback), kRendererVariant, kVitaGlVariant);
     RT_LOGF(RT_TAG_GX,
-            "vitaGL pools ram=%u/%u cdram=%u/%u phycont=%u/%u bytes renderer=%s vitagl=%s\n",
-            static_cast<unsigned>(vglMemFree(VGL_MEM_RAM)),
+            "vitaGL pools total_ram=%u total_cdram=%u total_phycont=%u bytes renderer=%s vitagl=%s gc=single allocator=custom\n",
             static_cast<unsigned>(vglMemTotal(VGL_MEM_RAM)),
-            static_cast<unsigned>(vglMemFree(VGL_MEM_VRAM)),
             static_cast<unsigned>(vglMemTotal(VGL_MEM_VRAM)),
-            static_cast<unsigned>(vglMemFree(VGL_MEM_SLOW)),
             static_cast<unsigned>(vglMemTotal(VGL_MEM_SLOW)),
             kRendererVariant, kVitaGlVariant);
 #if defined(MKW_VITA_AURORA_RENDERER)
@@ -2884,6 +2889,9 @@ void RenderWorkerMain() {
         uint64_t geometryOversizeNdcDraws = 0;
         f32 geometryMaxNdcSpanX = 0.0f;
         f32 geometryMaxNdcSpanY = 0.0f;
+        // M12: Aurora submit rejection breakdown. Index = AuroraPacketSubmitResult.prepareError
+        // (0 None .. 7 PipelineFailed, 255 -> slot 8 "never enqueued").
+        std::array<uint32_t, 9> submitFailByReason{};
         TextureRenderCounters textureCounters{};
         uint64_t efbCopiesExecuted = 0;
         uint64_t efbCopyFailures = 0;
@@ -3332,7 +3340,58 @@ void RenderWorkerMain() {
                 if (auroraResult.submitted) {
                     ++geometryDrawsPresented;
                     geometryVerticesPresented += draw.vertexCount;
+                } else {
+                    const uint8_t reasonSlot =
+                        auroraResult.prepareError == 255u
+                            ? 8u
+                            : static_cast<uint8_t>(std::min<uint32_t>(auroraResult.prepareError, 7u));
+                    ++submitFailByReason[reasonSlot];
                 }
+#if defined(MKW_TARGET_VITA)
+                {
+                    const bool unusual =
+                        !auroraResult.submitted ||
+                        auroraResult.textureUnsupported ||
+                        auroraResult.textureUploadFailed ||
+                        (draw.texture.enabled && draw.texture.texGenMode == 2u) ||
+                        texGenFailed ||
+                        (std::isfinite(ndcMaxX) &&
+                         (ndcMaxX - ndcMinX > 2.05f || ndcMaxY - ndcMinY > 2.05f));
+                    static std::atomic<uint32_t> s_drawDetailCount{0};
+                    if (unusual && s_drawDetailCount.fetch_add(1, std::memory_order_relaxed) < 16u) {
+                        const f32* pm = draw.transform.projection.data();
+                        RT_LOGF(RT_TAG_GX,
+                                "m12_draw serial=%llu idx=%u lr=%08X prim=0x%X verts=%u proj=%s "
+                                "pnmtx=%u vp=%.0f,%.0f,%.0f,%.0f sc=%u,%u,%u,%u "
+                                "ndc_x=%.2f..%.2f ndc_y=%.2f..%.2f proj_diag=%.3f,%.3f,%.3f,%.3f "
+                                "tex=%u fmt=0x%X %ux%u tevmode=%u tevsimple=%u texgen=%u "
+                                "submitted=%u prepare_err=%u tex_unsupported=%u tex_upload_fail=%u\n",
+                                static_cast<unsigned long long>(serial), static_cast<unsigned>(i),
+                                draw.guestLr, static_cast<unsigned>(draw.primitive),
+                                static_cast<unsigned>(draw.vertexCount),
+                                draw.transform.projectionType == GX_ORTHOGRAPHIC ? "ortho" : "persp",
+                                static_cast<unsigned>(draw.pnMtxIndex),
+                                packet.viewport[0], packet.viewport[1], packet.viewport[2], packet.viewport[3],
+                                packet.scissor[0], packet.scissor[1], packet.scissor[2], packet.scissor[3],
+                                std::isfinite(ndcMinX) ? ndcMinX : 0.0f,
+                                std::isfinite(ndcMaxX) ? ndcMaxX : 0.0f,
+                                std::isfinite(ndcMinY) ? ndcMinY : 0.0f,
+                                std::isfinite(ndcMaxY) ? ndcMaxY : 0.0f,
+                                pm[0], pm[5], pm[10], pm[15],
+                                static_cast<unsigned>(draw.texture.enabled),
+                                static_cast<unsigned>(draw.texture.format),
+                                static_cast<unsigned>(draw.texture.width),
+                                static_cast<unsigned>(draw.texture.height),
+                                static_cast<unsigned>(draw.texture.tevMode),
+                                static_cast<unsigned>(draw.texture.tevSimple),
+                                static_cast<unsigned>(draw.texture.texGenMode),
+                                static_cast<unsigned>(auroraResult.submitted),
+                                static_cast<unsigned>(auroraResult.prepareError),
+                                static_cast<unsigned>(auroraResult.textureUnsupported),
+                                static_cast<unsigned>(auroraResult.textureUploadFailed));
+                    }
+                }
+#endif
 #else
                 if (traceGpu) {
                     RT_LOGF(RT_TAG_GX, "gpu_trace frame=%llu draw=%u phase=glDrawArrays_begin\n",
@@ -3479,6 +3538,14 @@ void RenderWorkerMain() {
                 packet.viewport[0], packet.viewport[1],
                 packet.viewport[2], packet.viewport[3]);
 #if defined(MKW_VITA_AURORA_RENDERER)
+            RT_LOGF(RT_TAG_GX,
+                    "m12_submit serial=%llu presented=%llu none=%u invalid=%u decode=%u xform=%u "
+                    "toomany=%u lineexp=%u overflow=%u pipeline=%u noenqueue=%u\n",
+                    static_cast<unsigned long long>(serial),
+                    static_cast<unsigned long long>(geometryDrawsPresented),
+                    submitFailByReason[0], submitFailByReason[1], submitFailByReason[2],
+                    submitFailByReason[3], submitFailByReason[4], submitFailByReason[5],
+                    submitFailByReason[6], submitFailByReason[7], submitFailByReason[8]);
             RT_LOGF(
                 RT_TAG_GX,
                 "aurora_frame=%llu ready=%u logical_draws=%llu physical_draws=%u triangles=%u "
@@ -3501,6 +3568,28 @@ void RenderWorkerMain() {
                 static_cast<unsigned long long>(auroraFrameStats.textureHighWaterBytes),
                 auroraFrameStats.textureEntries,
                 static_cast<unsigned long long>(auroraFrameStats.textureEvictions));
+            RT_LOGF(RT_TAG_GX,
+                    "m12_1_tex serial=%llu cache_bytes=%llu budget=%llu high=%llu entries=%u "
+                    "alloc_fail=%llu pre_evict=%llu pre_evict_bytes=%llu requested=%llu\n",
+                    static_cast<unsigned long long>(serial),
+                    static_cast<unsigned long long>(auroraFrameStats.textureBytes),
+                    static_cast<unsigned long long>(auroraFrameStats.textureBudgetBytes),
+                    static_cast<unsigned long long>(auroraFrameStats.textureHighWaterBytes),
+                    auroraFrameStats.textureEntries,
+                    static_cast<unsigned long long>(auroraFrameStats.textureAllocFailTotal),
+                    static_cast<unsigned long long>(auroraFrameStats.texturePreEvictions),
+                    static_cast<unsigned long long>(auroraFrameStats.texturePreEvictedBytes),
+                    static_cast<unsigned long long>(auroraFrameStats.textureRequestedBytes));
+            RT_LOGF(RT_TAG_GX,
+                    "m12_5_mem serial=%llu efb_bytes=%llu efb_high=%llu efb_entries=%u "
+                    "efb_budget=%llu efb_blocked=%llu efb_blocked_bytes=%llu gc=single allocator=custom\n",
+                    static_cast<unsigned long long>(serial),
+                    static_cast<unsigned long long>(auroraFrameStats.efbBytes),
+                    static_cast<unsigned long long>(auroraFrameStats.efbHighWaterBytes),
+                    auroraFrameStats.efbEntries,
+                    static_cast<unsigned long long>(auroraFrameStats.efbBudgetBytes),
+                    static_cast<unsigned long long>(auroraFrameStats.efbAllocationBlocked),
+                    static_cast<unsigned long long>(auroraFrameStats.efbAllocationBlockedBytes));
             RT_LOGF(
                 RT_TAG_GX,
                 "perf_frame=%llu render_us=%llu begin_us=%llu submit_us=%llu endframe_us=%llu "
@@ -3759,22 +3848,13 @@ void SubmitFrame() {
                                     TryGetCpuContext());
 
 #if defined(MKW_TARGET_VITA)
-    static std::uint32_t capacitySummaryCount = 0;
-    if (g_pendingFrame.counters.immediateDrawCapacityFailures != 0 && capacitySummaryCount < 12u) {
-        ++capacitySummaryCount;
-        RT_LOGF(RT_TAG_GX,
-                "frame_capacity_summary serial=%llu stored_draws=%u stored_vertices=%u requested_draws=%llu begin_cap=%llu dropped=%u\n",
-                static_cast<unsigned long long>(submittedSerial),
-                static_cast<unsigned>(producerDraws), static_cast<unsigned>(producerVertices),
-                static_cast<unsigned long long>(g_pendingFrame.counters.drawCalls),
-                static_cast<unsigned long long>(g_pendingFrame.counters.immediateDrawCapacityFailures),
-                g_pendingFrame.geometry.droppedVertices);
-    }
     if (submittedSerial <= 8u || (submittedSerial % 30u) == 0u ||
-        producerDraws >= 1000u || producerIntervalUs >= 1000000u) {
+        producerDraws >= 1000u || producerIntervalUs >= 1000000u ||
+        g_pendingFrame.counters.immediateDrawCapacityFailures != 0) {
         RT_LOGF(RT_TAG_GX,
                 "producer_frame=%llu interval_us=%llu queue_wait_us=%llu packet_copy_us=%llu "
-                "prior_wait_calls=%llu prior_wait_us=%llu draws=%u vertices=%u efb_cmds=%u\n",
+                "prior_wait_calls=%llu prior_wait_us=%llu draws=%u vertices=%u efb_cmds=%u "
+                "requested_draws=%llu begin_cap=%llu dropped=%u\n",
                 static_cast<unsigned long long>(submittedSerial),
                 static_cast<unsigned long long>(producerIntervalUs),
                 static_cast<unsigned long long>(queueWaitEndUs - queueWaitBeginUs),
@@ -3782,7 +3862,10 @@ void SubmitFrame() {
                 static_cast<unsigned long long>(priorWaitCalls),
                 static_cast<unsigned long long>(priorWaitUs),
                 producerDraws, producerVertices,
-                static_cast<unsigned>(g_pendingFrame.geometry.efbCommandCount));
+                static_cast<unsigned>(g_pendingFrame.geometry.efbCommandCount),
+                static_cast<unsigned long long>(g_pendingFrame.counters.drawCalls),
+                static_cast<unsigned long long>(g_pendingFrame.counters.immediateDrawCapacityFailures),
+                g_pendingFrame.geometry.droppedVertices);
     }
 #endif
 }
@@ -3856,6 +3939,12 @@ uint32_t TextureLevelSize(u16 width, u16 height, u32 fmt) {
 } // namespace
 
 namespace WiiCompiledVita::GxBackend {
+
+void SetGuestBeginLr(uint32_t lr) noexcept {
+    if (lr != 0u) {
+        g_lastGuestBeginLr.store(lr, std::memory_order_relaxed);
+    }
+}
 
 bool Initialize() noexcept {
     InitializeTransformDefaults();

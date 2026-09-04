@@ -99,7 +99,8 @@ MKW_VITA_LYT_DIRECT ?= 1
 MKW_VITA_LYT_FAITHFUL ?= 0
 MKW_VITA_DISABLE_MOVIES ?= 1
 MKW_VITA_DVD_DEFER ?= 0
-AURORA_VITAGL_LIB ?= ../aurora-vita-max-prehardware/third_party/vitaGL-speedhack-src/libvitaGL.a
+MKW_VITA_NATIVE_THP ?= 1
+AURORA_VITAGL_LIB ?= ../aurora-vita-max-prehardware/third_party/vitaGL-speedhack-src/libvitaGL-m12_5-custom-heap.a
 AURORA_VITA_GFX_DIR := aurora-main/platforms/vita/gfx
 AURORA_VITA_GFX_SRCS := $(addprefix $(AURORA_VITA_GFX_DIR)/,\
 	vita_buffer_pool.cpp vita_draw_adapter.cpp vita_efb.cpp vita_gl_util.cpp \
@@ -157,6 +158,7 @@ MKW_FIRSTBOOT_VPK := $(BUILD_DIR)/$(MKW_FIRSTBOOT_TARGET).vpk
 
 COMMON_FLAGS := -O2 -g -ffunction-sections -fdata-sections -D__vita__ -DMKW_TARGET_VITA=1 -DTARGET_PC=1 -DLIBCO_MP=1 -DMKW_VITA_LYT_DIRECT=$(MKW_VITA_LYT_DIRECT) -DMKW_VITA_LYT_FAITHFUL=$(MKW_VITA_LYT_FAITHFUL) \
 	-DMKW_VITA_DISABLE_MOVIES=$(MKW_VITA_DISABLE_MOVIES) -DMKW_VITA_DVD_DEFER=$(MKW_VITA_DVD_DEFER) \
+	-DMKW_VITA_NATIVE_THP=$(MKW_VITA_NATIVE_THP) \
 	-DCRYPTOPP_DISABLE_ASM -DCRYPTOPP_NO_GLOBAL_BYTE \
 	-Iruntime/third_party -Iruntime/third_party/libco -Iruntime/third_party/toml11 \
 	-Iruntime/third_party/pugixml -Iruntime/include -Iruntime/src -Iaurora-main/include -Ivita/include
@@ -172,7 +174,7 @@ LIBS := -lSceFiber_stub -lSceSysmodule_stub -lSceIofilemgr_stub -lSceKernelThrea
 	-lSceProcessmgr_stub -Wl,--whole-archive -lpthread -Wl,--no-whole-archive \
 	$(VITAGL_LINK) -lvitashark -lSceShaccCgExt -lSceShaccCg_stub -lSceGxm_stub -lSceDisplay_stub \
 	-lSceKernelDmacMgr_stub -lScePower_stub -lSceAppMgr_stub -lSceCommonDialog_stub -lSceCtrl_stub \
-	-lmathneon -ltaihen_stub
+	-lmathneon -ltaihen_stub -lturbojpeg
 
 .PHONY: all probe recomp-probe recomp-probe-package vita-runtime-main-check generate translated-check \
 	full-translated-compile full-translated-compile-package graphics-check \
@@ -564,5 +566,6 @@ clean:
 	$(MKW_TRANSLATED_OBJS:.o=.d) $(MKW_VITA_NATIVE_OBJS:.o=.d) \
 	$(MKW_VITA_MAIN_OBJ:.o=.d) $(MKW_VITA_AUDIO_OBJ:.o=.d) $(MKW_VITA_CONTROLLER_OBJ:.o=.d) \
 	$(MKW_VITA_SETTINGS_OBJ:.o=.d) $(MKW_VITA_GX_OBJ:.o=.d) $(MKW_VITA_PLATFORM_OBJ:.o=.d) \
+	$(MKW_VITA_AURORA_PACKET_OBJ:.o=.d) $(AURORA_VITA_GFX_OBJS:.o=.d) \
 	$(MKW_VITA_DEBUG_FONT_OBJ:.o=.d) \
 	$(MKW_PUGIXML_OBJ:.o=.d) $(MKW_CRYPTOPP_OBJS:.o=.d)

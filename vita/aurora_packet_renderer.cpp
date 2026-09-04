@@ -45,6 +45,12 @@ std::unordered_map<std::uint64_t, EfbCopyTexture> g_efbCopies;
 std::uint64_t g_efbSourceMissTraceCount = 0;
 std::vector<std::uint8_t> g_efbReadback;
 std::uint64_t g_efbCopyTraceCount = 0;
+// M12.5 keeps the M12.4 sampled-EFB budget based on our own accounting. M12.3
+// proved that vglMemFree(VGL_MEM_VRAM) is itself unsafe under this workload:
+// its sceClibMspaceMallocStats query crashed before an allocation was attempted.
+constexpr std::size_t kEfbBudgetBytes = 4u * 1024u * 1024u;
+std::uint64_t g_efbAllocationBlocked = 0;
+std::uint64_t g_efbAllocationBlockedBytes = 0;
 std::vector<std::uint8_t> g_thpRgba;
 std::uint64_t g_thpConversionKey = 0;
 std::uint64_t g_thpConversionCount = 0;
@@ -381,7 +387,10 @@ bool AuroraPacketRendererInitialize() noexcept {
     gfx::RendererConfig rendererConfig{};
     rendererConfig.width = 960;
     rendererConfig.height = 544;
-    rendererConfig.textureBudget = 12u * 1024u * 1024u;
+    // M12.1: conservative — the M12 arena bump raised total GPU pressure and the
+    // speedhack vitaGL alloc path crashes on OOM instead of failing cleanly. The
+    // cache's pre-eviction keeps bytes_ under this; graceful OOM, not more memory.
+    rendererConfig.textureBudget = 10u * 1024u * 1024u;
     rendererConfig.pipelineBudget = 256;
     auto renderer = std::make_unique<gfx::Renderer>(rendererConfig);
     const uint64_t rendererBeginUs = sceKernelGetProcessTimeWide();
@@ -402,9 +411,15 @@ bool AuroraPacketRendererInitialize() noexcept {
             static_cast<unsigned long long>(rendererEndUs - rendererBeginUs));
 
     gfx::StreamingArenaConfig arenaConfig{};
-    arenaConfig.vertexBytes = 512u * 1024u;
-    arenaConfig.indexBytes = 64u * 1024u;
-    arenaConfig.slots = 3;
+    // The Select Class scene carries ~23k CanonicalVertex per frame. Hardware M12.5
+    // proved that the 3 MiB arena still fills at 3,145,464 bytes, after which exactly
+    // 801 tail draws fail with StreamingOverflow. Those tail draws contain late UI
+    // composition, matching the observed black screen with the 50/100/150cc cards absent.
+    // 4 MiB holds the full observed frame while adding only 2 MiB total across two slots.
+    // The arena never recycles within a frame, so it must hold the whole frame.
+    arenaConfig.vertexBytes = 4u * 1024u * 1024u;
+    arenaConfig.indexBytes = 512u * 1024u;
+    arenaConfig.slots = 2;
     arenaConfig.alignment = 16;
     auto arena = std::make_unique<gfx::StreamingArena>(renderer->buffers(), arenaConfig);
     const uint64_t arenaBeginUs = sceKernelGetProcessTimeWide();
@@ -454,6 +469,8 @@ void AuroraPacketRendererShutdown() noexcept {
     g_prepared = {};
     g_efbCopies.clear();
     g_efbReadback.clear();
+    g_efbAllocationBlocked = 0;
+    g_efbAllocationBlockedBytes = 0;
     if (g_arena) g_arena->shutdown();
     if (g_renderer) g_renderer->shutdown();
     g_arena.reset();
@@ -481,6 +498,7 @@ bool AuroraPacketRendererBeginFrame(std::uint64_t serial,
 
 AuroraPacketSubmitResult AuroraPacketRendererSubmit(const AuroraPacketDraw& draw) noexcept {
     AuroraPacketSubmitResult result{};
+    result.prepareError = 255u;
     if (!g_frameActive || !g_renderer || !g_arena || !draw.vertices || draw.vertexCount == 0) return result;
 
     gfx::PreparedDraw& prepared = g_prepared;
@@ -611,9 +629,14 @@ AuroraPacketSubmitResult AuroraPacketRendererSubmit(const AuroraPacketDraw& draw
         g_lastPipelineHash = pipelineHash;
     }
     gfx::PrepareDrawError error = gfx::PrepareDrawError::None;
-    result.submitted = g_lastPipelineKey != 0 &&
-        gfx::enqueue_draw(*g_renderer, *g_arena, g_stream, prepared, pipeline, uniforms,
-                          g_viewport, g_scissor, bindings, &error, nullptr, g_lastPipelineKey);
+    if (g_lastPipelineKey == 0) {
+        result.prepareError = static_cast<std::uint8_t>(gfx::PrepareDrawError::PipelineFailed);
+        return result;
+    }
+    result.submitted = gfx::enqueue_draw(*g_renderer, *g_arena, g_stream, prepared, pipeline,
+                                         uniforms, g_viewport, g_scissor, bindings, &error,
+                                         nullptr, g_lastPipelineKey);
+    result.prepareError = result.submitted ? 0u : static_cast<std::uint8_t>(error);
     return result;
 }
 
@@ -659,6 +682,41 @@ bool AuroraPacketRendererCopyEfb(const AuroraPacketEfbCopy& copy) noexcept {
         auto gpuIt = g_efbCopies.find(copy.destinationId);
         const gfx::Handle gpuExisting = gpuIt == g_efbCopies.end() ? gfx::InvalidHandle : gpuIt->second.handle;
         const std::uint32_t gpuRevision = gpuIt == g_efbCopies.end() ? 0u : gpuIt->second.revision;
+        bool needsBackingAllocation = gpuExisting == gfx::InvalidHandle;
+        if (!needsBackingAllocation) {
+            std::uint32_t existingW = 0, existingH = 0;
+            needsBackingAllocation =
+                !g_renderer->efb().dimensions(gpuExisting, existingW, existingH) ||
+                existingW != outW || existingH != outH;
+        }
+        if (needsBackingAllocation) {
+            const std::size_t alignedW = (static_cast<std::size_t>(outW) + 7u) & ~std::size_t{7u};
+            const std::size_t requiredBytes = alignedW * static_cast<std::size_t>(outH) * 4u;
+            const std::size_t currentBytes = g_renderer->efb().bytes();
+            if (requiredBytes > kEfbBudgetBytes ||
+                currentBytes > kEfbBudgetBytes - requiredBytes) {
+                ++g_efbAllocationBlocked;
+                g_efbAllocationBlockedBytes += requiredBytes;
+                if (g_efbAllocationBlocked == 1u ||
+                    (g_efbAllocationBlocked & (g_efbAllocationBlocked - 1u)) == 0u) {
+                    RT_LOGF(RT_TAG_GX,
+                            "m12_5_efb_budget blocked=%llu dest=0x%llX dst=%ux%u required=%llu "
+                            "efb_bytes=%llu budget=%llu entries=%u\n",
+                            static_cast<unsigned long long>(g_efbAllocationBlocked),
+                            static_cast<unsigned long long>(copy.destinationId), outW, outH,
+                            static_cast<unsigned long long>(requiredBytes),
+                            static_cast<unsigned long long>(currentBytes),
+                            static_cast<unsigned long long>(kEfbBudgetBytes),
+                            static_cast<unsigned>(g_renderer->efb().entries()));
+                }
+                if (copy.clear) {
+                    g_renderer->clear_current({copy.clearR, copy.clearG, copy.clearB, copy.clearA},
+                                              copy.clearDepthValue, copy.clearColor,
+                                              copy.clearAlpha, copy.clearDepth);
+                }
+                return false;
+            }
+        }
         const gfx::Scissor gpuSrc{x0, y0, static_cast<std::int32_t>(srcW), static_cast<std::int32_t>(srcH)};
         const gfx::Handle gpuCaptured =
             g_renderer->capture_current(gpuExisting, gpuSrc, outW, outH, format);
@@ -788,6 +846,17 @@ AuroraPacketFrameStats AuroraPacketRendererEndFrame() noexcept {
     result.textureBudgetBytes = textureCache.budget();
     result.textureEvictions = textureCache.evictions();
     result.textureEntries = static_cast<std::uint32_t>(textureCache.entries());
+    result.textureAllocFailTotal = textureCache.alloc_fail_total();
+    result.texturePreEvictions = textureCache.pre_evictions();
+    result.texturePreEvictedBytes = textureCache.pre_evicted_bytes();
+    result.textureRequestedBytes = textureCache.last_requested_bytes();
+    const auto& efb = g_renderer->efb();
+    result.efbBytes = efb.bytes();
+    result.efbHighWaterBytes = efb.high_water_bytes();
+    result.efbEntries = static_cast<std::uint32_t>(efb.entries());
+    result.efbAllocationBlocked = g_efbAllocationBlocked;
+    result.efbAllocationBlockedBytes = g_efbAllocationBlockedBytes;
+    result.efbBudgetBytes = kEfbBudgetBytes;
     g_frameActive = false;
     return result;
 }

@@ -2,21 +2,51 @@
 #include "vita_pipeline_key.hpp"
 #include "vita_texture_decode.hpp"
 #include <algorithm>
+#include <cstdio>
 #include <vector>
 #if defined(__vita__)
 #include <vitaGL.h>
 #endif
 namespace aurora::vita::gfx {
 namespace {
+void vgl_log_texture_alloc_fail(uint32_t w,uint32_t h,unsigned fmt,uint8_t mips,uint64_t sourceId,
+                                size_t estBytes,size_t cacheBytes,size_t budget) noexcept {
+  std::fprintf(stderr,
+    "[gx] m12_1_tex_fail w=%u h=%u fmt=0x%X mips=%u source=0x%llX est=%llu cache_bytes=%llu budget=%llu\n",
+    w,h,fmt,static_cast<unsigned>(mips),static_cast<unsigned long long>(sourceId),
+    static_cast<unsigned long long>(estBytes),static_cast<unsigned long long>(cacheBytes),
+    static_cast<unsigned long long>(budget));
+}
+// vitaGL uploads RGBA8 as VGL_ALIGN(w,8)*h*4 (row-stride padded to 8 texels).
+inline size_t aligned_rgba_bytes(uint32_t width,uint32_t height) noexcept {
+  return static_cast<size_t>((width+7u)&~7u)*height*4u;
+}
 size_t rgba_full_mip_bytes(uint32_t width,uint32_t height) noexcept {
   size_t total=0;
   for(;;){
-    total+=static_cast<size_t>(width)*height*4u;
+    total+=aligned_rgba_bytes(width,height);
     if(width==1&&height==1)break;
     width=std::max(1u,width>>1);height=std::max(1u,height>>1);
   }
   return total;
 }
+// Conservative GPU-side footprint estimate for a texture we are about to upload.
+// Deliberately over-estimates: vitaGL row alignment, mip chain, and internal
+// temp buffers can all push real usage above width*height*4. Never underestimate
+// here or the pre-eviction below will let vitaGL run out of mapped memory.
+size_t estimate_gpu_bytes(const TextureDesc& d) noexcept {
+  size_t total=0;
+  const unsigned levels=std::max<unsigned>(1u,d.mipCount);
+  for(unsigned l=0;l<levels;l++){
+    total+=aligned_rgba_bytes(std::max(1u,d.width>>l),std::max(1u,d.height>>l));
+  }
+  if(d.generateMipmaps){
+    const size_t chain=rgba_full_mip_bytes(d.width,d.height);
+    if(chain>total)total=chain;
+  }
+  return total+total/5u+65536u; // +20% slack +64 KiB fixed overhead
+}
+constexpr size_t kEvictHeadroom=512u*1024u;
 #if defined(__vita__)
 GLint wrap(WrapMode w){switch(w){case WrapMode::Clamp:return GL_CLAMP_TO_EDGE;case WrapMode::Repeat:return GL_REPEAT;case WrapMode::Mirror:return GL_MIRRORED_REPEAT;}return GL_REPEAT;}
 GLint filt(Filter f){switch(f){case Filter::Nearest:return GL_NEAREST;case Filter::Linear:return GL_LINEAR;case Filter::NearestMipmapNearest:return GL_NEAREST_MIPMAP_NEAREST;case Filter::LinearMipmapNearest:return GL_LINEAR_MIPMAP_NEAREST;case Filter::NearestMipmapLinear:return GL_NEAREST_MIPMAP_LINEAR;case Filter::LinearMipmapLinear:return GL_LINEAR_MIPMAP_LINEAR;}return GL_LINEAR;}
@@ -25,19 +55,48 @@ Filter without_mips(Filter f) noexcept {switch(f){case Filter::NearestMipmapNear
 #endif
 }
 TextureCache::~TextureCache(){clear();}
+void TextureCache::pre_evict(size_t requiredBytes,uint64_t frame,uint64_t protectKey) noexcept {
+  while(bytes_+requiredBytes+kEvictHeadroom>budget_&&!byKey_.empty()){
+    const Entry* victim=nullptr;
+    for(const auto& kv:byKey_){
+      if(kv.first==protectKey)continue;
+      // Never evict a texture already referenced this frame: its GL id may sit in
+      // an enqueued Aurora draw command and deleting it would crash the GPU.
+      if(kv.second.lastUse>=frame)continue;
+      if(!victim||kv.second.lastUse<victim->lastUse)victim=&kv.second;
+    }
+    if(!victim)break;
+    const size_t vb=victim->bytes;const Handle vh=victim->handle;
+    erase(vh);
+    ++preEvictions_;preEvictedBytes_+=vb;
+  }
+}
 Handle TextureCache::get_or_upload(const TextureDesc& d,uint64_t frame,FrameStats* st) noexcept {
   uint64_t key=texture_key(d);if(!d.cacheable)key^=(frame+0x9e3779b97f4a7c15ull)+(key<<6)+(key>>2);auto it=byKey_.find(key);if(d.cacheable&&it!=byKey_.end()){it->second.lastUse=frame;if(st)st->textureHits++;return it->second.handle;}if(st)st->textureMisses++;
   if(!d.data||!d.width||!d.height)return InvalidHandle;
+  // M12.1: reserve GPU memory BEFORE touching vitaGL. The speedhack vitaGL alloc
+  // path is not null-safe on OOM (crashes in write_rgba8888 / gpu_alloc_mipmaps),
+  // so a texture that will not fit under budget must never reach glTexImage2D.
+  const size_t estBytes=estimate_gpu_bytes(d);
+  lastRequestedBytes_=estBytes;
+  pre_evict(estBytes,frame,key);
+  if(estBytes>budget_||bytes_+estBytes>budget_){
+    ++allocFailTotal_;
+    if(allocFailTotal_==1||(allocFailTotal_&(allocFailTotal_-1))==0){
+      vgl_log_texture_alloc_fail(d.width,d.height,static_cast<unsigned>(d.format),d.mipCount,d.sourceId,estBytes,bytes_,budget_);
+    }
+    return InvalidHandle;
+  }
   Entry e{};e.handle=next_++;e.key=key;e.lastUse=frame;e.hasMipmaps=false;e.sourceId=d.sourceId;e.paletteSourceId=d.paletteSourceId;e.sourceBytes=d.dataSize;e.paletteBytes=d.paletteSize;
 #if defined(__vita__)
-  GLuint id=0;glGenTextures(1,&id);if(!id)return InvalidHandle;e.gl=id;glBindTexture(GL_TEXTURE_2D,id);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_REPEAT);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_REPEAT);
+  GLuint id=0;glGenTextures(1,&id);if(!id){++allocFailTotal_;return InvalidHandle;}e.gl=id;glBindTexture(GL_TEXTURE_2D,id);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_REPEAT);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_REPEAT);
 #else
   e.gl=e.handle;
 #endif
   const auto* base=static_cast<const uint8_t*>(d.data);size_t encodedOffset=0;const unsigned levels=std::max<unsigned>(1,d.mipCount);unsigned uploadedLevels=0;
   for(unsigned level=0;level<levels;level++){
     TextureDesc ld=d;ld.width=std::max(1u,d.width>>level);ld.height=std::max(1u,d.height>>level);ld.data=base+encodedOffset;ld.mipCount=1;ld.generateMipmaps=false;const size_t encoded=encoded_texture_size(ld.width,ld.height,ld.format);if(d.dataSize&&encodedOffset+encoded>d.dataSize)break;ld.dataSize=encoded;
-    auto decoded=decode_texture_rgba8(ld);if(!decoded.ok)break;e.bytes+=decoded.rgba.size();++uploadedLevels;
+    auto decoded=decode_texture_rgba8(ld);if(!decoded.ok)break;++uploadedLevels;
 #if defined(__vita__)
     glTexImage2D(GL_TEXTURE_2D,static_cast<GLint>(level),GL_RGBA,decoded.width,decoded.height,0,GL_RGBA,GL_UNSIGNED_BYTE,decoded.rgba.data());
 #endif
@@ -50,12 +109,23 @@ Handle TextureCache::get_or_upload(const TextureDesc& d,uint64_t frame,FrameStat
     return InvalidHandle;
   }
 #if defined(__vita__)
-  if(d.generateMipmaps&&uploadedLevels==1){glGenerateMipmap(GL_TEXTURE_2D);e.hasMipmaps=true;}else e.hasMipmaps=uploadedLevels>1;
-#else
-  e.hasMipmaps=(d.generateMipmaps&&uploadedLevels==1)||uploadedLevels>1;
+  // M12.1: vitaGL's gpu_alloc_texture is null-safe on OOM but leaves the texture
+  // with no backing (data == NULL, status != TEX_VALID). Binding + drawing that
+  // is a GPU crash. Detect it deterministically and fail the upload instead.
+  if(vglGetTexDataPointer(GL_TEXTURE_2D)==nullptr){
+    GLuint id=e.gl;glDeleteTextures(1,&id);
+    ++allocFailTotal_;
+    if(allocFailTotal_==1||(allocFailTotal_&(allocFailTotal_-1))==0){
+      vgl_log_texture_alloc_fail(d.width,d.height,static_cast<unsigned>(d.format),d.mipCount,d.sourceId,estBytes,bytes_,budget_);
+    }
+    return InvalidHandle;
+  }
 #endif
-  // Generated mip levels occupy VRAM even though only level 0 passed through the CPU decoder.
-  if(d.generateMipmaps&&uploadedLevels==1){const size_t full=rgba_full_mip_bytes(d.width,d.height);if(full>e.bytes)e.bytes=full;}
+  // M12.1: never call glGenerateMipmap. gpu_alloc_mipmaps() in the speedhack
+  // vitaGL has an unchecked vgl_memcpy on an alloc that can return NULL. Menu
+  // textures render ~1:1 and do not need a generated chain.
+  e.hasMipmaps=uploadedLevels>1;
+  e.bytes=estBytes; // GPU-side footprint (row-aligned + slack), not the CPU decode size
   bytes_+=e.bytes;if(bytes_>highWaterBytes_)highWaterBytes_=bytes_;byHandle_[e.handle]=key;byKey_[key]=e;if(st)st->textureUploads++;trim(frame);return e.handle;
 }
 void TextureCache::bind(Handle h,unsigned unit,const SamplerDesc&s) noexcept {auto hi=byHandle_.find(h);if(hi==byHandle_.end())return;auto it=byKey_.find(hi->second);if(it==byKey_.end())return;
