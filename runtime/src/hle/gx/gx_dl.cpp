@@ -20,6 +20,10 @@
 #include <xxhash.h>
 #endif
 
+#ifndef MKW_VITA_DL_TEMPLATE_CACHE
+#define MKW_VITA_DL_TEMPLATE_CACHE 0
+#endif
+
 namespace aurora::gx::fifo {
 bool in_display_list();
 bool submit_raw_draw(GXPrimitive prim, GXVtxFmt fmt, const uint8_t* vertices, uint16_t vtxCount,
@@ -545,6 +549,14 @@ struct DlCpWrite {
     uint32_t value = 0;
 };
 
+struct DlTemplateDraw {
+    uint32_t payloadOffset = 0;
+    uint32_t payloadBytes = 0;
+    uint16_t vertexCount = 0;
+    uint8_t opcode = 0;
+    uint8_t vtxFmt = 0;
+};
+
 
 static HleGxVertexStateSnapshot CaptureGxVertexStateForCpWrites(const std::vector<DlCpWrite>& writes) {
     HleGxVertexStateSnapshot snapshot;
@@ -615,6 +627,11 @@ struct DlScanCacheRecord {
     uint64_t writeGeneration = kDlWriteGenerationUntracked;
     std::vector<DlCpWrite> cpWrites{};
     std::vector<uint8_t> flattened{};
+    // P3: only valid for command streams containing NOP + draw opcodes. State
+    // commands are deliberately excluded so replay can bypass the command walker
+    // without skipping CP/BP/XF side effects.
+    std::vector<DlTemplateDraw> drawTemplate{};
+    bool drawTemplateValid = false;
 };
 
 struct DlScanCacheState {
@@ -705,7 +722,29 @@ static DlScanCacheProbe ProbeDlScanCache(const uint8_t* list, uint32_t listAddr,
 }
 
 static size_t DlScanCacheRecordBytes(const DlScanCacheRecord& record) {
-    return record.flattened.size() + record.cpWrites.size() * sizeof(DlCpWrite);
+    return record.flattened.size() + record.cpWrites.size() * sizeof(DlCpWrite) +
+           record.drawTemplate.size() * sizeof(DlTemplateDraw);
+}
+
+static void StoreDlDrawTemplate(uint32_t listAddr, uint32_t nbytes, uint64_t layoutHash,
+                                std::vector<DlTemplateDraw>&& draws) {
+#if MKW_VITA_DL_TEMPLATE_CACHE
+    if (draws.empty()) return;
+    auto& cache = DlScanCache();
+    const uint64_t key = DlScanCacheKey(listAddr, nbytes, layoutHash);
+    auto it = cache.entries.find(key);
+    if (it == cache.entries.end()) return;
+    const size_t oldBytes = DlScanCacheRecordBytes(it->second);
+    const size_t incoming = draws.size() * sizeof(DlTemplateDraw);
+    if (cache.storedCommandBytes - oldBytes + oldBytes + incoming > kDlScanCacheMaxStoredBytes) {
+        return;
+    }
+    it->second.drawTemplate = std::move(draws);
+    it->second.drawTemplateValid = true;
+    cache.storedCommandBytes += incoming;
+#else
+    (void)listAddr; (void)nbytes; (void)layoutHash; (void)draws;
+#endif
 }
 
 static void StoreDlScanCache(uint32_t listAddr, uint32_t nbytes, uint64_t layoutHash,
@@ -913,6 +952,53 @@ static bool WalkDisplayList(const uint8_t* data, uint32_t nbytes, Visitor& visit
     return true;
 }
 
+// P3 decoded draw template. This deliberately accepts only NOP + draw command
+// streams. Any state mutation or nested list makes the entry ineligible so the
+// normal interpreter remains the correctness fallback.
+struct DlTemplateBuildVisitor {
+    static constexpr int kMaxDepth = 0;
+    static constexpr bool kHandlesDraw = true;
+
+    const uint8_t* base = nullptr;
+    std::vector<DlTemplateDraw>& draws;
+
+    bool OnNop(uint8_t) { return true; }
+    bool OnBpReg(const uint8_t*, uint32_t) { return false; }
+    bool OnCpReg(const uint8_t*, uint8_t, uint32_t) { return false; }
+    bool OnXfReg(const uint8_t*, uint32_t) { return false; }
+    bool OnIndexedXf(const uint8_t*, uint8_t, uint32_t) { return false; }
+    bool OnInvalidateVertexCache(uint8_t) { return false; }
+    bool OnUnknownCommand(uint8_t) { return false; }
+    bool OnCallDisplayList(uint32_t, uint32_t, int) { return false; }
+    uint32_t DrawVertexSize(GXVtxFmt vtxfmt) { return CalcDLVertexSize(vtxfmt); }
+    bool OnDraw(const uint8_t*, uint8_t opcode, GXVtxFmt vtxfmt, uint16_t vtxCount,
+                const uint8_t* vertices, uint32_t& payloadBytes) {
+        const ptrdiff_t offset = vertices - base;
+        if (offset < 0 || static_cast<uint64_t>(offset) > std::numeric_limits<uint32_t>::max()) {
+            return false;
+        }
+        draws.push_back(DlTemplateDraw{static_cast<uint32_t>(offset), payloadBytes, vtxCount,
+                                       opcode, static_cast<uint8_t>(vtxfmt)});
+        return true;
+    }
+};
+
+static bool BuildDlDrawTemplate(const uint8_t* data, uint32_t nbytes,
+                                std::vector<DlTemplateDraw>& draws) {
+#if MKW_VITA_DL_TEMPLATE_CACHE
+    draws.clear();
+    DlTemplateBuildVisitor visitor{data, draws};
+    if (!WalkDisplayList(data, nbytes, visitor, 0) || draws.empty()) {
+        draws.clear();
+        return false;
+    }
+    return true;
+#else
+    (void)data; (void)nbytes; (void)draws;
+    return false;
+#endif
+}
+
 // Does this list carry anything that can produce geometry? Anything the walker
 // cannot model counts as "yes", which is why every hook that would have to look
 // at a payload just fails the walk instead.
@@ -1083,6 +1169,67 @@ static void ParseDisplayList(const uint8_t* data, uint32_t nbytes) {
     DlInterpretVisitor visitor;
     WalkDisplayList(data, nbytes, visitor, 0);
 }
+
+#if defined(MKW_TARGET_VITA)
+static bool ReplayDlDrawTemplate(const DlScanCacheRecord& record, const uint8_t* list,
+                                 uint32_t nbytes) {
+#if MKW_VITA_DL_TEMPLATE_CACHE
+    if (!record.drawTemplateValid || record.drawTemplate.empty()) return false;
+    const GXVtxFmt previousFmt = g_hleGxState.currentVtxFmt;
+    const bool indexedLayout = !DlVertexLayoutIsAllDirect();
+    for (size_t drawIndex = 0; drawIndex < record.drawTemplate.size(); ++drawIndex) {
+        const DlTemplateDraw& draw = record.drawTemplate[drawIndex];
+        if (draw.payloadOffset > nbytes || draw.payloadBytes > nbytes - draw.payloadOffset) {
+            g_hleGxState.currentVtxFmt = previousFmt;
+            ++g_cpuPerf.dlTemplateFallbacks;
+            return false;
+        }
+        const GXVtxFmt fmt = static_cast<GXVtxFmt>(draw.vtxFmt);
+        g_hleGxState.currentVtxFmt = fmt;
+        const uint8_t* vertices = list + draw.payloadOffset;
+        if (aurora::gx::fifo::submit_raw_draw(OpcodeToGXPrimitive(draw.opcode), fmt, vertices,
+                                              draw.vertexCount, draw.payloadBytes)) {
+            ++g_cpuPerf.dlRawFastDraws;
+            if (indexedLayout) ++g_cpuPerf.dlRawIndexedDraws;
+            g_cpuPerf.dlRawFastVertices += draw.vertexCount;
+            ++g_cpuPerf.dlTemplateDraws;
+            continue;
+        }
+
+        // A late capacity/decode failure cannot replay the whole list without
+        // duplicating earlier successful draws. Fall back from this draw onward
+        // through the established interpreter path with indexed-raw disabled.
+        ++g_cpuPerf.dlRawFastFailures;
+        ++g_cpuPerf.dlTemplateFallbacks;
+        DlInterpretVisitor fallback;
+        ScopedIndexedRawDisplayList disableIndexedRaw(false);
+        for (size_t fallbackIndex = drawIndex; fallbackIndex < record.drawTemplate.size(); ++fallbackIndex) {
+            const DlTemplateDraw& tail = record.drawTemplate[fallbackIndex];
+            if (tail.payloadOffset > nbytes || tail.payloadBytes > nbytes - tail.payloadOffset) {
+                g_hleGxState.currentVtxFmt = previousFmt;
+                return false;
+            }
+            uint32_t payloadBytes = tail.payloadBytes;
+            if (!fallback.OnDraw(list + tail.payloadOffset, tail.opcode,
+                                 static_cast<GXVtxFmt>(tail.vtxFmt), tail.vertexCount,
+                                 list + tail.payloadOffset, payloadBytes)) {
+                g_hleGxState.currentVtxFmt = previousFmt;
+                return false;
+            }
+        }
+        g_hleGxState.currentVtxFmt = previousFmt;
+        GXMarkFrameWork();
+        return true;
+    }
+    g_hleGxState.currentVtxFmt = previousFmt;
+    GXMarkFrameWork();
+    return true;
+#else
+    (void)record; (void)list; (void)nbytes;
+    return false;
+#endif
+}
+#endif
 
 #if defined(MKW_TARGET_VITA)
 extern "C" void GX_HLE_ReplayDisplayListVita(const uint8_t* data, uint32_t nbytes) {
@@ -1717,10 +1864,20 @@ extern "C" void GX__CallDisplayList_80172f64(uint32_t listAddr, uint32_t nbytes)
 
                 const uint64_t contentDigest =
                     probe.digestValid ? probe.contentDigest : DlContentDigest(list, nbytes);
+#if MKW_VITA_DL_TEMPLATE_CACHE
+                std::vector<DlTemplateDraw> drawTemplate{};
+                const bool drawTemplateValid = !needsFlatten &&
+                    BuildDlDrawTemplate(list, nbytes, drawTemplate);
+#endif
                 StoreDlScanCache(listAddr, nbytes, scanLayoutHash, contentDigest,
                                  probe.writeGeneration, mayContainDraw, entry, std::move(cpWrites),
                                  storeFlattened ? flattened.data() : nullptr,
                                  storeFlattened ? static_cast<uint32_t>(flattened.size()) : 0u);
+#if MKW_VITA_DL_TEMPLATE_CACHE
+                if (drawTemplateValid) {
+                    StoreDlDrawTemplate(listAddr, nbytes, scanLayoutHash, std::move(drawTemplate));
+                }
+#endif
             }
         }
 
@@ -1759,6 +1916,17 @@ extern "C" void GX__CallDisplayList_80172f64(uint32_t listAddr, uint32_t nbytes)
                 EnsureAuroraFrameActive();
                 GXMarkFrameWork();
 #if defined(MKW_TARGET_VITA)
+                if (MKW_VITA_DL_TEMPLATE_CACHE) {
+                    if (cached != nullptr && cached->drawTemplateValid) {
+                        if (ReplayDlDrawTemplate(*cached, list, nbytes)) {
+                            ++g_cpuPerf.dlTemplateHits;
+                            SyncAppliedVtxStateFromHleReal();
+                            return;
+                        }
+                    } else {
+                        ++g_cpuPerf.dlTemplateMisses;
+                    }
+                }
                 const bool allowIndexedRaw = !dlHasNestedDl && !dlHasArrayStateWrites;
                 ScopedIndexedRawDisplayList indexedRawScope(allowIndexedRaw);
 #endif

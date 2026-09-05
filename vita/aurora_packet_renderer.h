@@ -65,6 +65,20 @@ struct AuroraPacketDraw {
     bool depthUpdate = true;
     bool colorUpdate = true;
     bool alphaUpdate = true;
+    bool perspective = false;
+    // Dense producer-assigned ID for one adjacent render-state run. Zero keeps
+    // compatibility with callers that do not provide compact frame-state IDs.
+    std::uint16_t renderStateId = 0;
+    float viewportX = 0.0f;
+    float viewportY = 0.0f;
+    float viewportWidth = 960.0f;
+    float viewportHeight = 544.0f;
+    float viewportNear = 0.0f;
+    float viewportFar = 1.0f;
+    std::int32_t scissorX = 0;
+    std::int32_t scissorY = 0;
+    std::int32_t scissorWidth = 960;
+    std::int32_t scissorHeight = 544;
     AuroraPacketTexture texture{};
 };
 
@@ -125,6 +139,13 @@ struct AuroraPacketFrameStats {
     std::uint64_t texturePreEvictions = 0;
     std::uint64_t texturePreEvictedBytes = 0;
     std::uint64_t textureRequestedBytes = 0;
+    std::uint64_t textureEvictBlocked = 0;
+    std::uint64_t textureProtectedBytes = 0;
+    std::uint64_t textureProtectedHighWaterBytes = 0;
+    std::uint32_t textureAllocRetry = 0;
+    std::uint32_t textureAllocRetrySuccess = 0;
+    std::uint32_t textureAllocFailAfterEvict = 0;
+    std::uint64_t textureAllocRetryWaitUs = 0;
     // M12.4 EFB budget telemetry. Avoid vitaGL free-space queries here: the
     // M12.3 hardware core crashed inside sceClibMspaceMallocStats.
     std::uint64_t efbBytes = 0;
@@ -135,6 +156,48 @@ struct AuroraPacketFrameStats {
     std::uint64_t efbBudgetBytes = 0;
     std::uint32_t efbGpuCopies = 0;
     std::uint32_t efbReadbackCopies = 0;
+    std::uint32_t efbTransferReadbacks = 0;
+    std::uint32_t efbResidentScaled = 0;
+    std::uint64_t efbResidentUs = 0;
+    // P5.1 resident-copy classification. GpuResize stays zero until an exact
+    // nearest persistent GPU scaler is implemented; native-res avoidance is
+    // reported separately rather than mislabeled as resize.
+    std::uint32_t efbGpuSameSize = 0;
+    std::uint32_t efbGpuResize = 0;
+    std::uint32_t efbCpuCopy = 0;
+    std::uint32_t efbCpuResize = 0;
+    std::uint32_t efbResidentFailures = 0;
+    std::uint32_t efbNativeResCopies = 0;
+    std::uint32_t efbNativeBudgetFallbacks = 0;
+    std::uint32_t efbFallbackInvalidSource = 0;
+    std::uint32_t efbFallbackUnsupportedSurface = 0;
+    std::uint32_t efbFallbackExistingSize = 0;
+    std::uint32_t efbFallbackAllocation = 0;
+    std::uint32_t efbFallbackBacking = 0;
+    std::uint32_t efbFallbackTransfer = 0;
+    std::uint32_t efbFallbackResizeUnavailable = 0;
+    std::uint32_t efbFallbackCpu = 0;
+    std::uint64_t streamReuseWaitUs = 0;
+    // P0/P1 low-overhead renderer breakdown. Times are accumulated over all
+    // logical submissions in the frame and emitted only by the outer summary.
+    std::uint32_t logicalSubmits = 0;
+    std::uint32_t compactDraws = 0;
+    std::uint32_t compactFallbacks = 0;
+    std::uint32_t batchMerges = 0;
+    std::uint32_t compactRunStarts = 0;
+    std::uint32_t compactRunExtends = 0;
+    std::uint32_t compactStateHits = 0;
+    std::uint32_t compactStateMisses = 0;
+    std::uint64_t indexBuildUs = 0;
+    std::uint64_t vertexPackUs = 0;
+    std::uint64_t textureResolveUs = 0;
+    std::uint64_t pipelineResolveUs = 0;
+    std::uint64_t streamWriteUs = 0;
+    std::uint64_t flushExecuteUs = 0;
+    std::uint64_t efbSyncUs = 0;
+    std::uint64_t efbReadbackUs = 0;
+    std::uint64_t efbScaleUs = 0;
+    std::uint64_t efbUploadUs = 0;
 };
 
 bool AuroraPacketRendererInitialize() noexcept;

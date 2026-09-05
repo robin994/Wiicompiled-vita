@@ -110,11 +110,59 @@ MKW_VITA_PERF_SKIP_EFB ?= 0
 MKW_VITA_PERF_SKIP_BILLBOARDS ?= 0
 MKW_VITA_PERF_SKIP_LIGHTTEXTURE ?= 0
 MKW_VITA_PERF_FORCE_3D_SOLID ?= 0
+MKW_VITA_PERF_SOLID_KEEP_DEPTH ?= 0
+# Diagnostic proof that the compact Aurora vertex/index path can rasterize a
+# known clip-space primitive. Kept off by default; M13.6 enables it explicitly.
+MKW_VITA_PERF_INJECT_CLIP_TRIANGLE ?= 0
+MKW_VITA_PERF_INJECT_WII_TRIANGLE ?= 0
+# Low-overhead performance instrumentation. Diagnostic builds keep the legacy
+# verbose logging; performance A/B builds use aggregate summaries and a small
+# in-memory critical-event ring instead of synchronous hot-path file writes.
+MKW_VITA_PERF_LOG ?= 1
+MKW_VITA_PERF_RING ?= 1
+MKW_VITA_PERF_SUMMARY_INTERVAL ?= 300
+# WiiCompiled-specific packet fast path. These default off so the correctness
+# build remains on the established CanonicalVertex path.
+MKW_VITA_COMPACT_VERTEX ?= 0
+MKW_VITA_FRAME_BATCHER ?= 0
+MKW_VITA_DIRECT_STREAM_WRITE ?= 0
+# P2 compact immutable frame-state tables and bounded producer/render overlap.
+MKW_VITA_COMPACT_FRAME_STATE ?= 0
+MKW_VITA_FRAME_QUEUE_DEPTH ?= 1
+# P3 conservative decoded draw-template cache for static display lists.
+MKW_VITA_DL_TEMPLATE_CACHE ?= 0
+# P4 producer-side state/decoder acceleration. State generations avoid rebuilding
+# large per-draw snapshots; the raw layout cache precompiles active attribute steps.
+MKW_VITA_GX_STATE_GENERATIONS ?= 0
+MKW_VITA_RAW_LAYOUT_CACHE ?= 0
+MKW_VITA_RAW_MESH_CACHE ?= 0
 # M12.8 hardware still data-aborts inside SceGxm while servicing the
 # glBlitFramebuffer EFB path (same SceGxm+0x1E638 / DFAR=0xFFFFFFFF signature
 # as M12.6). Keep the stable CPU-readback/upload path as the default until the
 # GPU copy implementation can be replaced without transient FBO switches.
 MKW_VITA_EFB_GPU_BLIT ?= 0
+# CPU readback returns GL rows bottom-up while Wii EFB textures are consumed with
+# top-left GX texture coordinates. Flip only sampled EFB copies before upload.
+MKW_VITA_EFB_READBACK_FLIP_Y ?= 1
+# Optional A/B: submit the scene without a full GXM finish and use vitaGL's
+# mapped sceGxmTransfer readback. Faster, but keep the synchronous path available
+# because upstream documents possible glitches with this speedhack.
+MKW_VITA_EFB_TRANSFER_READBACK ?= 0
+# Persistent sampled copies, with synchronized direct mapped scaling fallback.
+# Requires the pinned speedhack archive's display-surface symbols.
+MKW_VITA_EFB_RESIDENT_COPY ?= 0
+# P5.1-A: sampled GXCopyTex results are consumed through normalized UVs. When
+# the bounded EFB budget permits it, retain the physical source dimensions so
+# capture_resident can use a same-size GXM transfer instead of CPU resampling.
+# This deliberately does not use the crash-prone transient-FBO blit path.
+MKW_VITA_EFB_NATIVE_RES_COPY ?= 0
+MKW_VITA_STREAM_SAFE_REUSE ?= 0
+MKW_VITA_EFB_COMMAND_CAPACITY ?= 128
+MKW_VITA_UI_QUAD_RUNS ?= 0
+MKW_VITA_TEXTURE_SHARED_HEADROOM ?= 0
+# Bounded emergency fence/retry for a texture allocation blocked exclusively by
+# still-protected current/in-flight texture entries.
+MKW_VITA_TEXTURE_SAFE_RETRY ?= 0
 AURORA_VITAGL_LIB ?= ../aurora-vita-max-prehardware/third_party/vitaGL-speedhack-src/libvitaGL-m12_5-custom-heap.a
 AURORA_VITA_GFX_DIR := aurora-main/platforms/vita/gfx
 AURORA_VITA_GFX_SRCS := $(addprefix $(AURORA_VITA_GFX_DIR)/,\
@@ -137,10 +185,12 @@ ifeq ($(MKW_VITA_VITAGL),speedhack)
 MKW_VITA_VITAGL_VARIANT := speedhack
 MKW_VITAGL_CPPFLAGS := -DMKW_VITA_VITAGL_SPEEDHACK=1 -DAURORA_VITAGL_MAPPED_STREAM_UPLOAD=1
 VITAGL_LINK := $(AURORA_VITAGL_LIB)
+MKW_VITAGL_ELF_DEP := $(AURORA_VITAGL_LIB)
 else ifeq ($(MKW_VITA_VITAGL),stock)
 MKW_VITA_VITAGL_VARIANT := stock
 MKW_VITAGL_CPPFLAGS := -DMKW_VITA_VITAGL_STOCK=1
 VITAGL_LINK := -lvitaGL
+MKW_VITAGL_ELF_DEP :=
 else
 $(error MKW_VITA_VITAGL must be stock or speedhack)
 endif
@@ -162,8 +212,9 @@ MKW_VITA_BUILD_VARIANT := $(MKW_VITA_RENDERER_VARIANT)-$(MKW_VITA_VITAGL_VARIANT
 # movie-disabled task_thread.o (or another stale HLE object) from being silently
 # reused after changing the configuration.
 MKW_VITA_RUNTIME_CONFIG_STAMP := $(MKW_RUNTIME_BUILD_DIR)/.native-config
-MKW_VITA_RUNTIME_CONFIG_TEXT := lyt_direct=$(MKW_VITA_LYT_DIRECT) lyt_faithful=$(MKW_VITA_LYT_FAITHFUL) movies_disabled=$(MKW_VITA_DISABLE_MOVIES) dvd_defer=$(MKW_VITA_DVD_DEFER) native_thp=$(MKW_VITA_NATIVE_THP) dl_indexed_raw=$(MKW_VITA_DL_INDEXED_RAW) perf_skip_efb=$(MKW_VITA_PERF_SKIP_EFB) perf_skip_billboards=$(MKW_VITA_PERF_SKIP_BILLBOARDS) perf_skip_lighttexture=$(MKW_VITA_PERF_SKIP_LIGHTTEXTURE) perf_force_3d_solid=$(MKW_VITA_PERF_FORCE_3D_SOLID)
+MKW_VITA_RUNTIME_CONFIG_TEXT := lyt_direct=$(MKW_VITA_LYT_DIRECT) lyt_faithful=$(MKW_VITA_LYT_FAITHFUL) movies_disabled=$(MKW_VITA_DISABLE_MOVIES) dvd_defer=$(MKW_VITA_DVD_DEFER) native_thp=$(MKW_VITA_NATIVE_THP) dl_indexed_raw=$(MKW_VITA_DL_INDEXED_RAW) perf_skip_efb=$(MKW_VITA_PERF_SKIP_EFB) perf_skip_billboards=$(MKW_VITA_PERF_SKIP_BILLBOARDS) perf_skip_lighttexture=$(MKW_VITA_PERF_SKIP_LIGHTTEXTURE) perf_force_3d_solid=$(MKW_VITA_PERF_FORCE_3D_SOLID) perf_solid_keep_depth=$(MKW_VITA_PERF_SOLID_KEEP_DEPTH) perf_inject_clip_triangle=$(MKW_VITA_PERF_INJECT_CLIP_TRIANGLE) perf_inject_wii_triangle=$(MKW_VITA_PERF_INJECT_WII_TRIANGLE) perf_log=$(MKW_VITA_PERF_LOG) perf_ring=$(MKW_VITA_PERF_RING) perf_summary_interval=$(MKW_VITA_PERF_SUMMARY_INTERVAL) compact_vertex=$(MKW_VITA_COMPACT_VERTEX) frame_batcher=$(MKW_VITA_FRAME_BATCHER) direct_stream_write=$(MKW_VITA_DIRECT_STREAM_WRITE) compact_frame_state=$(MKW_VITA_COMPACT_FRAME_STATE) frame_queue_depth=$(MKW_VITA_FRAME_QUEUE_DEPTH) dl_template_cache=$(MKW_VITA_DL_TEMPLATE_CACHE) gx_state_generations=$(MKW_VITA_GX_STATE_GENERATIONS) raw_layout_cache=$(MKW_VITA_RAW_LAYOUT_CACHE) raw_mesh_cache=$(MKW_VITA_RAW_MESH_CACHE) efb_readback_flip_y=$(MKW_VITA_EFB_READBACK_FLIP_Y) efb_transfer_readback=$(MKW_VITA_EFB_TRANSFER_READBACK)
 # Objects compiled with renderer/vitaGL-specific flags live under this variant tag.
+MKW_VITA_RUNTIME_CONFIG_TEXT += efb_resident_copy=$(MKW_VITA_EFB_RESIDENT_COPY) efb_native_res_copy=$(MKW_VITA_EFB_NATIVE_RES_COPY) stream_safe_reuse=$(MKW_VITA_STREAM_SAFE_REUSE) efb_command_capacity=$(MKW_VITA_EFB_COMMAND_CAPACITY) ui_quad_runs=$(MKW_VITA_UI_QUAD_RUNS) texture_shared_headroom=$(MKW_VITA_TEXTURE_SHARED_HEADROOM) texture_safe_retry=$(MKW_VITA_TEXTURE_SAFE_RETRY)
 # Common runtime/third-party objects remain shared because their compile flags are identical.
 MKW_VITA_VARIANT_OBJ_DIR := $(MKW_RUNTIME_BUILD_DIR)/variants/$(MKW_VITA_BUILD_VARIANT)
 AURORA_VITA_GFX_OBJS := $(patsubst $(AURORA_VITA_GFX_DIR)/%.cpp,\
@@ -187,12 +238,33 @@ MKW_FIRSTBOOT_VELF := $(MKW_RUNTIME_BUILD_DIR)/$(MKW_FIRSTBOOT_TARGET).velf
 MKW_FIRSTBOOT_EBOOT := $(MKW_RUNTIME_BUILD_DIR)/$(MKW_FIRSTBOOT_TARGET).bin
 MKW_FIRSTBOOT_SFO := $(MKW_RUNTIME_BUILD_DIR)/param.sfo
 MKW_FIRSTBOOT_VPK := $(BUILD_DIR)/$(MKW_FIRSTBOOT_TARGET).vpk
+MKW_FIRSTBOOT_MANIFEST := $(BUILD_DIR)/$(MKW_FIRSTBOOT_TARGET).manifest.txt
 
 COMMON_FLAGS := -O2 -g -ffunction-sections -fdata-sections -D__vita__ -DMKW_TARGET_VITA=1 -DTARGET_PC=1 -DLIBCO_MP=1 -DMKW_VITA_LYT_DIRECT=$(MKW_VITA_LYT_DIRECT) -DMKW_VITA_LYT_FAITHFUL=$(MKW_VITA_LYT_FAITHFUL) \
 	-DMKW_VITA_DISABLE_MOVIES=$(MKW_VITA_DISABLE_MOVIES) -DMKW_VITA_DVD_DEFER=$(MKW_VITA_DVD_DEFER) \
 	-DMKW_VITA_NATIVE_THP=$(MKW_VITA_NATIVE_THP) -DMKW_VITA_DL_INDEXED_RAW=$(MKW_VITA_DL_INDEXED_RAW) \
 	-DMKW_VITA_PERF_SKIP_EFB=$(MKW_VITA_PERF_SKIP_EFB) -DMKW_VITA_PERF_SKIP_BILLBOARDS=$(MKW_VITA_PERF_SKIP_BILLBOARDS) \
 	-DMKW_VITA_PERF_SKIP_LIGHTTEXTURE=$(MKW_VITA_PERF_SKIP_LIGHTTEXTURE) -DMKW_VITA_PERF_FORCE_3D_SOLID=$(MKW_VITA_PERF_FORCE_3D_SOLID) \
+	-DMKW_VITA_PERF_SOLID_KEEP_DEPTH=$(MKW_VITA_PERF_SOLID_KEEP_DEPTH) \
+	-DMKW_VITA_PERF_INJECT_CLIP_TRIANGLE=$(MKW_VITA_PERF_INJECT_CLIP_TRIANGLE) \
+	-DMKW_VITA_PERF_INJECT_WII_TRIANGLE=$(MKW_VITA_PERF_INJECT_WII_TRIANGLE) \
+	-DMKW_VITA_PERF_LOG=$(MKW_VITA_PERF_LOG) -DMKW_VITA_PERF_RING=$(MKW_VITA_PERF_RING) \
+	-DMKW_VITA_PERF_SUMMARY_INTERVAL=$(MKW_VITA_PERF_SUMMARY_INTERVAL) -DMKW_VITA_COMPACT_VERTEX=$(MKW_VITA_COMPACT_VERTEX) \
+	-DMKW_VITA_FRAME_BATCHER=$(MKW_VITA_FRAME_BATCHER) -DMKW_VITA_DIRECT_STREAM_WRITE=$(MKW_VITA_DIRECT_STREAM_WRITE) \
+	-DMKW_VITA_COMPACT_FRAME_STATE=$(MKW_VITA_COMPACT_FRAME_STATE) -DMKW_VITA_FRAME_QUEUE_DEPTH=$(MKW_VITA_FRAME_QUEUE_DEPTH) \
+	-DMKW_VITA_DL_TEMPLATE_CACHE=$(MKW_VITA_DL_TEMPLATE_CACHE) \
+	-DMKW_VITA_GX_STATE_GENERATIONS=$(MKW_VITA_GX_STATE_GENERATIONS) \
+	-DMKW_VITA_RAW_LAYOUT_CACHE=$(MKW_VITA_RAW_LAYOUT_CACHE) \
+	-DMKW_VITA_RAW_MESH_CACHE=$(MKW_VITA_RAW_MESH_CACHE) \
+	-DMKW_VITA_EFB_READBACK_FLIP_Y=$(MKW_VITA_EFB_READBACK_FLIP_Y) \
+	-DMKW_VITA_EFB_TRANSFER_READBACK=$(MKW_VITA_EFB_TRANSFER_READBACK) \
+	-DMKW_VITA_EFB_RESIDENT_COPY=$(MKW_VITA_EFB_RESIDENT_COPY) \
+	-DMKW_VITA_EFB_NATIVE_RES_COPY=$(MKW_VITA_EFB_NATIVE_RES_COPY) \
+	-DMKW_VITA_STREAM_SAFE_REUSE=$(MKW_VITA_STREAM_SAFE_REUSE) \
+	-DMKW_VITA_EFB_COMMAND_CAPACITY=$(MKW_VITA_EFB_COMMAND_CAPACITY) \
+	-DMKW_VITA_UI_QUAD_RUNS=$(MKW_VITA_UI_QUAD_RUNS) \
+	-DMKW_VITA_TEXTURE_SHARED_HEADROOM=$(MKW_VITA_TEXTURE_SHARED_HEADROOM) \
+	-DMKW_VITA_TEXTURE_SAFE_RETRY=$(MKW_VITA_TEXTURE_SAFE_RETRY) \
 	-DCRYPTOPP_DISABLE_ASM -DCRYPTOPP_NO_GLOBAL_BYTE \
 	-Iruntime/third_party -Iruntime/third_party/libco -Iruntime/third_party/toml11 \
 	-Iruntime/third_party/pugixml -Iruntime/include -Iruntime/src -Iaurora-main/include -Ivita/include
@@ -203,6 +275,26 @@ CXXFLAGS := $(COMMON_FLAGS) -std=gnu++20 -fexceptions
 # exceptions required by runtime headers included from translated shards.
 MKW_TRANSLATED_OPT ?= -Os -fno-asynchronous-unwind-tables
 MKW_TRANSLATED_CXXFLAGS := $(CXXFLAGS) $(MKW_TRANSLATED_OPT) -g0
+# Explicit source paths relative to generated/, never a global -O3 rebuild.
+# Separate objects keep the validated NEON -Os staging intact.
+MKW_TRANSLATED_HOT_SHARDS ?=
+MKW_TRANSLATED_HOT_OPT ?= -O2
+ifneq ($(strip $(MKW_TRANSLATED_HOT_SHARDS)),)
+ifeq ($(filter $(MKW_TRANSLATED_HOT_OPT),-O2 -O3),)
+$(error MKW_TRANSLATED_HOT_OPT must be -O2 or -O3)
+endif
+MKW_HOT_SRCS := $(addprefix $(MKW_GENERATED_DIR)/,$(MKW_TRANSLATED_HOT_SHARDS))
+ifneq ($(strip $(filter-out $(MKW_TRANSLATED_SRCS),$(MKW_HOT_SRCS))),)
+$(error Unknown hot shard: $(filter-out $(MKW_TRANSLATED_SRCS),$(MKW_HOT_SRCS)))
+endif
+MKW_HOT_FLAGS_KEY := $(shell printf '%s' '$(MKW_TRANSLATED_CXXFLAGS) $(MKW_TRANSLATED_HOT_OPT)' | shasum -a 256 | cut -c1-12)
+MKW_HOT_BUILD_DIR := $(MKW_TRANSLATED_BUILD_DIR)/hot-$(MKW_HOT_FLAGS_KEY)
+MKW_HOT_OBJS := $(patsubst $(MKW_GENERATED_DIR)/%.cpp,$(MKW_HOT_BUILD_DIR)/%.o,$(MKW_HOT_SRCS))
+MKW_TRANSLATED_OBJS := $(filter-out $(patsubst $(MKW_GENERATED_DIR)/%.cpp,$(MKW_TRANSLATED_BUILD_DIR)/%.o,$(MKW_HOT_SRCS)),$(MKW_TRANSLATED_OBJS)) $(MKW_HOT_OBJS)
+$(MKW_HOT_OBJS): $(MKW_HOT_BUILD_DIR)/%.o: $(MKW_GENERATED_DIR)/%.cpp | check-vitasdk
+	@mkdir -p $(dir $@)
+	$(CXX) $(MKW_TRANSLATED_CXXFLAGS) $(MKW_TRANSLATED_HOT_OPT) -I. -I$(MKW_GENERATED_DIR) -I$(MKW_BUILD_SHARDS_DIR)/base_common -MMD -MP -c $< -o $@
+endif
 LDFLAGS := -Wl,-q -Wl,--gc-sections
 LIBS := -lSceFiber_stub -lSceSysmodule_stub -lSceIofilemgr_stub -lSceKernelThreadMgr_stub \
 	-lSceProcessmgr_stub -Wl,--whole-archive -lpthread -Wl,--no-whole-archive \
@@ -277,8 +369,9 @@ vita-sync-game-assets:
 mkw-first-boot: generate
 	$(MAKE) -f Makefile.vita mkw-first-boot-package
 
-mkw-first-boot-package: $(MKW_FIRSTBOOT_VPK)
+mkw-first-boot-package: $(MKW_FIRSTBOOT_VPK) $(MKW_FIRSTBOOT_MANIFEST)
 	@echo "Built $(MKW_FIRSTBOOT_VPK)"
+	@echo "Manifest $(MKW_FIRSTBOOT_MANIFEST)"
 
 graphics-check: runtime-gx-vi-check aurora-gx-frontend-check
 	@echo "Completed Vita graphics bridge/frontend checks"
@@ -496,11 +589,13 @@ $(MKW_VITA_GX_OBJ): vita/gx_backend.cpp vita/include/wiicompiled_vita/gx_backend
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(MKW_AURORA_CPPFLAGS) -I. -Werror=infinite-recursion -MMD -MP -c $< -o $@
 
-$(MKW_VITA_AURORA_PACKET_OBJ): vita/aurora_packet_renderer.cpp vita/aurora_packet_renderer.h | check-vitasdk
+$(MKW_VITA_AURORA_PACKET_OBJ): vita/aurora_packet_renderer.cpp vita/aurora_packet_renderer.h \
+			$(MKW_VITA_RUNTIME_CONFIG_STAMP) | check-vitasdk
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(MKW_AURORA_CPPFLAGS) -I. -MMD -MP -c $< -o $@
 
-$(MKW_VITA_VARIANT_OBJ_DIR)/aurora_vita/gfx/%.o: $(AURORA_VITA_GFX_DIR)/%.cpp | check-vitasdk
+$(MKW_VITA_VARIANT_OBJ_DIR)/aurora_vita/gfx/%.o: $(AURORA_VITA_GFX_DIR)/%.cpp \
+			$(MKW_VITA_RUNTIME_CONFIG_STAMP) | check-vitasdk
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(MKW_AURORA_CPPFLAGS) -I. -MMD -MP -c $< -o $@
 
@@ -526,8 +621,8 @@ $(MKW_CRYPTOPP_LIB): $(MKW_CRYPTOPP_OBJS)
 	$(PREFIX)-ar rcs $@ $^
 
 $(MKW_FIRSTBOOT_ELF): $(MKW_VITA_NATIVE_OBJS) $(MKW_TRANSLATED_OBJS) $(MKW_GUEST_SYMBOL_OBJ) \
-		$(MKW_DATA_BLOB_OBJ) $(MKW_FIRSTBOOT_FIXED_OBJS)
-	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) $(LIBS) -o $@
+		$(MKW_DATA_BLOB_OBJ) $(MKW_FIRSTBOOT_FIXED_OBJS) $(MKW_VITAGL_ELF_DEP)
+	$(CXX) $(CXXFLAGS) $(filter-out $(MKW_VITAGL_ELF_DEP),$^) $(LDFLAGS) $(LIBS) -o $@
 
 $(MKW_FIRSTBOOT_ELF): | check-vitagl-variant
 
@@ -547,6 +642,22 @@ verify-mkw-firstboot-vpk: $(MKW_FIRSTBOOT_VPK)
 		(echo "Missing init instrumentation marker in $(MKW_FIRSTBOOT_ELF)" && false)
 	@grep -a -q 'guest_after_OSGetResetCode' $(MKW_FIRSTBOOT_ELF) || \
 		(echo "Missing guest continuation marker in $(MKW_FIRSTBOOT_ELF)" && false)
+
+$(MKW_FIRSTBOOT_MANIFEST): $(MKW_FIRSTBOOT_VPK) $(MKW_FIRSTBOOT_ELF) $(MKW_VITAGL_ELF_DEP)
+	@{ \
+		echo 'profile=mkw-first-boot'; \
+		echo 'git_head=$(shell git rev-parse HEAD)'; \
+		echo 'native_config=$(MKW_VITA_RUNTIME_CONFIG_TEXT)'; \
+		echo 'translated_build_dir=$(MKW_TRANSLATED_BUILD_DIR)'; \
+		echo 'translated_opt=$(MKW_TRANSLATED_OPT)'; \
+		echo 'translated_hot_shards=$(MKW_TRANSLATED_HOT_SHARDS)'; \
+		echo 'translated_hot_opt=$(MKW_TRANSLATED_HOT_OPT)'; \
+		echo 'vitagl=$(VITAGL_LINK)'; \
+		echo 'toolchain=$(shell $(CXX) --version | head -n 1)'; \
+		if test -n '$(MKW_VITAGL_ELF_DEP)'; then shasum -a 256 '$(MKW_VITAGL_ELF_DEP)' | sed 's/^/vitagl_sha256=/' ; fi; \
+		shasum -a 256 '$(MKW_FIRSTBOOT_ELF)' | sed 's/^/elf_sha256=/' ; \
+		shasum -a 256 '$(MKW_FIRSTBOOT_VPK)' | sed 's/^/vpk_sha256=/' ; \
+	} > $@
 
 $(MKW_FIRSTBOOT_VELF): $(MKW_FIRSTBOOT_ELF)
 	vita-elf-create -s $< $@

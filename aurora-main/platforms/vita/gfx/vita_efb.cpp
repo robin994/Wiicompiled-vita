@@ -1,9 +1,26 @@
 #include "vita_efb.hpp"
 #include "vita_gl_util.hpp"
+#include "vita_efb_resample.hpp"
 #include <algorithm>
 #include <cstddef>
 #if defined(__vita__)
 #include <vitaGL.h>
+#include <psp2/kernel/processmgr.h>
+#endif
+
+#ifndef MKW_VITA_EFB_RESIDENT_COPY
+#define MKW_VITA_EFB_RESIDENT_COPY 0
+#endif
+#if defined(__vita__) && MKW_VITA_EFB_RESIDENT_COPY
+// Narrow adapter for the pinned vitaGL speedhack archive (see build manifest).
+// No structure layout from vitaGL is imported. GXM descriptors are checked at
+// runtime, and other targets/cached pools fall back to the reference path.
+extern "C" {
+extern SceGxmColorSurface gxm_color_surfaces[];
+extern unsigned int gxm_back_buffer_index;
+extern int DISPLAY_WIDTH, DISPLAY_HEIGHT;
+extern GLboolean has_cached_mem;
+}
 #endif
 
 namespace aurora::vita::gfx {
@@ -375,12 +392,111 @@ Handle EfbManager::upload_rgba(Handle existing, uint32_t w, uint32_t h, const vo
   e.depth = 0;
   e.width = w;
   e.height = h;
-  e.bytes = static_cast<size_t>(w) * h * 4u;
+  e.bytes = static_cast<size_t>((w + 7u) & ~7u) * h * 4u;
   handle = next_++;
   map_[handle] = e;
   bytes_ += e.bytes;
   highWaterBytes_ = std::max(highWaterBytes_, bytes_);
   return handle;
+}
+
+Handle EfbManager::capture_resident(Handle existing,int32_t x,int32_t y,uint32_t sw,uint32_t sh,
+                                    uint32_t dw,uint32_t dh,bool topDown,ResidentCopyStats& stats) noexcept {
+  stats={};
+#if defined(__vita__) && MKW_VITA_EFB_RESIDENT_COPY
+  GLint bound=0;
+  glGetIntegerv(GL_FRAMEBUFFER_BINDING,&bound);
+  if (bound || has_cached_mem || x<0 || y<0 || !sw || !sh || !dw || !dh ||
+      sw>2048 || sh>2048 || dw>2048 || dh>2048 ||
+      uint64_t(x)+sw>uint64_t(DISPLAY_WIDTH) || uint64_t(y)+sh>uint64_t(DISPLAY_HEIGHT)) {
+    stats.fallbackReason=ResidentFallbackReason::InvalidSource;
+    return InvalidHandle;
+  }
+  const auto& surface=gxm_color_surfaces[gxm_back_buffer_index];
+  if (sceGxmColorSurfaceGetFormat(&surface)!=SCE_GXM_COLOR_FORMAT_U8U8U8U8_ABGR ||
+      sceGxmColorSurfaceGetType(&surface)!=SCE_GXM_COLOR_SURFACE_LINEAR ||
+      sceGxmColorSurfaceGetScaleMode(&surface)!=SCE_GXM_COLOR_SURFACE_SCALE_NONE) {
+    stats.fallbackReason=ResidentFallbackReason::UnsupportedSurface;
+    return InvalidHandle;
+  }
+  const size_t sp=size_t(sceGxmColorSurfaceGetStrideInPixels(&surface))*4;
+  const auto* base=static_cast<const uint8_t*>(sceGxmColorSurfaceGetData(&surface));
+  if (!base || sp<size_t(x+sw)*4) {
+    stats.fallbackReason=ResidentFallbackReason::InvalidSource;
+    return InvalidHandle;
+  }
+  auto it=map_.find(existing);
+  // Resize stays on the established upload path on this call. Its resulting
+  // handle becomes reusable on the next copy, without destroying a live handle.
+  if (it!=map_.end() && (it->second.fbo || it->second.width!=dw || it->second.height!=dh)) {
+    stats.fallbackReason=ResidentFallbackReason::ExistingSizeMismatch;
+    return InvalidHandle;
+  }
+  const uint64_t syncStart=sceKernelGetProcessTimeWide();
+  glFinish(); // also protects destination textures sampled earlier in the FIFO
+  stats.syncUs=sceKernelGetProcessTimeWide()-syncStart;
+  const uint64_t copyStart=sceKernelGetProcessTimeWide();
+  if (it==map_.end()) {
+    try {
+      // First allocation only: vitaGL's empty-upload path is not hardware safe.
+      std::vector<uint8_t> initial(size_t(dw)*dh*4,0);
+      existing=upload_rgba(InvalidHandle,dw,dh,initial.data());
+    } catch (...) {
+      stats.fallbackReason=ResidentFallbackReason::AllocationFailed;
+      return InvalidHandle;
+    }
+    it=map_.find(existing);
+    if (it==map_.end()) {
+      stats.fallbackReason=ResidentFallbackReason::AllocationFailed;
+      return InvalidHandle;
+    }
+  }
+  glBindTexture(GL_TEXTURE_2D,it->second.color);
+  auto* texture=vglGetGxmTexture(GL_TEXTURE_2D);
+  void* dst=vglGetTexDataPointer(GL_TEXTURE_2D);
+  const bool valid=texture && dst &&
+      sceGxmTextureGetType(texture)==SCE_GXM_TEXTURE_LINEAR &&
+      sceGxmTextureGetFormat(texture)==SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR;
+  if (!valid) {
+    stats.fallbackReason=ResidentFallbackReason::TextureBackingInvalid;
+    destroy(existing);
+    return InvalidHandle;
+  }
+  const size_t dp=size_t((dw+7u)&~7u)*4;
+  const auto* src=base+size_t(y)*sp+size_t(x)*4;
+  bool ok=false;
+  if (sw==dw && sh==dh) {
+    if (!topDown) src+=size_t(sh-1)*sp;
+    const int result=sceGxmTransferCopy(sw,sh,0,0,SCE_GXM_TRANSFER_COLORKEY_NONE,
+        SCE_GXM_TRANSFER_FORMAT_U8U8U8U8_ABGR,SCE_GXM_TRANSFER_LINEAR,src,0,0,
+        topDown?int32_t(sp):-int32_t(sp),SCE_GXM_TRANSFER_FORMAT_U8U8U8U8_ABGR,
+        SCE_GXM_TRANSFER_LINEAR,dst,0,0,int32_t(dp),nullptr,0,nullptr);
+    ok=result>=0;
+    if (ok) ok=sceGxmTransferFinish()>=0;
+    stats.gpu=ok;
+    if (ok) stats.path=ResidentPath::GpuSameSize;
+    else stats.fallbackReason=ResidentFallbackReason::GpuTransferFailed;
+  } else {
+    // SceGxmTransferDownscale is a fixed 2x filtered reduction, not the exact
+    // nearest GX sampling grid. Keep arbitrary resize on the faithful path until
+    // a persistent shader/RT scaler is hardware-proven.
+    stats.fallbackReason=ResidentFallbackReason::GpuResizeUnavailable;
+  }
+  if (!ok) {
+    // Uncached mapped memory; preserve the exact reference sampling grid.
+    // This fallback also handles hardware rejecting an unaligned transfer.
+    src=base+size_t(y)*sp+size_t(x)*4;
+    ok=resample_efb_rgba(src,sw,sh,sp,dst,dw,dh,dp,topDown);
+    __sync_synchronize();
+    if (ok) stats.path=(sw==dw&&sh==dh)?ResidentPath::CpuCopy:ResidentPath::CpuResize;
+    else stats.fallbackReason=ResidentFallbackReason::CpuCopyFailed;
+  }
+  stats.copyUs=sceKernelGetProcessTimeWide()-copyStart;
+  return ok?existing:InvalidHandle;
+#else
+  (void)existing;(void)x;(void)y;(void)sw;(void)sh;(void)dw;(void)dh;(void)topDown;
+  return InvalidHandle;
+#endif
 }
 
 bool EfbManager::bind_texture(Handle h, unsigned unit, const SamplerDesc& s) noexcept {

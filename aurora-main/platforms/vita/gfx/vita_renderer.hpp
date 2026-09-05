@@ -16,6 +16,7 @@ public:
   bool initialize() noexcept;void shutdown() noexcept;void begin_frame() noexcept;void end_frame() noexcept;
   uint64_t create_pipeline(const PipelineDesc& d) noexcept;
   Handle create_texture(const TextureDesc& d) noexcept;
+  void mark_texture_gpu_idle() noexcept { textures_.mark_gpu_idle(frame_); }
   size_t invalidate_texture_source_range(uint64_t start,size_t bytes) noexcept{return textures_.invalidate_source_range(start,bytes);}
   Handle create_vertex_buffer(const void*d,size_t n,bool dynamic=false) noexcept{return buffers_.create_vertex(d,n,dynamic);}
   Handle create_index_buffer(const void*d,size_t n,bool dynamic=false) noexcept{return buffers_.create_index(d,n,dynamic);}
@@ -32,9 +33,10 @@ public:
   const FrameStats& stats()const noexcept{return stats_;}uint64_t frame()const noexcept{return frame_;}
   uint32_t target_width()const noexcept{return targetWidth_;}uint32_t target_height()const noexcept{return targetHeight_;}
   PipelineCache& pipelines() noexcept{return pipelines_;}TextureCache& textures() noexcept{return textures_;}BufferPool& buffers() noexcept{return buffers_;}EfbManager& efb() noexcept{return efb_;}
+  // External uploads/transfer adapters must invalidate the GL state mirror.
+  void invalidate_draw_state() noexcept;
 private:
   void restore_target(Handle target,uint32_t width,uint32_t height) noexcept;
-  void invalidate_draw_state() noexcept;
   RendererConfig cfg_{};uint32_t targetWidth_=960,targetHeight_=544;Handle boundEfb_=InvalidHandle;
   PipelineCache pipelines_{};TextureCache textures_;BufferPool buffers_{};EfbManager efb_{};FrameStats stats_{};uint64_t frame_=0;bool initialized_=false;
 #if defined(__vita__)

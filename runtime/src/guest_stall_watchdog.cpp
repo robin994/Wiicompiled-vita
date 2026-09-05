@@ -8,6 +8,10 @@
 #include <atomic>
 #include <chrono>
 
+#ifndef MKW_VITA_PERF_LOG
+#define MKW_VITA_PERF_LOG 1
+#endif
+
 #if defined(MKW_TARGET_VITA)
 #include <psp2/kernel/processmgr.h>
 namespace {
@@ -351,6 +355,26 @@ void Poll(uint64_t nowUs) noexcept
     if (lastReportUs != 0 && nowUs - lastReportUs < 1000000u) {
         return;
     }
+#if !MKW_VITA_PERF_LOG
+    // A stable guest stall used to write the same large watchdog record once a
+    // second. In performance mode retain the first/new location immediately,
+    // then sample an unchanged stall only once every ten seconds.
+    const uint32_t pc = g_snapshot.translatedPc.load(std::memory_order_relaxed);
+    const uint32_t lr = g_snapshot.translatedLr.load(std::memory_order_relaxed);
+    const uint32_t task = g_snapshot.taskCallback.load(std::memory_order_relaxed);
+    const uint32_t rfl = g_snapshot.rflManager.load(std::memory_order_relaxed);
+    const uint64_t signature = (static_cast<uint64_t>(pc) << 32) ^
+                               (static_cast<uint64_t>(lr) << 1) ^
+                               (static_cast<uint64_t>(task) << 17) ^ rfl;
+    static uint64_t lastSignature = 0;
+    static uint64_t lastSignatureReportUs = 0;
+    if (signature == lastSignature && lastSignatureReportUs != 0 &&
+        nowUs - lastSignatureReportUs < 10000000u) {
+        return;
+    }
+    lastSignature = signature;
+    lastSignatureReportUs = nowUs;
+#endif
     lastReportUs = nowUs;
 
     RT_LOGF(RT_TAG_OS,

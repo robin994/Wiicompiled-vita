@@ -1,5 +1,6 @@
 #include "wiicompiled_vita/gx_backend.h"
 #include "wiicompiled_vita/host_thread.h"
+#include "wiicompiled_vita/frame_optimization_policy.h"
 #include "guest_stall_watchdog.h"
 #include "abi_bridge.h"
 #include "runtime_log.h"
@@ -49,6 +50,41 @@
 #ifndef MKW_VITA_EFB_GPU_BLIT
 #define MKW_VITA_EFB_GPU_BLIT 0
 #endif
+#ifndef MKW_VITA_COMPACT_FRAME_STATE
+#define MKW_VITA_COMPACT_FRAME_STATE 0
+#endif
+#ifndef MKW_VITA_FRAME_QUEUE_DEPTH
+#define MKW_VITA_FRAME_QUEUE_DEPTH 1
+#endif
+static_assert(MKW_VITA_FRAME_QUEUE_DEPTH >= 1 && MKW_VITA_FRAME_QUEUE_DEPTH <= 2,
+              "Vita frame queue depth must stay bounded to one or two slots");
+#ifndef MKW_VITA_PERF_LOG
+#define MKW_VITA_PERF_LOG 1
+#endif
+#ifndef MKW_VITA_PERF_RING
+#define MKW_VITA_PERF_RING 1
+#endif
+#ifndef MKW_VITA_PERF_SUMMARY_INTERVAL
+#define MKW_VITA_PERF_SUMMARY_INTERVAL 300
+#endif
+#ifndef MKW_VITA_COMPACT_VERTEX
+#define MKW_VITA_COMPACT_VERTEX 0
+#endif
+#ifndef MKW_VITA_FRAME_BATCHER
+#define MKW_VITA_FRAME_BATCHER 0
+#endif
+#ifndef MKW_VITA_DIRECT_STREAM_WRITE
+#define MKW_VITA_DIRECT_STREAM_WRITE 0
+#endif
+#ifndef MKW_VITA_GX_STATE_GENERATIONS
+#define MKW_VITA_GX_STATE_GENERATIONS 0
+#endif
+#ifndef MKW_VITA_RAW_LAYOUT_CACHE
+#define MKW_VITA_RAW_LAYOUT_CACHE 0
+#endif
+#ifndef MKW_VITA_RAW_MESH_CACHE
+#define MKW_VITA_RAW_MESH_CACHE 0
+#endif
 
 #if defined(MKW_VITA_VITAGL_SPEEDHACK)
 extern "C" void vglSetupRenderTargetScenesNum(uint8_t displaySize, uint8_t fboSize);
@@ -83,7 +119,11 @@ constexpr int kVitaGlUserRamReserve = 8 * 1024 * 1024;
 // ~7.18 MiB and all static frame buffers by ~7.16 MiB.
 constexpr size_t kMaxFrameVertices = 49152;
 constexpr size_t kMaxFrameDraws = 8192;
-constexpr size_t kMaxFrameEfbCommands = 128;
+#ifndef MKW_VITA_EFB_COMMAND_CAPACITY
+#define MKW_VITA_EFB_COMMAND_CAPACITY 128
+#endif
+constexpr size_t kMaxFrameEfbCommands = MKW_VITA_EFB_COMMAND_CAPACITY;
+static_assert(kMaxFrameEfbCommands >= 128 && kMaxFrameEfbCommands <= 1024);
 constexpr size_t kPnMtxCount = 10;
 constexpr u8 kPnMtxExplicitBit = 0x80u;
 constexpr size_t kTextureCacheCapacity = 32;
@@ -96,6 +136,36 @@ constexpr size_t kBootLogTailBytes = 24 * 1024;
 constexpr size_t kBootConsoleColumns = 118;
 constexpr size_t kBootConsoleRows = 64;
 constexpr int kBootFontAtlasSize = 128;
+constexpr uint64_t kPerfSummaryInterval =
+    MKW_VITA_PERF_SUMMARY_INTERVAL > 0 ? MKW_VITA_PERF_SUMMARY_INTERVAL : 300u;
+
+struct PerfCriticalEvent {
+    uint64_t serial = 0;
+    uint32_t code = 0;
+    uint32_t a = 0;
+    uint32_t b = 0;
+};
+struct PerfCriticalRing {
+    std::atomic<uint32_t> write{0};
+    std::array<PerfCriticalEvent, 64> events{};
+};
+alignas(64) PerfCriticalRing g_perfCriticalRing{};
+
+enum : uint32_t {
+    kPerfEventSubmitFailure = 1,
+    kPerfEventTextureFailure = 2,
+    kPerfEventTransformFailure = 3,
+    kPerfEventRawDecodeFailure = 4,
+};
+
+inline void RecordPerfCriticalEvent(uint64_t serial, uint32_t code, uint32_t a, uint32_t b) noexcept {
+#if MKW_VITA_PERF_RING
+    const uint32_t slot = g_perfCriticalRing.write.fetch_add(1, std::memory_order_relaxed);
+    g_perfCriticalRing.events[slot % g_perfCriticalRing.events.size()] = {serial, code, a, b};
+#else
+    (void)serial; (void)code; (void)a; (void)b;
+#endif
+}
 #if defined(MKW_VITA_AURORA_RENDERER)
 constexpr const char* kRendererVariant = "aurora";
 #else
@@ -217,6 +287,8 @@ struct FrameCounters {
     uint64_t efbCopyRecorded = 0;
     uint64_t efbCopyCapacityFailures = 0;
     uint64_t efbDestroyRecorded = 0;
+    uint64_t efbCommandsCoalesced = 0;
+    uint64_t uiQuadMerges = 0;
     std::array<TevSignature, kMaxTevSignaturesPerFrame> customTevSignatures{};
     uint64_t rawDirectAttributesDecoded = 0;
     uint64_t rawIndexedAttributesDecoded = 0;
@@ -230,6 +302,18 @@ struct FrameCounters {
     uint64_t xfUnsupportedWords = 0;
     uint64_t xfIndexedLoads = 0;
     uint64_t xfIndexedWords = 0;
+    uint64_t transformStateBuilds = 0;
+    uint64_t transformStateReuses = 0;
+    uint64_t rasterStateBuilds = 0;
+    uint64_t rasterStateReuses = 0;
+    uint64_t textureStateBuilds = 0;
+    uint64_t textureStateReuses = 0;
+    uint64_t rawLayoutCacheHits = 0;
+    uint64_t rawLayoutCacheMisses = 0;
+    uint64_t rawMeshCacheHits = 0;
+    uint64_t rawMeshCacheMisses = 0;
+    uint64_t rawMeshCacheStores = 0;
+    uint64_t rawMeshCacheInvalidations = 0;
     std::array<uint32_t, 7> primitiveDraws{};
     std::array<uint32_t, 8> vertexFormatDraws{};
 };
@@ -577,6 +661,8 @@ struct DrawRasterState {
     u8 alphaRef1 = 0;
     GXBool colorUpdate = GX_TRUE;
     GXBool alphaUpdate = GX_TRUE;
+    std::array<f32, 6> viewport{0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 1.0f};
+    std::array<u32, 4> scissor{0, 0, 640, 480};
 };
 
 struct TexGenState {
@@ -626,9 +712,18 @@ struct GeometryDraw {
     u16 vertexCount = 0;
     u32 guestLr = 0;
     u32 pnMtxIndex = 0;
+#if MKW_VITA_COMPACT_FRAME_STATE
+    u16 transformId = 0;
+    u16 rasterId = 0;
+    u16 textureId = 0;
+    // Dense ID for one adjacent render-state run. Transforms are intentionally
+    // excluded because positions/texcoords are transformed on USER_1 before submit.
+    u16 renderStateId = 0;
+#else
     DrawTransform transform{};
     DrawRasterState raster{};
     DrawTextureState texture{};
+#endif
 };
 
 enum class EfbFrameCommandType : u8 { Copy = 0, Destroy = 1 };
@@ -657,9 +752,23 @@ struct FrameGeometry {
     std::array<u8, kMaxFrameVertices> pnMtxRefs{};
     std::array<GeometryDraw, kMaxFrameDraws> draws{};
     std::array<EfbFrameCommand, kMaxFrameEfbCommands> efbCommands{};
+#if MKW_VITA_COMPACT_FRAME_STATE
+    // P2: immutable per-frame state tables. Draws carry small IDs so repeated
+    // matrix/raster/texture state is copied once instead of once per logical draw.
+    std::vector<DrawTransform> transforms{};
+    std::vector<DrawRasterState> rasters{};
+    std::vector<DrawTextureState> textures{};
+#if MKW_VITA_GX_STATE_GENERATIONS
+    // P4 producer cache: these generations describe the snapshot at table.back().
+    // They are producer-only metadata and are reset whenever a frame table is cleared.
+    u32 lastTransformGeneration = 0;
+    u32 lastRasterGeneration = 0;
+    u32 lastTextureGeneration = 0;
+#endif
+#endif
     u16 vertexCount = 0;
     u16 drawCount = 0;
-    u8 efbCommandCount = 0;
+    u16 efbCommandCount = 0;
     uint32_t droppedVertices = 0;
 };
 
@@ -669,8 +778,13 @@ struct FramePacket {
     std::array<f32, 6> viewport{0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 1.0f};
     std::array<u32, 4> scissor{0, 0, 640, 480};
 };
+#if MKW_VITA_COMPACT_FRAME_STATE
+static_assert(sizeof(FramePacket) < 2 * 1024 * 1024,
+              "compact Vita GX frame packet storage must stay below 2 MiB");
+#else
 static_assert(sizeof(FramePacket) < 8 * 1024 * 1024,
               "Vita GX frame packet must stay bounded below 8 MiB");
+#endif
 
 struct GxState {
     std::array<GXAttrType, GX_VA_MAX_ATTR> vtxDesc{};
@@ -757,11 +871,62 @@ struct GxState {
     f32 zOffset = 0.0f;
     s32 scissorOffsetX = 0;
     s32 scissorOffsetY = 0;
+#if MKW_VITA_GX_STATE_GENERATIONS || MKW_VITA_RAW_LAYOUT_CACHE || MKW_VITA_RAW_MESH_CACHE
+    // Monotonic producer-side state epochs. Zero is reserved as "no cached state".
+    u32 transformGeneration = 1;
+    u32 rasterGeneration = 1;
+    u32 textureGeneration = 1;
+    u32 vertexLayoutGeneration = 1;
+    u32 arrayGeneration = 1;
+#endif
     FrameCounters frame{};
     FrameGeometry geometry{};
 };
 
 GxState g_gx;
+
+#if MKW_VITA_GX_STATE_GENERATIONS || MKW_VITA_RAW_LAYOUT_CACHE || MKW_VITA_RAW_MESH_CACHE
+inline void BumpGxGeneration(u32& generation) noexcept {
+    ++generation;
+    if (generation == 0) generation = 1;
+}
+inline void MarkTransformStateDirty() noexcept {
+#if MKW_VITA_GX_STATE_GENERATIONS
+    BumpGxGeneration(g_gx.transformGeneration);
+#endif
+}
+inline void MarkRasterStateDirty() noexcept {
+#if MKW_VITA_GX_STATE_GENERATIONS
+    BumpGxGeneration(g_gx.rasterGeneration);
+#endif
+}
+inline void MarkTextureStateDirty() noexcept {
+#if MKW_VITA_GX_STATE_GENERATIONS
+    BumpGxGeneration(g_gx.textureGeneration);
+#endif
+}
+inline void MarkVertexLayoutDirty() noexcept {
+#if MKW_VITA_RAW_LAYOUT_CACHE || MKW_VITA_RAW_MESH_CACHE
+    BumpGxGeneration(g_gx.vertexLayoutGeneration);
+#endif
+#if MKW_VITA_GX_STATE_GENERATIONS
+    // CaptureDrawTextureState depends on whether TEX0 is present.
+    BumpGxGeneration(g_gx.textureGeneration);
+#endif
+}
+inline void MarkArrayStateDirty() noexcept {
+#if MKW_VITA_RAW_MESH_CACHE
+    BumpGxGeneration(g_gx.arrayGeneration);
+#endif
+}
+#else
+inline void MarkTransformStateDirty() noexcept {}
+inline void MarkRasterStateDirty() noexcept {}
+inline void MarkTextureStateDirty() noexcept {}
+inline void MarkVertexLayoutDirty() noexcept {}
+inline void MarkArrayStateDirty() noexcept {}
+#endif
+
 u32 g_textureRevisionSerial = 1;
 GXFifoObj g_defaultFifo{};
 GXFifoObj* g_cpuFifo = &g_defaultFifo;
@@ -778,8 +943,6 @@ std::condition_variable g_renderIdle;
 HostThread g_renderThread;
 bool g_renderStarted = false;
 bool g_renderStop = false;
-bool g_renderPending = false;
-bool g_renderBusy = false;
 bool g_renderInitDone = false;
 bool g_renderInitOk = false;
 uint64_t g_submittedSerial = 0;
@@ -787,7 +950,48 @@ uint64_t g_completedSerial = 0;
 uint64_t g_lastProducerSubmitUs = 0;
 uint64_t g_guestWaitRenderCallsSinceSubmit = 0;
 uint64_t g_guestWaitRenderUsSinceSubmit = 0;
-FramePacket g_pendingFrame{};
+enum class RenderWaitReason : u8 { DrawDone = 0, FrameWorker = 1, Count = 2 };
+std::array<uint64_t, static_cast<size_t>(RenderWaitReason::Count)> g_renderWaitCallsByReason{};
+std::array<uint64_t, static_cast<size_t>(RenderWaitReason::Count)> g_renderWaitUsByReason{};
+
+enum class FrameQueueSlotState : u8 { Free = 0, Packing, Ready, Busy };
+struct FrameQueueSlot {
+    FramePacket packet{};
+    uint64_t serial = 0;
+    FrameQueueSlotState state = FrameQueueSlotState::Free;
+};
+std::array<FrameQueueSlot, MKW_VITA_FRAME_QUEUE_DEPTH> g_frameQueue{};
+uint32_t g_frameWriteCursor = 0;
+uint64_t g_frameBarrierSerial = 0;
+
+FrameQueueSlot* FindFreeFrameSlotLocked() {
+    for (uint32_t n = 0; n < g_frameQueue.size(); ++n) {
+        const uint32_t index = (g_frameWriteCursor + n) % g_frameQueue.size();
+        if (g_frameQueue[index].state == FrameQueueSlotState::Free) {
+            g_frameWriteCursor = (index + 1u) % g_frameQueue.size();
+            return &g_frameQueue[index];
+        }
+    }
+    return nullptr;
+}
+
+FrameQueueSlot* FindReadyFrameSlotLocked() {
+    FrameQueueSlot* best = nullptr;
+    for (auto& slot : g_frameQueue) {
+        if (slot.state != FrameQueueSlotState::Ready) continue;
+        if (!best || slot.serial < best->serial) best = &slot;
+    }
+    return best;
+}
+
+bool HasReadyFrameLocked() { return FindReadyFrameSlotLocked() != nullptr; }
+bool AllFrameSlotsFreeLocked() {
+    for (const auto& slot : g_frameQueue) {
+        if (slot.state != FrameQueueSlotState::Free) return false;
+    }
+    return true;
+}
+
 WiiCompiledVita::GxBackend::Stats g_stats{};
 AuroraFrameWorkerWaitCallback g_waitCallback = nullptr;
 AuroraGuestWriteGenerationCallback g_guestWriteGeneration = nullptr;
@@ -1051,15 +1255,16 @@ void RebuildViewportFromXf() {
     };
 }
 
-void CaptureDrawTransform(GeometryDraw& draw) {
-    draw.transform.projection = g_gx.projection;
-    draw.transform.posMtx = g_gx.posMtx;
-    draw.transform.projectionType = g_gx.projectionType;
+void CaptureDrawTransform(DrawTransform& transform, GeometryDraw& draw) {
+    transform.projection = g_gx.projection;
+    transform.posMtx = g_gx.posMtx;
+    transform.projectionType = g_gx.projectionType;
     draw.guestLr = g_lastGuestBeginLr.load(std::memory_order_relaxed);
     draw.pnMtxIndex = g_gx.currentMtx;
 }
 
-void CaptureDrawRasterState(GeometryDraw& draw) {
+void CaptureDrawRasterState(DrawRasterState& raster) {
+    struct CaptureTarget { DrawRasterState& raster; } draw{raster};
     draw.raster.depthFunc = g_gx.depthFunc;
     draw.raster.cullMode = g_gx.cullMode;
     draw.raster.depthCompare = g_gx.depthCompare;
@@ -1075,6 +1280,8 @@ void CaptureDrawRasterState(GeometryDraw& draw) {
     draw.raster.alphaRef1 = g_gx.alphaRef1;
     draw.raster.colorUpdate = g_gx.colorUpdate;
     draw.raster.alphaUpdate = g_gx.alphaUpdate;
+    draw.raster.viewport = g_gx.viewport;
+    draw.raster.scissor = g_gx.scissor;
 }
 
 constexpr u32 EncodeTevColorInputs(GXTevColorArg a, GXTevColorArg b,
@@ -1210,7 +1417,8 @@ void RecordCustomTevSignature(size_t selectedStage, size_t stageCount) {
     }
 }
 
-void CaptureDrawTextureState(GeometryDraw& draw) {
+void CaptureDrawTextureState(DrawTextureState& textureState) {
+    struct CaptureTarget { DrawTextureState& texture; } draw{textureState};
     draw.texture = {};
     if (g_gx.numTexGens == 0) {
         ++g_gx.frame.textureStateNoTexGen;
@@ -1405,10 +1613,179 @@ void CaptureDrawTextureState(GeometryDraw& draw) {
     }
 }
 
+#if MKW_VITA_COMPACT_FRAME_STATE
+bool SameDrawTransform(const DrawTransform& a, const DrawTransform& b) {
+    return a.projectionType == b.projectionType &&
+           a.projection == b.projection && a.posMtx == b.posMtx;
+}
+
+bool SameDrawRaster(const DrawRasterState& a, const DrawRasterState& b) {
+    return a.depthFunc == b.depthFunc && a.cullMode == b.cullMode &&
+           a.depthCompare == b.depthCompare && a.depthUpdate == b.depthUpdate &&
+           a.blendMode == b.blendMode && a.blendSrc == b.blendSrc &&
+           a.blendDst == b.blendDst && a.logicOp == b.logicOp &&
+           a.alphaComp0 == b.alphaComp0 && a.alphaComp1 == b.alphaComp1 &&
+           a.alphaOp == b.alphaOp && a.alphaRef0 == b.alphaRef0 &&
+           a.alphaRef1 == b.alphaRef1 && a.colorUpdate == b.colorUpdate &&
+           a.alphaUpdate == b.alphaUpdate && a.viewport == b.viewport &&
+           a.scissor == b.scissor;
+}
+
+bool SameDrawTexture(const DrawTextureState& a, const DrawTextureState& b) {
+    return a.data == b.data && a.dataRevision == b.dataRevision &&
+           a.globalEpoch == b.globalEpoch && a.sourceGeneration == b.sourceGeneration &&
+           a.format == b.format && a.width == b.width && a.height == b.height &&
+           a.wrapS == b.wrapS && a.wrapT == b.wrapT &&
+           a.minFilter == b.minFilter && a.magFilter == b.magFilter &&
+           a.tevMode == b.tevMode && a.tevSimple == b.tevSimple &&
+           a.mipmap == b.mipmap && a.enabled == b.enabled &&
+           a.texGenMode == b.texGenMode && a.texGenType == b.texGenType &&
+           a.texGenSrc == b.texGenSrc && a.texGenNormalize == b.texGenNormalize &&
+           a.texGenMtx == b.texGenMtx && a.texGenPostMtx == b.texGenPostMtx &&
+           a.thpUData == b.thpUData && a.thpVData == b.thpVData &&
+           a.thpUGeneration == b.thpUGeneration && a.thpVGeneration == b.thpVGeneration &&
+           a.thpURevision == b.thpURevision && a.thpVRevision == b.thpVRevision &&
+           a.thpChromaWidth == b.thpChromaWidth && a.thpChromaHeight == b.thpChromaHeight &&
+           a.thpYuv420 == b.thpYuv420;
+}
+
+template <class T, class Equal>
+u16 InternAdjacentState(std::vector<T>& table, const T& value, Equal equal) {
+    if (!table.empty() && equal(table.back(), value)) {
+        return static_cast<u16>(table.size() - 1u);
+    }
+    table.push_back(value);
+    return static_cast<u16>(table.size() - 1u);
+}
+#endif
+
+#if MKW_VITA_GX_STATE_GENERATIONS
+bool CapturedTextureSourcesStillCurrent(const DrawTextureState& texture) {
+    if (!g_guestWriteGeneration) return true;
+    if (texture.enabled && texture.data &&
+        texture.sourceGeneration != AURORA_GUEST_WRITE_UNTRACKED) {
+        const uint32_t bytes = TextureLevelSize(texture.width, texture.height, texture.format);
+        if (bytes == 0 || g_guestWriteGeneration(texture.data, bytes) != texture.sourceGeneration) {
+            return false;
+        }
+    }
+    if (texture.thpYuv420 && texture.thpUData && texture.thpVData) {
+        const uint32_t bytes = TextureLevelSize(
+            texture.thpChromaWidth, texture.thpChromaHeight, GX_TF_I8);
+        if (bytes == 0) return false;
+        if (texture.thpUGeneration != AURORA_GUEST_WRITE_UNTRACKED &&
+            g_guestWriteGeneration(texture.thpUData, bytes) != texture.thpUGeneration) {
+            return false;
+        }
+        if (texture.thpVGeneration != AURORA_GUEST_WRITE_UNTRACKED &&
+            g_guestWriteGeneration(texture.thpVData, bytes) != texture.thpVGeneration) {
+            return false;
+        }
+    }
+    return true;
+}
+#endif
+
 void CaptureDrawState(GeometryDraw& draw) {
-    CaptureDrawTransform(draw);
-    CaptureDrawRasterState(draw);
-    CaptureDrawTextureState(draw);
+    draw.guestLr = g_lastGuestBeginLr.load(std::memory_order_relaxed);
+    draw.pnMtxIndex = g_gx.currentMtx;
+#if MKW_VITA_COMPACT_FRAME_STATE && MKW_VITA_GX_STATE_GENERATIONS
+    if (!g_gx.geometry.transforms.empty() &&
+        g_gx.geometry.lastTransformGeneration == g_gx.transformGeneration) {
+        draw.transformId = static_cast<u16>(g_gx.geometry.transforms.size() - 1u);
+        ++g_gx.frame.transformStateReuses;
+    } else {
+        DrawTransform transform{};
+        CaptureDrawTransform(transform, draw);
+        draw.transformId = InternAdjacentState(
+            g_gx.geometry.transforms, transform, SameDrawTransform);
+        g_gx.geometry.lastTransformGeneration = g_gx.transformGeneration;
+        ++g_gx.frame.transformStateBuilds;
+    }
+
+    if (!g_gx.geometry.rasters.empty() &&
+        g_gx.geometry.lastRasterGeneration == g_gx.rasterGeneration) {
+        draw.rasterId = static_cast<u16>(g_gx.geometry.rasters.size() - 1u);
+        ++g_gx.frame.rasterStateReuses;
+    } else {
+        DrawRasterState raster{};
+        CaptureDrawRasterState(raster);
+        draw.rasterId = InternAdjacentState(g_gx.geometry.rasters, raster, SameDrawRaster);
+        g_gx.geometry.lastRasterGeneration = g_gx.rasterGeneration;
+        ++g_gx.frame.rasterStateBuilds;
+    }
+
+    const bool textureReusable =
+        !g_gx.geometry.textures.empty() &&
+        g_gx.geometry.lastTextureGeneration == g_gx.textureGeneration &&
+        CapturedTextureSourcesStillCurrent(g_gx.geometry.textures.back());
+    if (textureReusable) {
+        draw.textureId = static_cast<u16>(g_gx.geometry.textures.size() - 1u);
+        ++g_gx.frame.textureStateReuses;
+    } else {
+        DrawTextureState texture{};
+        CaptureDrawTextureState(texture);
+        draw.textureId = InternAdjacentState(
+            g_gx.geometry.textures, texture, SameDrawTexture);
+        g_gx.geometry.lastTextureGeneration = g_gx.textureGeneration;
+        ++g_gx.frame.textureStateBuilds;
+    }
+#elif MKW_VITA_COMPACT_FRAME_STATE
+    DrawTransform transform{};
+    DrawRasterState raster{};
+    DrawTextureState texture{};
+    CaptureDrawTransform(transform, draw);
+    CaptureDrawRasterState(raster);
+    CaptureDrawTextureState(texture);
+    draw.transformId = InternAdjacentState(g_gx.geometry.transforms, transform, SameDrawTransform);
+    draw.rasterId = InternAdjacentState(g_gx.geometry.rasters, raster, SameDrawRaster);
+    draw.textureId = InternAdjacentState(g_gx.geometry.textures, texture, SameDrawTexture);
+#else
+    DrawTransform transform{};
+    DrawRasterState raster{};
+    DrawTextureState texture{};
+    CaptureDrawTransform(transform, draw);
+    CaptureDrawRasterState(raster);
+    CaptureDrawTextureState(texture);
+    draw.transform = transform;
+    draw.raster = raster;
+    draw.texture = texture;
+#endif
+#if MKW_VITA_COMPACT_FRAME_STATE
+    draw.renderStateId = 1u;
+    if (g_gx.geometry.drawCount > 1u) {
+        const GeometryDraw& previous = g_gx.geometry.draws[g_gx.geometry.drawCount - 2u];
+        const bool sameRun = previous.primitive == draw.primitive &&
+                             previous.rasterId == draw.rasterId &&
+                             previous.textureId == draw.textureId;
+        draw.renderStateId = sameRun
+            ? previous.renderStateId
+            : static_cast<u16>(previous.renderStateId + 1u);
+    }
+#endif
+}
+
+void MergeAdjacentUiQuads() {
+#if MKW_VITA_UI_QUAD_RUNS && MKW_VITA_COMPACT_FRAME_STATE
+    auto& geometry = g_gx.geometry;
+    if (geometry.drawCount < 2) return;
+    const auto& draw = geometry.draws[geometry.drawCount - 1];
+    auto& previous = geometry.draws[geometry.drawCount - 2];
+    if (draw.primitive != GX_QUADS || previous.primitive != GX_QUADS ||
+        !draw.vertexCount || !previous.vertexCount || (draw.vertexCount % 4) ||
+        (previous.vertexCount % 4) || draw.transformId != previous.transformId ||
+        draw.rasterId != previous.rasterId || draw.textureId != previous.textureId ||
+        draw.transformId >= geometry.transforms.size() ||
+        geometry.transforms[draw.transformId].projectionType != GX_ORTHOGRAPHIC ||
+        uint32_t(previous.firstVertex) + previous.vertexCount != draw.firstVertex ||
+        uint32_t(previous.vertexCount) + draw.vertexCount > UINT16_MAX) return;
+    // EFB side effects are indexed by draw boundary. Never move a quad across one.
+    if (geometry.efbCommandCount &&
+        geometry.efbCommands[geometry.efbCommandCount - 1].afterDrawCount >= geometry.drawCount - 1) return;
+    previous.vertexCount += draw.vertexCount;
+    --geometry.drawCount;
+    ++g_gx.frame.uiQuadMerges;
+#endif
 }
 
 void InitializeTransformDefaults() {
@@ -1447,19 +1824,19 @@ void InitializeTransformDefaults() {
     g_gx.pendingPnMtxRef = DefaultPnMtxRef();
 }
 
-bool TransformVertex(const GeometryDraw& draw, u8 pnMtxRef,
+bool TransformVertex(const DrawTransform& transform, u8 pnMtxRef,
                      const RenderVertex& source, RenderVertex& output) {
     const size_t slot = static_cast<size_t>(pnMtxRef & ~kPnMtxExplicitBit);
-    if (slot >= draw.transform.posMtx.size()) {
+    if (slot >= transform.posMtx.size()) {
         return false;
     }
 
-    const auto& m = draw.transform.posMtx[slot];
+    const auto& m = transform.posMtx[slot];
     const f32 vx = m[0] * source.x + m[1] * source.y + m[2] * source.z + m[3];
     const f32 vy = m[4] * source.x + m[5] * source.y + m[6] * source.z + m[7];
     const f32 vz = m[8] * source.x + m[9] * source.y + m[10] * source.z + m[11];
 
-    const auto& p = draw.transform.projection;
+    const auto& p = transform.projection;
     const f32 clipX = p[0] * vx + p[1] * vy + p[2] * vz + p[3];
     const f32 clipY = p[4] * vx + p[5] * vy + p[6] * vz + p[7];
     const f32 clipZ = p[8] * vx + p[9] * vy + p[10] * vz + p[11];
@@ -1700,6 +2077,9 @@ bool ApplyXfPacketImpl(const uint8_t* packet, uint32_t packetBytes) {
 
     bool projectionDirty = false;
     bool viewportDirty = false;
+    bool transformStateDirty = false;
+    bool rasterStateDirty = false;
+    bool textureStateDirty = false;
     uint64_t supportedWords = 0;
     for (uint32_t i = 0; i < wordCount; ++i) {
         const uint32_t addr = xfAddress + i;
@@ -1710,6 +2090,7 @@ bool ApplyXfPacketImpl(const uint8_t* packet, uint32_t packetBytes) {
             const size_t component = addr % 12u;
             if (slot < g_gx.posMtx.size()) {
                 g_gx.posMtx[slot][component] = ReadF32(word, false);
+                transformStateDirty = true;
                 ++g_gx.frame.xfPositionMatrixWords;
                 ++supportedWords;
                 continue;
@@ -1724,6 +2105,7 @@ bool ApplyXfPacketImpl(const uint8_t* packet, uint32_t packetBytes) {
             const size_t component = addr % 12u;
             if (slot < g_gx.texMtx.size()) {
                 g_gx.texMtx[slot][component] = ReadF32(word, false);
+                textureStateDirty = true;
                 ++supportedWords;
                 continue;
             }
@@ -1749,6 +2131,7 @@ bool ApplyXfPacketImpl(const uint8_t* packet, uint32_t packetBytes) {
             const size_t component = rel % 12u;
             if (slot < g_gx.postTexMtx.size()) {
                 g_gx.postTexMtx[slot][component] = ReadF32(word, false);
+                textureStateDirty = true;
                 ++supportedWords;
                 continue;
             }
@@ -1757,6 +2140,7 @@ bool ApplyXfPacketImpl(const uint8_t* packet, uint32_t packetBytes) {
         if (addr == 0x1018u) {
             const uint32_t raw = ReadU32(word, false);
             g_gx.currentMtx = raw & 0x3Fu;
+            textureStateDirty = true;
             for (size_t tc = 0; tc < 4u && tc < g_gx.texGen.size(); ++tc) {
                 g_gx.texGen[tc].mtx = (raw >> (6u + static_cast<uint32_t>(tc) * 6u)) & 0x3Fu;
             }
@@ -1768,6 +2152,7 @@ bool ApplyXfPacketImpl(const uint8_t* packet, uint32_t packetBytes) {
 
         if (addr == 0x1019u) {
             const uint32_t raw = ReadU32(word, false);
+            textureStateDirty = true;
             for (size_t tc = 4u; tc < 8u && tc < g_gx.texGen.size(); ++tc) {
                 g_gx.texGen[tc].mtx =
                     (raw >> (static_cast<uint32_t>(tc - 4u) * 6u)) & 0x3Fu;
@@ -1779,6 +2164,7 @@ bool ApplyXfPacketImpl(const uint8_t* packet, uint32_t packetBytes) {
 
         if (addr >= 0x101Au && addr <= 0x101Fu) {
             g_gx.xfViewport[addr - 0x101Au] = ReadF32(word, false);
+            rasterStateDirty = true;
             ++g_gx.frame.xfViewportWrites;
             ++supportedWords;
             viewportDirty = true;
@@ -1787,6 +2173,7 @@ bool ApplyXfPacketImpl(const uint8_t* packet, uint32_t packetBytes) {
 
         if (addr >= 0x1020u && addr <= 0x1025u) {
             g_gx.xfProjection[addr - 0x1020u] = ReadF32(word, false);
+            transformStateDirty = true;
             ++g_gx.frame.xfProjectionWrites;
             ++supportedWords;
             projectionDirty = true;
@@ -1797,6 +2184,7 @@ bool ApplyXfPacketImpl(const uint8_t* packet, uint32_t packetBytes) {
             const uint32_t rawType = ReadU32(word, false);
             g_gx.projectionType = rawType == static_cast<uint32_t>(GX_ORTHOGRAPHIC)
                 ? GX_ORTHOGRAPHIC : GX_PERSPECTIVE;
+            transformStateDirty = true;
             ++g_gx.frame.xfProjectionWrites;
             ++supportedWords;
             projectionDirty = true;
@@ -1808,6 +2196,7 @@ bool ApplyXfPacketImpl(const uint8_t* packet, uint32_t packetBytes) {
         // calling the high-level host symbol.
         if (addr == 0x103Fu) {
             g_gx.numTexGens = static_cast<u8>(ReadU32(word, false) & 0xFu);
+            textureStateDirty = true;
             ++supportedWords;
             continue;
         }
@@ -1816,6 +2205,7 @@ bool ApplyXfPacketImpl(const uint8_t* packet, uint32_t packetBytes) {
             const size_t tc = static_cast<size_t>(addr - 0x1040u);
             const uint32_t raw = ReadU32(word, false);
             TexGenState& texGen = g_gx.texGen[tc];
+            textureStateDirty = true;
             const uint32_t tgType = (raw >> 4u) & 0x7u;
             const uint32_t srcRow = (raw >> 7u) & 0x1Fu;
             if (tgType == 0u) {
@@ -1842,6 +2232,7 @@ bool ApplyXfPacketImpl(const uint8_t* packet, uint32_t packetBytes) {
             const uint32_t raw = ReadU32(word, false);
             g_gx.texGen[tc].postMtx = (raw & 0x3Fu) + GX_PTTEXMTX0;
             g_gx.texGen[tc].normalize = ((raw >> 8u) & 1u) ? GX_TRUE : GX_FALSE;
+            textureStateDirty = true;
             ++supportedWords;
             continue;
         }
@@ -1855,6 +2246,9 @@ bool ApplyXfPacketImpl(const uint8_t* packet, uint32_t packetBytes) {
     if (viewportDirty) {
         RebuildViewportFromXf();
     }
+    if (transformStateDirty) MarkTransformStateDirty();
+    if (rasterStateDirty) MarkRasterStateDirty();
+    if (textureStateDirty) MarkTextureStateDirty();
     ++g_gx.frame.xfPacketsApplied;
     g_gx.frame.xfWordsApplied += supportedWords;
     return true;
@@ -2077,123 +2471,192 @@ const char* RawDecodeFailName(RawDecodeFailReason reason) {
     return "unknown";
 }
 
-bool DecodeRawDraw(GXPrimitive primitive, GXVtxFmt fmt, const uint8_t* vertices,
-                   uint16_t vtxCount, uint32_t vertexBytes) {
-    g_rawDecodeFailure = {};
-    if (!vertices || vtxCount == 0 || vertexBytes == 0 || fmt < 0 || fmt >= GX_MAX_VTXFMT) {
-        return RawDecodeFail(RawDecodeFailReason::InvalidInput);
+
+#if MKW_VITA_RAW_LAYOUT_CACHE
+struct RawLayoutStep {
+    GXAttr attr = GX_VA_NULL;
+    GXAttrType desc = GX_NONE;
+    VtxFmtState format{};
+    u16 streamBytes = 0;
+    u16 elementBytes = 0;
+    u8 indexCount = 0;
+    u8 indexBytes = 0;
+};
+
+struct RawLayoutPlan {
+    u32 generation = 0;
+    uint64_t signature = 0;
+    u16 bytesPerVertex = 0;
+    u8 stepCount = 0;
+    bool valid = false;
+    std::array<RawLayoutStep, GX_VA_MAX_ATTR> steps{};
+};
+
+std::array<RawLayoutPlan, GX_MAX_VTXFMT> g_rawLayoutPlans{};
+
+RawLayoutPlan& ResolveRawLayoutPlan(GXVtxFmt fmt) {
+    RawLayoutPlan& plan = g_rawLayoutPlans[static_cast<size_t>(fmt)];
+    if (plan.generation == g_gx.vertexLayoutGeneration) {
+        ++g_gx.frame.rawLayoutCacheHits;
+        return plan;
     }
-    if (g_gx.geometry.drawCount >= g_gx.geometry.draws.size() ||
-        static_cast<size_t>(g_gx.geometry.vertexCount) + vtxCount > g_gx.geometry.vertices.size()) {
-        g_gx.geometry.droppedVertices += vtxCount;
-        ++g_gx.frame.rawDrawCapacityFailures;
-        return RawDecodeFail(RawDecodeFailReason::Capacity);
-    }
 
-    const uint8_t* cursor = vertices;
-    const uint8_t* const end = vertices + vertexBytes;
-    uint64_t directAttrs = 0;
-    uint64_t indexedAttrs = 0;
-    const u16 firstVertex = g_gx.geometry.vertexCount;
-
-    for (uint16_t vertexIndex = 0; vertexIndex < vtxCount; ++vertexIndex) {
-        RenderVertex decoded{};
-        u8 pnMtxRef = DefaultPnMtxRef();
-        for (int attrValue = GX_VA_PNMTXIDX; attrValue <= GX_VA_TEX7; ++attrValue) {
-            const GXAttr attr = static_cast<GXAttr>(attrValue);
-            const GXAttrType desc = g_gx.vtxDesc[static_cast<size_t>(attr)];
-            if (desc == GX_NONE) {
-                continue;
-            }
-            const VtxFmtState& attrFmt = g_gx.vtxFmt[static_cast<size_t>(fmt)][static_cast<size_t>(attr)];
-
-            if (desc == GX_DIRECT) {
-                const uint32_t bytes = DirectAttrByteSize(attr, attrFmt);
-                if (bytes == 0 || static_cast<size_t>(end - cursor) < bytes) {
-                    return RawDecodeFail(RawDecodeFailReason::DirectStreamBounds, vertexIndex, attr,
-                                         desc, 0, bytes, 0, 0,
-                                         static_cast<uint32_t>(cursor - vertices));
-                }
-                if (attr == GX_VA_PNMTXIDX) {
-                    pnMtxRef = static_cast<u8>(PnMtxSlot(cursor[0]) | kPnMtxExplicitBit);
-                }
-                if (attr == GX_VA_POS && !DecodePosition(cursor, attrFmt, false, decoded)) {
-                    return RawDecodeFail(RawDecodeFailReason::DirectPosition, vertexIndex, attr,
-                                         desc, 0, bytes, 0, 0,
-                                         static_cast<uint32_t>(cursor - vertices));
-                }
-                if (attr == GX_VA_CLR0) {
-                    const GXColor color = DecodeColor(cursor, attrFmt.type, attrFmt.cnt, false);
-                    decoded.r = color.r; decoded.g = color.g; decoded.b = color.b; decoded.a = color.a;
-                }
-                if (attr == GX_VA_TEX0 && !DecodeTexCoord(cursor, attrFmt, false, decoded)) {
-                    return RawDecodeFail(RawDecodeFailReason::DirectTexCoord, vertexIndex, attr,
-                                         desc, 0, bytes, 0, 0,
-                                         static_cast<uint32_t>(cursor - vertices));
-                }
-                cursor += bytes;
-                ++directAttrs;
-                continue;
-            }
-
-            if (desc != GX_INDEX8 && desc != GX_INDEX16 || IsMatrixIndexAttr(attr)) {
-                return RawDecodeFail(RawDecodeFailReason::InvalidIndexedDescriptor, vertexIndex,
-                                     attr, desc, 0, 0, 0, 0,
-                                     static_cast<uint32_t>(cursor - vertices));
-            }
-
-            const uint32_t indexBytes = desc == GX_INDEX8 ? 1u : 2u;
-            const uint32_t indexCount =
-                (attr == GX_VA_NRM && attrFmt.cnt == GX_NRM_NBT3) ? 3u : 1u;
-            if (static_cast<size_t>(end - cursor) < indexBytes * indexCount) {
-                return RawDecodeFail(RawDecodeFailReason::IndexedStreamBounds, vertexIndex, attr,
-                                     desc, 0, indexBytes * indexCount, 0, 0,
-                                     static_cast<uint32_t>(cursor - vertices));
-            }
-
-            const ArrayState& array = g_gx.arrays[static_cast<size_t>(attr)];
-            const uint32_t elementBytes = IndexedElementByteSize(attr, attrFmt);
-            for (uint32_t indexSlot = 0; indexSlot < indexCount; ++indexSlot) {
-                const uint32_t index = desc == GX_INDEX8
-                    ? cursor[indexSlot]
-                    : ReadU16(cursor + indexSlot * 2u, false);
-                const uint8_t* element = nullptr;
-                if (!ArrayElement(array, index, elementBytes, element)) {
-                    return RawDecodeFail(RawDecodeFailReason::IndexedArrayBounds, vertexIndex, attr,
-                                         desc, index, elementBytes, array.size, array.stride,
-                                         static_cast<uint32_t>(cursor - vertices));
-                }
-                if (indexSlot == 0 && attr == GX_VA_POS &&
-                    !DecodePosition(element, attrFmt, array.littleEndian, decoded)) {
-                    return RawDecodeFail(RawDecodeFailReason::IndexedPosition, vertexIndex, attr,
-                                         desc, index, elementBytes, array.size, array.stride,
-                                         static_cast<uint32_t>(cursor - vertices));
-                }
-                if (indexSlot == 0 && attr == GX_VA_CLR0) {
-                    const GXColor color = DecodeColor(element, attrFmt.type, attrFmt.cnt, array.littleEndian);
-                    decoded.r = color.r; decoded.g = color.g; decoded.b = color.b; decoded.a = color.a;
-                }
-                if (indexSlot == 0 && attr == GX_VA_TEX0 &&
-                    !DecodeTexCoord(element, attrFmt, array.littleEndian, decoded)) {
-                    return RawDecodeFail(RawDecodeFailReason::IndexedTexCoord, vertexIndex, attr,
-                                         desc, index, elementBytes, array.size, array.stride,
-                                         static_cast<uint32_t>(cursor - vertices));
-                }
-            }
-            cursor += indexBytes * indexCount;
-            ++indexedAttrs;
+    ++g_gx.frame.rawLayoutCacheMisses;
+    plan = {};
+    plan.generation = g_gx.vertexLayoutGeneration;
+    plan.valid = true;
+    uint32_t bytesPerVertex = 0;
+    for (int attrValue = GX_VA_PNMTXIDX; attrValue <= GX_VA_TEX7; ++attrValue) {
+        const GXAttr attr = static_cast<GXAttr>(attrValue);
+        const GXAttrType desc = g_gx.vtxDesc[static_cast<size_t>(attr)];
+        if (desc == GX_NONE) continue;
+        if (plan.stepCount >= plan.steps.size()) {
+            plan.valid = false;
+            break;
         }
-        const size_t outputVertex = static_cast<size_t>(firstVertex) + vertexIndex;
-        g_gx.geometry.vertices[outputVertex] = decoded;
-        g_gx.geometry.pnMtxRefs[outputVertex] = pnMtxRef;
-    }
 
-    if (cursor != end) {
-        return RawDecodeFail(RawDecodeFailReason::CursorMismatch, vtxCount, GX_VA_NULL, GX_NONE,
-                             0, vertexBytes, 0, 0,
-                             static_cast<uint32_t>(cursor - vertices));
+        RawLayoutStep& step = plan.steps[plan.stepCount++];
+        step.attr = attr;
+        step.desc = desc;
+        step.format = g_gx.vtxFmt[static_cast<size_t>(fmt)][static_cast<size_t>(attr)];
+        if (desc == GX_DIRECT) {
+            const uint32_t bytes = DirectAttrByteSize(attr, step.format);
+            if (bytes == 0 || bytes > UINT16_MAX) {
+                plan.valid = false;
+                break;
+            }
+            step.streamBytes = static_cast<u16>(bytes);
+        } else {
+            if ((desc != GX_INDEX8 && desc != GX_INDEX16) || IsMatrixIndexAttr(attr)) {
+                plan.valid = false;
+                break;
+            }
+            step.indexBytes = desc == GX_INDEX8 ? 1u : 2u;
+            step.indexCount =
+                (attr == GX_VA_NRM && step.format.cnt == GX_NRM_NBT3) ? 3u : 1u;
+            const uint32_t elementBytes = IndexedElementByteSize(attr, step.format);
+            if (elementBytes == 0 || elementBytes > UINT16_MAX) {
+                plan.valid = false;
+                break;
+            }
+            step.elementBytes = static_cast<u16>(elementBytes);
+            step.streamBytes = static_cast<u16>(step.indexBytes * step.indexCount);
+        }
+        bytesPerVertex += step.streamBytes;
+        if (bytesPerVertex > UINT16_MAX) {
+            plan.valid = false;
+            break;
+        }
     }
+    plan.bytesPerVertex = static_cast<u16>(bytesPerVertex);
+    if (plan.valid) {
+        uint64_t signature = 1469598103934665603ull;
+        const auto mix = [&signature](uint32_t value) {
+            signature ^= value;
+            signature *= 1099511628211ull;
+        };
+        mix(static_cast<uint32_t>(fmt));
+        mix(plan.stepCount);
+        mix(plan.bytesPerVertex);
+        for (u8 i = 0; i < plan.stepCount; ++i) {
+            const RawLayoutStep& step = plan.steps[i];
+            mix(static_cast<uint32_t>(step.attr));
+            mix(static_cast<uint32_t>(step.desc));
+            mix(static_cast<uint32_t>(step.format.cnt));
+            mix(static_cast<uint32_t>(step.format.type));
+            mix(step.format.frac);
+            mix(step.streamBytes);
+            mix(step.elementBytes);
+            mix(step.indexCount);
+            mix(step.indexBytes);
+        }
+        plan.signature = signature != 0 ? signature : 1u;
+    }
+    return plan;
+}
 
+bool DecodeRawVertexPlanned(const RawLayoutPlan& plan, const uint8_t* vertices,
+                            const uint8_t* end, const uint8_t*& cursor,
+                            uint16_t vertexIndex, RenderVertex& decoded, u8& pnMtxRef,
+                            uint64_t& directAttrs, uint64_t& indexedAttrs) {
+    for (u8 stepIndex = 0; stepIndex < plan.stepCount; ++stepIndex) {
+        const RawLayoutStep& step = plan.steps[stepIndex];
+        const GXAttr attr = step.attr;
+        const GXAttrType desc = step.desc;
+        if (static_cast<size_t>(end - cursor) < step.streamBytes) {
+            return RawDecodeFail(
+                desc == GX_DIRECT ? RawDecodeFailReason::DirectStreamBounds
+                                  : RawDecodeFailReason::IndexedStreamBounds,
+                vertexIndex, attr, desc, 0, step.streamBytes, 0, 0,
+                static_cast<uint32_t>(cursor - vertices));
+        }
+
+        if (desc == GX_DIRECT) {
+            if (attr == GX_VA_PNMTXIDX) {
+                pnMtxRef = static_cast<u8>(PnMtxSlot(cursor[0]) | kPnMtxExplicitBit);
+            }
+            if (attr == GX_VA_POS && !DecodePosition(cursor, step.format, false, decoded)) {
+                return RawDecodeFail(RawDecodeFailReason::DirectPosition, vertexIndex, attr,
+                                     desc, 0, step.streamBytes, 0, 0,
+                                     static_cast<uint32_t>(cursor - vertices));
+            }
+            if (attr == GX_VA_CLR0) {
+                const GXColor color = DecodeColor(
+                    cursor, step.format.type, step.format.cnt, false);
+                decoded.r = color.r; decoded.g = color.g;
+                decoded.b = color.b; decoded.a = color.a;
+            }
+            if (attr == GX_VA_TEX0 && !DecodeTexCoord(cursor, step.format, false, decoded)) {
+                return RawDecodeFail(RawDecodeFailReason::DirectTexCoord, vertexIndex, attr,
+                                     desc, 0, step.streamBytes, 0, 0,
+                                     static_cast<uint32_t>(cursor - vertices));
+            }
+            cursor += step.streamBytes;
+            ++directAttrs;
+            continue;
+        }
+
+        const ArrayState& array = g_gx.arrays[static_cast<size_t>(attr)];
+        for (uint32_t indexSlot = 0; indexSlot < step.indexCount; ++indexSlot) {
+            const uint32_t index = step.indexBytes == 1u
+                ? cursor[indexSlot]
+                : ReadU16(cursor + indexSlot * 2u, false);
+            const uint8_t* element = nullptr;
+            if (!ArrayElement(array, index, step.elementBytes, element)) {
+                return RawDecodeFail(RawDecodeFailReason::IndexedArrayBounds, vertexIndex, attr,
+                                     desc, index, step.elementBytes, array.size, array.stride,
+                                     static_cast<uint32_t>(cursor - vertices));
+            }
+            if (indexSlot == 0 && attr == GX_VA_POS &&
+                !DecodePosition(element, step.format, array.littleEndian, decoded)) {
+                return RawDecodeFail(RawDecodeFailReason::IndexedPosition, vertexIndex, attr,
+                                     desc, index, step.elementBytes, array.size, array.stride,
+                                     static_cast<uint32_t>(cursor - vertices));
+            }
+            if (indexSlot == 0 && attr == GX_VA_CLR0) {
+                const GXColor color = DecodeColor(
+                    element, step.format.type, step.format.cnt, array.littleEndian);
+                decoded.r = color.r; decoded.g = color.g;
+                decoded.b = color.b; decoded.a = color.a;
+            }
+            if (indexSlot == 0 && attr == GX_VA_TEX0 &&
+                !DecodeTexCoord(element, step.format, array.littleEndian, decoded)) {
+                return RawDecodeFail(RawDecodeFailReason::IndexedTexCoord, vertexIndex, attr,
+                                     desc, index, step.elementBytes, array.size, array.stride,
+                                     static_cast<uint32_t>(cursor - vertices));
+            }
+        }
+        cursor += step.streamBytes;
+        ++indexedAttrs;
+    }
+    return true;
+}
+#endif
+
+
+void CommitRawDraw(GXPrimitive primitive, GXVtxFmt fmt, u16 firstVertex,
+                   u16 vtxCount, uint32_t vertexBytes,
+                   uint64_t directAttrs, uint64_t indexedAttrs) {
     GeometryDraw& draw = g_gx.geometry.draws[g_gx.geometry.drawCount++];
     draw = {};
     draw.primitive = primitive;
@@ -2209,6 +2672,374 @@ bool DecodeRawDraw(GXPrimitive primitive, GXVtxFmt fmt, const uint8_t* vertices,
     g_gx.frame.rawIndexedAttributesDecoded += indexedAttrs;
     ++g_gx.frame.primitiveDraws[PrimitiveBucket(primitive)];
     ++g_gx.frame.vertexFormatDraws[static_cast<size_t>(fmt)];
+    MergeAdjacentUiQuads();
+}
+
+#if MKW_VITA_RAW_MESH_CACHE
+static_assert(MKW_VITA_RAW_LAYOUT_CACHE,
+              "raw object-space mesh cache requires the raw layout cache");
+// P4.1: the hardware working set is ~1.3k-2.2k raw draws in G3D scenes. The
+// original 256-entry direct-mapped cache thrashed despite a mostly unused 4 MiB
+// payload budget. Keep that payload budget, but use 512 four-way sets so key
+// collisions do not destroy reuse across consecutive frames.
+constexpr size_t kRawMeshCacheSetCount = 512;
+constexpr size_t kRawMeshCacheWays = 4;
+constexpr size_t kRawMeshCacheCapacity = kRawMeshCacheSetCount * kRawMeshCacheWays;
+constexpr size_t kRawMeshCacheBudgetBytes = 4u * 1024u * 1024u;
+// Indexed vertex attributes can be POS, NRM, CLR0/1 and TEX0..7. Matrix-index
+// attributes are direct-only in the raw decoder, so twelve dependencies is the
+// exact upper bound and avoids carrying GX_VA_MAX_ATTR metadata in every entry.
+constexpr size_t kRawMeshMaxDependencies = 12;
+static_assert((kRawMeshCacheSetCount & (kRawMeshCacheSetCount - 1u)) == 0u);
+
+struct RawMeshArrayDependency {
+    GXAttr attr = GX_VA_NULL;
+    const void* data = nullptr;
+    u32 size = 0;
+    u8 stride = 0;
+    bool littleEndian = false;
+    uint64_t generation = AURORA_GUEST_WRITE_UNTRACKED;
+};
+
+struct RawMeshCacheEntry {
+    const uint8_t* payload = nullptr;
+    uint32_t vertexBytes = 0;
+    uint64_t layoutSignature = 0;
+    uint64_t payloadGeneration = AURORA_GUEST_WRITE_UNTRACKED;
+    uint64_t directAttrs = 0;
+    uint64_t indexedAttrs = 0;
+    uint64_t lastUse = 0;
+    GXPrimitive primitive = GX_TRIANGLES;
+    GXVtxFmt fmt = GX_VTXFMT0;
+    u16 vtxCount = 0;
+    u16 capacity = 0;
+    u8 defaultPnMtxRef = 0;
+    u8 dependencyCount = 0;
+    bool valid = false;
+    std::array<RawMeshArrayDependency, kRawMeshMaxDependencies> dependencies{};
+    std::unique_ptr<RenderVertex[]> vertices{};
+    std::unique_ptr<u8[]> pnMtxRefs{};
+};
+
+std::array<RawMeshCacheEntry, kRawMeshCacheCapacity> g_rawMeshCache{};
+size_t g_rawMeshCacheBytes = 0;
+uint64_t g_rawMeshCacheUseSerial = 0;
+
+size_t RawMeshEntryBytes(u16 capacity) {
+    return static_cast<size_t>(capacity) * (sizeof(RenderVertex) + sizeof(u8));
+}
+
+void ClearRawMeshCache() {
+    for (RawMeshCacheEntry& entry : g_rawMeshCache) entry = RawMeshCacheEntry{};
+    g_rawMeshCacheBytes = 0;
+}
+
+size_t RawMeshCacheSet(const uint8_t* payload, uint32_t vertexBytes,
+                       GXPrimitive primitive, GXVtxFmt fmt, u16 vtxCount,
+                       uint64_t layoutSignature, u8 defaultPnMtxRef) {
+    uint64_t hash = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(payload) >> 4u);
+    hash ^= static_cast<uint64_t>(vertexBytes) * 0x9E3779B185EBCA87ull;
+    hash ^= static_cast<uint64_t>(static_cast<uint32_t>(primitive)) * 0xC2B2AE3D27D4EB4Full;
+    hash ^= static_cast<uint64_t>(static_cast<uint32_t>(fmt)) * 0x165667B19E3779F9ull;
+    hash ^= static_cast<uint64_t>(vtxCount) * 0x85EBCA77C2B2AE63ull;
+    hash ^= layoutSignature;
+    hash ^= static_cast<uint64_t>(defaultPnMtxRef) << 48u;
+    hash ^= hash >> 33u;
+    return static_cast<size_t>(hash) & (kRawMeshCacheSetCount - 1u);
+}
+
+bool RawMeshKeyMatches(const RawMeshCacheEntry& entry, const uint8_t* payload,
+                       uint32_t vertexBytes, GXPrimitive primitive, GXVtxFmt fmt,
+                       u16 vtxCount, uint64_t layoutSignature, u8 defaultPnMtxRef) {
+    return entry.valid && entry.payload == payload && entry.vertexBytes == vertexBytes &&
+           entry.primitive == primitive && entry.fmt == fmt && entry.vtxCount == vtxCount &&
+           entry.layoutSignature == layoutSignature &&
+           entry.defaultPnMtxRef == defaultPnMtxRef;
+}
+
+RawMeshCacheEntry* FindRawMeshCacheEntry(const uint8_t* payload, uint32_t vertexBytes,
+                                         GXPrimitive primitive, GXVtxFmt fmt, u16 vtxCount,
+                                         uint64_t layoutSignature, u8 defaultPnMtxRef) {
+    const size_t set = RawMeshCacheSet(payload, vertexBytes, primitive, fmt, vtxCount,
+                                       layoutSignature, defaultPnMtxRef);
+    const size_t base = set * kRawMeshCacheWays;
+    for (size_t way = 0; way < kRawMeshCacheWays; ++way) {
+        RawMeshCacheEntry& entry = g_rawMeshCache[base + way];
+        if (RawMeshKeyMatches(entry, payload, vertexBytes, primitive, fmt, vtxCount,
+                              layoutSignature, defaultPnMtxRef)) {
+            return &entry;
+        }
+    }
+    return nullptr;
+}
+
+RawMeshCacheEntry& SelectRawMeshCacheVictim(const uint8_t* payload, uint32_t vertexBytes,
+                                            GXPrimitive primitive, GXVtxFmt fmt, u16 vtxCount,
+                                            uint64_t layoutSignature, u8 defaultPnMtxRef) {
+    const size_t set = RawMeshCacheSet(payload, vertexBytes, primitive, fmt, vtxCount,
+                                       layoutSignature, defaultPnMtxRef);
+    const size_t base = set * kRawMeshCacheWays;
+    RawMeshCacheEntry* oldest = &g_rawMeshCache[base];
+    for (size_t way = 0; way < kRawMeshCacheWays; ++way) {
+        RawMeshCacheEntry& entry = g_rawMeshCache[base + way];
+        if (!entry.valid) return entry;
+        if (entry.lastUse < oldest->lastUse) oldest = &entry;
+    }
+    return *oldest;
+}
+
+bool RawMeshDependenciesCurrent(const RawMeshCacheEntry& entry) {
+    if (!g_guestWriteGeneration) return false;
+    const uint64_t payloadGeneration = g_guestWriteGeneration(entry.payload, entry.vertexBytes);
+    if (payloadGeneration == AURORA_GUEST_WRITE_UNTRACKED ||
+        payloadGeneration != entry.payloadGeneration) return false;
+    for (u8 i = 0; i < entry.dependencyCount; ++i) {
+        const RawMeshArrayDependency& dependency = entry.dependencies[i];
+        const size_t attr = static_cast<size_t>(dependency.attr);
+        if (attr >= g_gx.arrays.size()) return false;
+        const ArrayState& current = g_gx.arrays[attr];
+        if (current.data != dependency.data || current.size != dependency.size ||
+            current.stride != dependency.stride || current.littleEndian != dependency.littleEndian)
+            return false;
+        const uint64_t generation = g_guestWriteGeneration(dependency.data, dependency.size);
+        if (generation == AURORA_GUEST_WRITE_UNTRACKED || generation != dependency.generation)
+            return false;
+    }
+    return true;
+}
+
+bool TryReplayRawMeshCache(const RawLayoutPlan& plan, GXPrimitive primitive, GXVtxFmt fmt,
+                           const uint8_t* payload, u16 vtxCount, uint32_t vertexBytes,
+                           u16 firstVertex) {
+    const u8 defaultPnMtxRef = DefaultPnMtxRef();
+    RawMeshCacheEntry* entry = FindRawMeshCacheEntry(
+        payload, vertexBytes, primitive, fmt, vtxCount, plan.signature, defaultPnMtxRef);
+    if (!entry) {
+        ++g_gx.frame.rawMeshCacheMisses;
+        return false;
+    }
+    if (!RawMeshDependenciesCurrent(*entry) || !entry->vertices || !entry->pnMtxRefs ||
+        entry->capacity < vtxCount) {
+        ++g_gx.frame.rawMeshCacheMisses;
+        ++g_gx.frame.rawMeshCacheInvalidations;
+        entry->valid = false;
+        return false;
+    }
+    entry->lastUse = ++g_rawMeshCacheUseSerial;
+    std::memcpy(&g_gx.geometry.vertices[firstVertex], entry->vertices.get(),
+                static_cast<size_t>(vtxCount) * sizeof(RenderVertex));
+    std::memcpy(&g_gx.geometry.pnMtxRefs[firstVertex], entry->pnMtxRefs.get(), vtxCount);
+    ++g_gx.frame.rawMeshCacheHits;
+    CommitRawDraw(primitive, fmt, firstVertex, vtxCount, vertexBytes,
+                  entry->directAttrs, entry->indexedAttrs);
+    return true;
+}
+
+bool StoreRawMeshCache(const RawLayoutPlan& plan, GXPrimitive primitive, GXVtxFmt fmt,
+                       const uint8_t* payload, u16 vtxCount, uint32_t vertexBytes,
+                       u16 firstVertex, uint64_t directAttrs, uint64_t indexedAttrs) {
+    if (!g_guestWriteGeneration || plan.signature == 0) return false;
+    const uint64_t payloadGeneration = g_guestWriteGeneration(payload, vertexBytes);
+    if (payloadGeneration == AURORA_GUEST_WRITE_UNTRACKED) return false;
+
+    std::array<RawMeshArrayDependency, kRawMeshMaxDependencies> dependencies{};
+    u8 dependencyCount = 0;
+    for (u8 i = 0; i < plan.stepCount; ++i) {
+        const RawLayoutStep& step = plan.steps[i];
+        if (step.desc != GX_INDEX8 && step.desc != GX_INDEX16) continue;
+        const ArrayState& array = g_gx.arrays[static_cast<size_t>(step.attr)];
+        if (!array.data || array.size == 0 || array.stride == 0 ||
+            dependencyCount >= dependencies.size()) return false;
+        const uint64_t generation = g_guestWriteGeneration(array.data, array.size);
+        if (generation == AURORA_GUEST_WRITE_UNTRACKED) return false;
+        dependencies[dependencyCount++] = {
+            step.attr, array.data, array.size, array.stride, array.littleEndian, generation};
+    }
+
+    const u8 defaultPnMtxRef = DefaultPnMtxRef();
+    RawMeshCacheEntry* entry = FindRawMeshCacheEntry(
+        payload, vertexBytes, primitive, fmt, vtxCount, plan.signature, defaultPnMtxRef);
+    if (!entry) {
+        entry = &SelectRawMeshCacheVictim(
+            payload, vertexBytes, primitive, fmt, vtxCount, plan.signature, defaultPnMtxRef);
+    }
+    if (entry->capacity < vtxCount || !entry->vertices || !entry->pnMtxRefs) {
+        size_t oldBytes = RawMeshEntryBytes(entry->capacity);
+        const size_t newBytes = RawMeshEntryBytes(vtxCount);
+        const size_t retainedBytes = g_rawMeshCacheBytes - std::min(g_rawMeshCacheBytes, oldBytes);
+        if (retainedBytes + newBytes > kRawMeshCacheBudgetBytes) {
+            ClearRawMeshCache();
+            entry = &SelectRawMeshCacheVictim(
+                payload, vertexBytes, primitive, fmt, vtxCount, plan.signature, defaultPnMtxRef);
+            oldBytes = 0;
+        }
+        std::unique_ptr<RenderVertex[]> newVertices(new (std::nothrow) RenderVertex[vtxCount]);
+        std::unique_ptr<u8[]> newPnMtxRefs(new (std::nothrow) u8[vtxCount]);
+        if (!newVertices || !newPnMtxRefs) return false;
+        entry->vertices = std::move(newVertices);
+        entry->pnMtxRefs = std::move(newPnMtxRefs);
+        entry->capacity = vtxCount;
+        g_rawMeshCacheBytes = g_rawMeshCacheBytes - std::min(g_rawMeshCacheBytes, oldBytes) + newBytes;
+    }
+
+    entry->payload = payload;
+    entry->vertexBytes = vertexBytes;
+    entry->layoutSignature = plan.signature;
+    entry->payloadGeneration = payloadGeneration;
+    entry->directAttrs = directAttrs;
+    entry->indexedAttrs = indexedAttrs;
+    entry->primitive = primitive;
+    entry->fmt = fmt;
+    entry->vtxCount = vtxCount;
+    entry->defaultPnMtxRef = defaultPnMtxRef;
+    entry->dependencyCount = dependencyCount;
+    entry->dependencies = dependencies;
+    entry->lastUse = ++g_rawMeshCacheUseSerial;
+    std::memcpy(entry->vertices.get(), &g_gx.geometry.vertices[firstVertex],
+                static_cast<size_t>(vtxCount) * sizeof(RenderVertex));
+    std::memcpy(entry->pnMtxRefs.get(), &g_gx.geometry.pnMtxRefs[firstVertex], vtxCount);
+    entry->valid = true;
+    ++g_gx.frame.rawMeshCacheStores;
+    return true;
+}
+#endif
+
+bool DecodeRawDraw(GXPrimitive primitive, GXVtxFmt fmt, const uint8_t* vertices,
+                   uint16_t vtxCount, uint32_t vertexBytes) {
+    g_rawDecodeFailure = {};
+    if (!vertices || vtxCount == 0 || vertexBytes == 0 || fmt < 0 || fmt >= GX_MAX_VTXFMT) {
+        return RawDecodeFail(RawDecodeFailReason::InvalidInput);
+    }
+    if (g_gx.geometry.drawCount >= g_gx.geometry.draws.size() ||
+        static_cast<size_t>(g_gx.geometry.vertexCount) + vtxCount > g_gx.geometry.vertices.size()) {
+        g_gx.geometry.droppedVertices += vtxCount;
+        ++g_gx.frame.rawDrawCapacityFailures;
+        return RawDecodeFail(RawDecodeFailReason::Capacity);
+    }
+
+    const u16 firstVertex = g_gx.geometry.vertexCount;
+#if MKW_VITA_RAW_LAYOUT_CACHE
+    RawLayoutPlan& resolvedPlan = ResolveRawLayoutPlan(fmt);
+    const bool plannedBytesMatch = resolvedPlan.valid && resolvedPlan.bytesPerVertex != 0u &&
+        static_cast<uint64_t>(resolvedPlan.bytesPerVertex) * vtxCount == vertexBytes;
+    const RawLayoutPlan* layoutPlan = plannedBytesMatch ? &resolvedPlan : nullptr;
+#if MKW_VITA_RAW_MESH_CACHE
+    if (layoutPlan && TryReplayRawMeshCache(*layoutPlan, primitive, fmt, vertices,
+                                            vtxCount, vertexBytes, firstVertex)) return true;
+#endif
+#endif
+
+    const uint8_t* cursor = vertices;
+    const uint8_t* const end = vertices + vertexBytes;
+    uint64_t directAttrs = 0;
+    uint64_t indexedAttrs = 0;
+
+#if MKW_VITA_RAW_LAYOUT_CACHE
+    if (layoutPlan) {
+        for (uint16_t vertexIndex = 0; vertexIndex < vtxCount; ++vertexIndex) {
+            RenderVertex decoded{};
+            u8 pnMtxRef = DefaultPnMtxRef();
+            if (!DecodeRawVertexPlanned(*layoutPlan, vertices, end, cursor, vertexIndex,
+                                        decoded, pnMtxRef, directAttrs, indexedAttrs)) return false;
+            const size_t outputVertex = static_cast<size_t>(firstVertex) + vertexIndex;
+            g_gx.geometry.vertices[outputVertex] = decoded;
+            g_gx.geometry.pnMtxRefs[outputVertex] = pnMtxRef;
+        }
+    } else
+#endif
+    {
+        for (uint16_t vertexIndex = 0; vertexIndex < vtxCount; ++vertexIndex) {
+            RenderVertex decoded{};
+            u8 pnMtxRef = DefaultPnMtxRef();
+            for (int attrValue = GX_VA_PNMTXIDX; attrValue <= GX_VA_TEX7; ++attrValue) {
+                const GXAttr attr = static_cast<GXAttr>(attrValue);
+                const GXAttrType desc = g_gx.vtxDesc[static_cast<size_t>(attr)];
+                if (desc == GX_NONE) continue;
+                const VtxFmtState& attrFmt =
+                    g_gx.vtxFmt[static_cast<size_t>(fmt)][static_cast<size_t>(attr)];
+                if (desc == GX_DIRECT) {
+                    const uint32_t bytes = DirectAttrByteSize(attr, attrFmt);
+                    if (bytes == 0 || static_cast<size_t>(end - cursor) < bytes)
+                        return RawDecodeFail(RawDecodeFailReason::DirectStreamBounds, vertexIndex,
+                                             attr, desc, 0, bytes, 0, 0,
+                                             static_cast<uint32_t>(cursor - vertices));
+                    if (attr == GX_VA_PNMTXIDX)
+                        pnMtxRef = static_cast<u8>(PnMtxSlot(cursor[0]) | kPnMtxExplicitBit);
+                    if (attr == GX_VA_POS && !DecodePosition(cursor, attrFmt, false, decoded))
+                        return RawDecodeFail(RawDecodeFailReason::DirectPosition, vertexIndex,
+                                             attr, desc, 0, bytes, 0, 0,
+                                             static_cast<uint32_t>(cursor - vertices));
+                    if (attr == GX_VA_CLR0) {
+                        const GXColor color = DecodeColor(cursor, attrFmt.type, attrFmt.cnt, false);
+                        decoded.r = color.r; decoded.g = color.g;
+                        decoded.b = color.b; decoded.a = color.a;
+                    }
+                    if (attr == GX_VA_TEX0 && !DecodeTexCoord(cursor, attrFmt, false, decoded))
+                        return RawDecodeFail(RawDecodeFailReason::DirectTexCoord, vertexIndex,
+                                             attr, desc, 0, bytes, 0, 0,
+                                             static_cast<uint32_t>(cursor - vertices));
+                    cursor += bytes;
+                    ++directAttrs;
+                    continue;
+                }
+                if ((desc != GX_INDEX8 && desc != GX_INDEX16) || IsMatrixIndexAttr(attr))
+                    return RawDecodeFail(RawDecodeFailReason::InvalidIndexedDescriptor, vertexIndex,
+                                         attr, desc, 0, 0, 0, 0,
+                                         static_cast<uint32_t>(cursor - vertices));
+                const uint32_t indexBytes = desc == GX_INDEX8 ? 1u : 2u;
+                const uint32_t indexCount =
+                    (attr == GX_VA_NRM && attrFmt.cnt == GX_NRM_NBT3) ? 3u : 1u;
+                if (static_cast<size_t>(end - cursor) < indexBytes * indexCount)
+                    return RawDecodeFail(RawDecodeFailReason::IndexedStreamBounds, vertexIndex,
+                                         attr, desc, 0, indexBytes * indexCount, 0, 0,
+                                         static_cast<uint32_t>(cursor - vertices));
+                const ArrayState& array = g_gx.arrays[static_cast<size_t>(attr)];
+                const uint32_t elementBytes = IndexedElementByteSize(attr, attrFmt);
+                for (uint32_t indexSlot = 0; indexSlot < indexCount; ++indexSlot) {
+                    const uint32_t index = desc == GX_INDEX8
+                        ? cursor[indexSlot] : ReadU16(cursor + indexSlot * 2u, false);
+                    const uint8_t* element = nullptr;
+                    if (!ArrayElement(array, index, elementBytes, element))
+                        return RawDecodeFail(RawDecodeFailReason::IndexedArrayBounds, vertexIndex,
+                                             attr, desc, index, elementBytes, array.size, array.stride,
+                                             static_cast<uint32_t>(cursor - vertices));
+                    if (indexSlot == 0 && attr == GX_VA_POS &&
+                        !DecodePosition(element, attrFmt, array.littleEndian, decoded))
+                        return RawDecodeFail(RawDecodeFailReason::IndexedPosition, vertexIndex,
+                                             attr, desc, index, elementBytes, array.size, array.stride,
+                                             static_cast<uint32_t>(cursor - vertices));
+                    if (indexSlot == 0 && attr == GX_VA_CLR0) {
+                        const GXColor color = DecodeColor(element, attrFmt.type, attrFmt.cnt,
+                                                          array.littleEndian);
+                        decoded.r = color.r; decoded.g = color.g;
+                        decoded.b = color.b; decoded.a = color.a;
+                    }
+                    if (indexSlot == 0 && attr == GX_VA_TEX0 &&
+                        !DecodeTexCoord(element, attrFmt, array.littleEndian, decoded))
+                        return RawDecodeFail(RawDecodeFailReason::IndexedTexCoord, vertexIndex,
+                                             attr, desc, index, elementBytes, array.size, array.stride,
+                                             static_cast<uint32_t>(cursor - vertices));
+                }
+                cursor += indexBytes * indexCount;
+                ++indexedAttrs;
+            }
+            const size_t outputVertex = static_cast<size_t>(firstVertex) + vertexIndex;
+            g_gx.geometry.vertices[outputVertex] = decoded;
+            g_gx.geometry.pnMtxRefs[outputVertex] = pnMtxRef;
+        }
+    }
+
+    if (cursor != end)
+        return RawDecodeFail(RawDecodeFailReason::CursorMismatch, vtxCount, GX_VA_NULL, GX_NONE,
+                             0, vertexBytes, 0, 0,
+                             static_cast<uint32_t>(cursor - vertices));
+#if MKW_VITA_RAW_MESH_CACHE
+    if (layoutPlan)
+        StoreRawMeshCache(*layoutPlan, primitive, fmt, vertices, vtxCount, vertexBytes,
+                          firstVertex, directAttrs, indexedAttrs);
+#endif
+    CommitRawDraw(primitive, fmt, firstVertex, vtxCount, vertexBytes,
+                  directAttrs, indexedAttrs);
     return true;
 }
 
@@ -2669,7 +3500,14 @@ void RenderWorkerMain() {
             "frame_draw_cap=%u frame_vertex_cap=%u efb_cap=%u packet_bytes=%u efb_gpu_blit=%u "
             "movies_disabled=%u native_thp=%u lyt_direct=%u lyt_faithful=%u dl_indexed_raw=%u "
             "perf_skip_efb=%u perf_skip_billboards=%u perf_skip_lighttexture=%u "
-            "perf_force_3d_solid=%u\n",
+            "perf_force_3d_solid=%u perf_solid_keep_depth=%u perf_inject_clip_triangle=%u perf_inject_wii_triangle=%u "
+            "perf_log=%u perf_ring=%u perf_summary_interval=%u "
+            "compact_vertex=%u frame_batcher=%u direct_stream_write=%u "
+            "compact_frame_state=%u frame_queue_depth=%u dl_template_cache=%u "
+            "gx_state_generations=%u raw_layout_cache=%u raw_mesh_cache=%u "
+            "efb_readback_flip_y=%u efb_transfer_readback=%u efb_resident_copy=%u "
+            "efb_native_res_copy=%u stream_safe_reuse=%u ui_quad_runs=%u "
+            "texture_shared_headroom=%u texture_safe_retry=%u\n",
             static_cast<unsigned long long>(vglInitBeginUs), kRendererVariant, kVitaGlVariant,
             static_cast<unsigned>(kRenderTargetScenes), static_cast<unsigned>(kRenderTargetScenes),
             static_cast<unsigned>(kMaxFrameDraws), static_cast<unsigned>(kMaxFrameVertices),
@@ -2683,7 +3521,30 @@ void RenderWorkerMain() {
             static_cast<unsigned>(MKW_VITA_PERF_SKIP_EFB),
             static_cast<unsigned>(MKW_VITA_PERF_SKIP_BILLBOARDS),
             static_cast<unsigned>(MKW_VITA_PERF_SKIP_LIGHTTEXTURE),
-            static_cast<unsigned>(MKW_VITA_PERF_FORCE_3D_SOLID));
+            static_cast<unsigned>(MKW_VITA_PERF_FORCE_3D_SOLID),
+            static_cast<unsigned>(MKW_VITA_PERF_SOLID_KEEP_DEPTH),
+            static_cast<unsigned>(MKW_VITA_PERF_INJECT_CLIP_TRIANGLE),
+            static_cast<unsigned>(MKW_VITA_PERF_INJECT_WII_TRIANGLE),
+            static_cast<unsigned>(MKW_VITA_PERF_LOG),
+            static_cast<unsigned>(MKW_VITA_PERF_RING),
+            static_cast<unsigned>(kPerfSummaryInterval),
+            static_cast<unsigned>(MKW_VITA_COMPACT_VERTEX),
+            static_cast<unsigned>(MKW_VITA_FRAME_BATCHER),
+            static_cast<unsigned>(MKW_VITA_DIRECT_STREAM_WRITE),
+            static_cast<unsigned>(MKW_VITA_COMPACT_FRAME_STATE),
+            static_cast<unsigned>(MKW_VITA_FRAME_QUEUE_DEPTH),
+            static_cast<unsigned>(MKW_VITA_DL_TEMPLATE_CACHE),
+            static_cast<unsigned>(MKW_VITA_GX_STATE_GENERATIONS),
+            static_cast<unsigned>(MKW_VITA_RAW_LAYOUT_CACHE),
+            static_cast<unsigned>(MKW_VITA_RAW_MESH_CACHE),
+            static_cast<unsigned>(MKW_VITA_EFB_READBACK_FLIP_Y),
+            static_cast<unsigned>(MKW_VITA_EFB_TRANSFER_READBACK),
+            static_cast<unsigned>(MKW_VITA_EFB_RESIDENT_COPY),
+            static_cast<unsigned>(MKW_VITA_EFB_NATIVE_RES_COPY),
+            static_cast<unsigned>(MKW_VITA_STREAM_SAFE_REUSE),
+            static_cast<unsigned>(MKW_VITA_UI_QUAD_RUNS),
+            static_cast<unsigned>(MKW_VITA_TEXTURE_SHARED_HEADROOM),
+            static_cast<unsigned>(MKW_VITA_TEXTURE_SAFE_RETRY));
     const bool resolutionFallback =
         vglInitExtended(0, kSurfaceWidth, kSurfaceHeight, kVitaGlUserRamReserve,
                         SCE_GXM_MULTISAMPLE_NONE) == GL_TRUE;
@@ -2837,15 +3698,12 @@ void RenderWorkerMain() {
     bool bootConsoleActive = true;
     uint32_t renderableTraceCount = 0;
     for (;;) {
-        // SubmitFrame waits for !g_renderPending && !g_renderBusy before reusing this
-        // storage, so the worker can consume g_pendingFrame directly. This avoids a
-        // redundant ~MiB-scale packet copy and one whole duplicate geometry buffer.
-        FramePacket& packet = g_pendingFrame;
+        FrameQueueSlot* activeSlot = nullptr;
         uint64_t serial = 0;
         {
             std::unique_lock<std::mutex> lock(g_renderMutex);
             if (!g_renderWake.wait_for(lock, std::chrono::milliseconds(100),
-                                       [] { return g_renderStop || g_renderPending; })) {
+                                       [] { return g_renderStop || HasReadyFrameLocked(); })) {
                 lock.unlock();
 #if !defined(MKW_VITA_PORTING_PROBE)
                 GuestStallWatchdog::Poll(sceKernelGetProcessTimeWide());
@@ -2860,10 +3718,12 @@ void RenderWorkerMain() {
             if (g_renderStop) {
                 break;
             }
-            serial = g_submittedSerial;
-            g_renderPending = false;
-            g_renderBusy = true;
+            activeSlot = FindReadyFrameSlotLocked();
+            if (!activeSlot) continue;
+            activeSlot->state = FrameQueueSlotState::Busy;
+            serial = activeSlot->serial;
         }
+        FramePacket& packet = activeSlot->packet;
 
         const bool hasRenderableGeometry =
             packet.geometry.drawCount != 0 && packet.geometry.vertexCount != 0;
@@ -2904,7 +3764,7 @@ void RenderWorkerMain() {
 #endif
             {
                 std::lock_guard<std::mutex> lock(g_renderMutex);
-                g_renderBusy = false;
+                activeSlot->state = FrameQueueSlotState::Free;
                 g_completedSerial = serial;
                 g_stats.framesCompleted = g_completedSerial;
                 g_stats.geometryVerticesDropped += packet.geometry.droppedVertices;
@@ -2913,7 +3773,7 @@ void RenderWorkerMain() {
             continue;
         }
 
-        const bool traceLargeFrame = packet.geometry.drawCount >= 1000u;
+        const bool traceLargeFrame = MKW_VITA_PERF_LOG && packet.geometry.drawCount >= 1000u;
         if (traceLargeFrame) {
             RT_LOGF(RT_TAG_GX,
                     "render_large phase=begin serial=%llu draws=%u vertices=%u efb=%u\n",
@@ -2928,7 +3788,7 @@ void RenderWorkerMain() {
             RT_LOGF(RT_TAG_GX, "boot console disabled on first renderable frame\n");
         }
         const uint32_t renderableOrdinal = ++renderableTraceCount;
-        const bool traceGpu = renderableOrdinal <= 16u;
+        const bool traceGpu = MKW_VITA_PERF_LOG && renderableOrdinal <= 16u;
         const uint64_t frameRenderBeginUs = sceKernelGetProcessTimeWide();
 #if defined(MKW_VITA_AURORA_RENDERER)
         uint64_t auroraBeginEndUs = frameRenderBeginUs;
@@ -3008,9 +3868,14 @@ void RenderWorkerMain() {
         uint64_t geometryTexGenUnsupportedDraws = 0;
         uint64_t geometryOrthoDraws = 0;
         uint64_t geometryPerspectiveDraws = 0;
+        uint64_t geometryPerspectiveVertices = 0;
+        uint64_t geometryPerspectiveVerticesInsideXY = 0;
+        uint64_t geometryPerspectiveVerticesInsideXYZ = 0;
         uint64_t geometryOversizeNdcDraws = 0;
         f32 geometryMaxNdcSpanX = 0.0f;
         f32 geometryMaxNdcSpanY = 0.0f;
+        f32 geometryPerspectiveMinZ = std::numeric_limits<f32>::infinity();
+        f32 geometryPerspectiveMaxZ = -std::numeric_limits<f32>::infinity();
         // M12: Aurora submit rejection breakdown. Index = AuroraPacketSubmitResult.prepareError
         // (0 None .. 7 PipelineFailed, 255 -> slot 8 "never enqueued").
         std::array<uint32_t, 9> submitFailByReason{};
@@ -3111,6 +3976,21 @@ void RenderWorkerMain() {
                 ExecuteEfbCommandsAt(i);
 #endif
                 const GeometryDraw& draw = packet.geometry.draws[i];
+#if MKW_VITA_COMPACT_FRAME_STATE
+                if (draw.transformId >= packet.geometry.transforms.size() ||
+                    draw.rasterId >= packet.geometry.rasters.size() ||
+                    draw.textureId >= packet.geometry.textures.size()) {
+                    RecordPerfCriticalEvent(serial, kPerfEventSubmitFailure, 0xC0u, i);
+                    continue;
+                }
+                const DrawTransform& transform = packet.geometry.transforms[draw.transformId];
+                const DrawRasterState& raster = packet.geometry.rasters[draw.rasterId];
+                const DrawTextureState& texture = packet.geometry.textures[draw.textureId];
+#else
+                const DrawTransform& transform = draw.transform;
+                const DrawRasterState& raster = draw.raster;
+                const DrawTextureState& texture = draw.texture;
+#endif
                 const uint32_t endVertex = static_cast<uint32_t>(draw.firstVertex) + draw.vertexCount;
                 if (draw.vertexCount == 0 || endVertex > packet.geometry.vertexCount) {
                     continue;
@@ -3120,36 +4000,54 @@ void RenderWorkerMain() {
                             "gpu_trace frame=%llu draw=%u phase=draw_begin first=%u count=%u primitive=0x%X textured=%u fmt=0x%X size=%ux%u\n",
                             static_cast<unsigned long long>(serial), static_cast<unsigned>(i),
                             static_cast<unsigned>(draw.firstVertex), static_cast<unsigned>(draw.vertexCount),
-                            static_cast<unsigned>(draw.primitive), static_cast<unsigned>(draw.texture.enabled),
-                            static_cast<unsigned>(draw.texture.format), static_cast<unsigned>(draw.texture.width),
-                            static_cast<unsigned>(draw.texture.height));
+                            static_cast<unsigned>(draw.primitive), static_cast<unsigned>(texture.enabled),
+                            static_cast<unsigned>(texture.format), static_cast<unsigned>(texture.width),
+                            static_cast<unsigned>(texture.height));
                 }
 
                 const bool trianglePrimitive = IsTrianglePrimitive(draw.primitive);
-                if (trianglePrimitive && draw.raster.cullMode == GX_CULL_ALL) {
+                if (trianglePrimitive && raster.cullMode == GX_CULL_ALL) {
                     ++geometryCullAllSkipped;
                     continue;
                 }
 
-                if (draw.transform.projectionType == GX_ORTHOGRAPHIC) {
+                if (transform.projectionType == GX_ORTHOGRAPHIC) {
                     ++geometryOrthoDraws;
                 } else {
                     ++geometryPerspectiveDraws;
                 }
 
 #if !defined(MKW_VITA_AURORA_RENDERER)
+                const GLint drawViewportX = static_cast<GLint>(raster.viewport[0] * scaleX);
+                const GLsizei drawViewportW = std::max<GLsizei>(
+                    1, static_cast<GLsizei>(raster.viewport[2] * scaleX));
+                const GLsizei drawViewportH = std::max<GLsizei>(
+                    1, static_cast<GLsizei>(raster.viewport[3] * scaleY));
+                const GLint drawViewportY = static_cast<GLint>(kSurfaceHeight -
+                    (raster.viewport[1] + raster.viewport[3]) * scaleY);
+                const GLint drawScissorX = static_cast<GLint>(raster.scissor[0] * scaleX);
+                const GLsizei drawScissorW = std::max<GLsizei>(
+                    1, static_cast<GLsizei>(raster.scissor[2] * scaleX));
+                const GLsizei drawScissorH = std::max<GLsizei>(
+                    1, static_cast<GLsizei>(raster.scissor[3] * scaleY));
+                const GLint drawScissorY = static_cast<GLint>(kSurfaceHeight -
+                    (raster.scissor[1] + raster.scissor[3]) * scaleY);
+                glViewport(drawViewportX, drawViewportY, drawViewportW, drawViewportH);
+                glDepthRangef(std::clamp(raster.viewport[4], 0.0f, 1.0f),
+                              std::clamp(raster.viewport[5], 0.0f, 1.0f));
+                glScissor(drawScissorX, drawScissorY, drawScissorW, drawScissorH);
                 glEnable(GL_DEPTH_TEST);
-                glDepthFunc(draw.raster.depthCompare ? DepthCompareMode(draw.raster.depthFunc) : GL_ALWAYS);
-                glDepthMask(draw.raster.depthUpdate ? GL_TRUE : GL_FALSE);
+                glDepthFunc(raster.depthCompare ? DepthCompareMode(raster.depthFunc) : GL_ALWAYS);
+                glDepthMask(raster.depthUpdate ? GL_TRUE : GL_FALSE);
 #endif
-                if (draw.raster.depthCompare) {
+                if (raster.depthCompare) {
                     ++geometryDepthCompareDraws;
                 }
-                if (draw.raster.depthUpdate) {
+                if (raster.depthUpdate) {
                     ++geometryDepthWriteDraws;
                 }
 
-                if (!trianglePrimitive || draw.raster.cullMode == GX_CULL_NONE) {
+                if (!trianglePrimitive || raster.cullMode == GX_CULL_NONE) {
 #if !defined(MKW_VITA_AURORA_RENDERER)
                     glDisable(GL_CULL_FACE);
 #endif
@@ -3158,7 +4056,7 @@ void RenderWorkerMain() {
 #if !defined(MKW_VITA_AURORA_RENDERER)
                     glEnable(GL_CULL_FACE);
 #endif
-                    if (draw.raster.cullMode == GX_CULL_FRONT) {
+                    if (raster.cullMode == GX_CULL_FRONT) {
 #if !defined(MKW_VITA_AURORA_RENDERER)
                         glCullFace(GL_FRONT);
 #endif
@@ -3172,28 +4070,28 @@ void RenderWorkerMain() {
                 }
 
 #if !defined(MKW_VITA_AURORA_RENDERER)
-                glColorMask(draw.raster.colorUpdate ? GL_TRUE : GL_FALSE,
-                            draw.raster.colorUpdate ? GL_TRUE : GL_FALSE,
-                            draw.raster.colorUpdate ? GL_TRUE : GL_FALSE,
-                            draw.raster.alphaUpdate ? GL_TRUE : GL_FALSE);
+                glColorMask(raster.colorUpdate ? GL_TRUE : GL_FALSE,
+                            raster.colorUpdate ? GL_TRUE : GL_FALSE,
+                            raster.colorUpdate ? GL_TRUE : GL_FALSE,
+                            raster.alphaUpdate ? GL_TRUE : GL_FALSE);
 #endif
-                if (draw.raster.blendMode == GX_BM_BLEND) {
+                if (raster.blendMode == GX_BM_BLEND) {
 #if !defined(MKW_VITA_AURORA_RENDERER)
                     glEnable(GL_BLEND);
-                    glBlendFunc(BlendFactorMode(draw.raster.blendSrc, false),
-                                BlendFactorMode(draw.raster.blendDst, true));
+                    glBlendFunc(BlendFactorMode(raster.blendSrc, false),
+                                BlendFactorMode(raster.blendDst, true));
 #endif
                     ++geometryBlendDraws;
                 } else {
 #if !defined(MKW_VITA_AURORA_RENDERER)
                     glDisable(GL_BLEND);
 #endif
-                    if (draw.raster.blendMode != GX_BM_NONE) {
+                    if (raster.blendMode != GX_BM_NONE) {
                         ++geometryBlendFallbackDraws;
                     }
                 }
 
-                const AlphaTestSelection alphaTest = SelectAlphaTest(draw.raster);
+                const AlphaTestSelection alphaTest = SelectAlphaTest(raster);
 #if !defined(MKW_VITA_AURORA_RENDERER)
                 if (!alphaTest.exact) {
                     glDisable(GL_ALPHA_TEST);
@@ -3207,32 +4105,32 @@ void RenderWorkerMain() {
                     glDisable(GL_ALPHA_TEST);
                 }
 #else
-                if (draw.raster.alphaComp0 != GX_ALWAYS ||
-                    draw.raster.alphaComp1 != GX_ALWAYS) {
+                if (raster.alphaComp0 != GX_ALWAYS ||
+                    raster.alphaComp1 != GX_ALWAYS) {
                     ++geometryAlphaTestDraws;
                 }
 #endif
 
 #if !defined(MKW_VITA_AURORA_RENDERER)
-                if (draw.texture.enabled) {
+                if (texture.enabled) {
                     if (traceGpu) {
                         RT_LOGF(RT_TAG_GX, "gpu_trace frame=%llu draw=%u phase=texture_begin\n",
                                 static_cast<unsigned long long>(serial), static_cast<unsigned>(i));
                     }
-                    const GLuint texture = ResolveTexture(draw.texture, textureCounters);
+                    const GLuint glTexture = ResolveTexture(texture, textureCounters);
                     if (traceGpu) {
                         RT_LOGF(RT_TAG_GX,
                                 "gpu_trace frame=%llu draw=%u phase=texture_end gl_texture=%u uploads=%llu failures=%llu\n",
                                 static_cast<unsigned long long>(serial), static_cast<unsigned>(i),
-                                static_cast<unsigned>(texture),
+                                static_cast<unsigned>(glTexture),
                                 static_cast<unsigned long long>(textureCounters.uploads),
                                 static_cast<unsigned long long>(textureCounters.uploadFailures));
                     }
-                    if (texture != 0) {
+                    if (glTexture != 0) {
                         glEnable(GL_TEXTURE_2D);
-                        glBindTexture(GL_TEXTURE_2D, texture);
-                        ApplyTextureSampler(draw.texture);
-                        switch (static_cast<GXTevMode>(draw.texture.tevMode)) {
+                        glBindTexture(GL_TEXTURE_2D, glTexture);
+                        ApplyTextureSampler(texture);
+                        switch (static_cast<GXTevMode>(texture.tevMode)) {
                         case GX_MODULATE:
                             glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
                             break;
@@ -3255,13 +4153,13 @@ void RenderWorkerMain() {
                             glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
                             break;
                         }
-                        if (draw.texture.tevSimple) {
+                        if (texture.tevSimple) {
                             ++geometryTevSimpleDraws;
                         } else {
                             ++geometryTevFallbackDraws;
                         }
                         ++textureCounters.draws;
-                        if (draw.texture.mipmap || draw.texture.minFilter > static_cast<u8>(GX_LINEAR)) {
+                        if (texture.mipmap || texture.minFilter > static_cast<u8>(GX_LINEAR)) {
                             ++textureCounters.mipFallbackDraws;
                         }
                     } else {
@@ -3284,13 +4182,29 @@ void RenderWorkerMain() {
                     if ((pnMtxRef & kPnMtxExplicitBit) != 0) {
                         ++geometryPnMatrixVertices;
                     }
-                    if (TransformVertex(draw, pnMtxRef, packet.geometry.vertices[vertexIndex],
+                    if (TransformVertex(transform, pnMtxRef, packet.geometry.vertices[vertexIndex],
                                         g_renderVertices[vertexIndex])) {
                         ++geometryVerticesTransformed;
                         ndcMinX = std::min(ndcMinX, g_renderVertices[vertexIndex].x);
                         ndcMinY = std::min(ndcMinY, g_renderVertices[vertexIndex].y);
                         ndcMaxX = std::max(ndcMaxX, g_renderVertices[vertexIndex].x);
                         ndcMaxY = std::max(ndcMaxY, g_renderVertices[vertexIndex].y);
+                        if (transform.projectionType == GX_PERSPECTIVE) {
+                            ++geometryPerspectiveVertices;
+                            const f32 x = g_renderVertices[vertexIndex].x;
+                            const f32 y = g_renderVertices[vertexIndex].y;
+                            const f32 z = g_renderVertices[vertexIndex].z;
+                            const bool insideXY = x >= -1.0f && x <= 1.0f &&
+                                                  y >= -1.0f && y <= 1.0f;
+                            if (insideXY) {
+                                ++geometryPerspectiveVerticesInsideXY;
+                                if (z >= -1.0f && z <= 1.0f) {
+                                    ++geometryPerspectiveVerticesInsideXYZ;
+                                }
+                            }
+                            geometryPerspectiveMinZ = std::min(geometryPerspectiveMinZ, z);
+                            geometryPerspectiveMaxZ = std::max(geometryPerspectiveMaxZ, z);
+                        }
                     } else {
                         // Keep malformed transform state from escaping into vitaGL. This
                         // position clips against identity GL state and the failure remains
@@ -3300,17 +4214,18 @@ void RenderWorkerMain() {
                         g_renderVertices[vertexIndex].y = 2.0f;
                         g_renderVertices[vertexIndex].z = 2.0f;
                         ++geometryTransformFailures;
+                        RecordPerfCriticalEvent(serial, kPerfEventTransformFailure, i, vertexIndex);
                     }
-                    if (draw.texture.enabled &&
-                        !TransformTexCoord(draw.texture, packet.geometry.vertices[vertexIndex],
+                    if (texture.enabled &&
+                        !TransformTexCoord(texture, packet.geometry.vertices[vertexIndex],
                                            g_renderVertices[vertexIndex])) {
                         texGenFailed = true;
                     }
                 }
-                if (draw.texture.enabled) {
-                    if (draw.texture.texGenMode == 0u) {
+                if (texture.enabled) {
+                    if (texture.texGenMode == 0u) {
                         ++geometryTexGenIdentityDraws;
-                    } else if (draw.texture.texGenMode == 1u && !texGenFailed) {
+                    } else if (texture.texGenMode == 1u && !texGenFailed) {
                         ++geometryTexGenAppliedDraws;
                     } else {
                         ++geometryTexGenUnsupportedDraws;
@@ -3368,55 +4283,70 @@ void RenderWorkerMain() {
                     &g_renderVertices[draw.firstVertex]);
                 auroraDraw.vertexCount = draw.vertexCount;
                 auroraDraw.primitive = static_cast<uint32_t>(draw.primitive);
-                auroraDraw.depthFunc = static_cast<uint32_t>(draw.raster.depthFunc);
-                auroraDraw.cullMode = static_cast<uint32_t>(draw.raster.cullMode);
-                auroraDraw.blendMode = static_cast<uint32_t>(draw.raster.blendMode);
-                auroraDraw.blendSrc = static_cast<uint32_t>(draw.raster.blendSrc);
-                auroraDraw.blendDst = static_cast<uint32_t>(draw.raster.blendDst);
-                auroraDraw.logicOp = static_cast<uint32_t>(draw.raster.logicOp);
-                auroraDraw.alphaComp0 = static_cast<uint32_t>(draw.raster.alphaComp0);
-                auroraDraw.alphaComp1 = static_cast<uint32_t>(draw.raster.alphaComp1);
-                auroraDraw.alphaOp = static_cast<uint32_t>(draw.raster.alphaOp);
-                auroraDraw.alphaRef0 = draw.raster.alphaRef0;
-                auroraDraw.alphaRef1 = draw.raster.alphaRef1;
-                auroraDraw.depthCompare = draw.raster.depthCompare != GX_FALSE;
-                auroraDraw.depthUpdate = draw.raster.depthUpdate != GX_FALSE;
-                auroraDraw.colorUpdate = draw.raster.colorUpdate != GX_FALSE;
-                auroraDraw.alphaUpdate = draw.raster.alphaUpdate != GX_FALSE;
-                auroraDraw.texture.data = draw.texture.data;
+                auroraDraw.depthFunc = static_cast<uint32_t>(raster.depthFunc);
+                auroraDraw.cullMode = static_cast<uint32_t>(raster.cullMode);
+                auroraDraw.blendMode = static_cast<uint32_t>(raster.blendMode);
+                auroraDraw.blendSrc = static_cast<uint32_t>(raster.blendSrc);
+                auroraDraw.blendDst = static_cast<uint32_t>(raster.blendDst);
+                auroraDraw.logicOp = static_cast<uint32_t>(raster.logicOp);
+                auroraDraw.alphaComp0 = static_cast<uint32_t>(raster.alphaComp0);
+                auroraDraw.alphaComp1 = static_cast<uint32_t>(raster.alphaComp1);
+                auroraDraw.alphaOp = static_cast<uint32_t>(raster.alphaOp);
+                auroraDraw.alphaRef0 = raster.alphaRef0;
+                auroraDraw.alphaRef1 = raster.alphaRef1;
+                auroraDraw.depthCompare = raster.depthCompare != GX_FALSE;
+                auroraDraw.depthUpdate = raster.depthUpdate != GX_FALSE;
+                auroraDraw.colorUpdate = raster.colorUpdate != GX_FALSE;
+                auroraDraw.alphaUpdate = raster.alphaUpdate != GX_FALSE;
+                auroraDraw.perspective = transform.projectionType == GX_PERSPECTIVE;
+#if MKW_VITA_COMPACT_FRAME_STATE
+                auroraDraw.renderStateId = draw.renderStateId;
+#endif
+                auroraDraw.viewportX = raster.viewport[0] * scaleX;
+                auroraDraw.viewportY = raster.viewport[1] * scaleY;
+                auroraDraw.viewportWidth = std::max(1.0f, raster.viewport[2] * scaleX);
+                auroraDraw.viewportHeight = std::max(1.0f, raster.viewport[3] * scaleY);
+                auroraDraw.viewportNear = raster.viewport[4];
+                auroraDraw.viewportFar = raster.viewport[5];
+                auroraDraw.scissorX = static_cast<GLint>(raster.scissor[0] * scaleX);
+                auroraDraw.scissorY = static_cast<GLint>(raster.scissor[1] * scaleY);
+                auroraDraw.scissorWidth = std::max<GLsizei>(
+                    1, static_cast<GLsizei>(raster.scissor[2] * scaleX));
+                auroraDraw.scissorHeight = std::max<GLsizei>(
+                    1, static_cast<GLsizei>(raster.scissor[3] * scaleY));
+                auroraDraw.texture.data = texture.data;
                 auroraDraw.texture.dataBytes =
-                    TextureLevelSize(draw.texture.width, draw.texture.height, draw.texture.format);
-                auroraDraw.texture.sourceId = reinterpret_cast<uintptr_t>(draw.texture.data);
-                auroraDraw.texture.sourceGeneration = draw.texture.sourceGeneration;
-                auroraDraw.texture.revision = draw.texture.dataRevision;
-                auroraDraw.texture.globalEpoch = draw.texture.globalEpoch;
-                auroraDraw.texture.format = draw.texture.format;
-                auroraDraw.texture.width = draw.texture.width;
-                auroraDraw.texture.height = draw.texture.height;
-                auroraDraw.texture.wrapS = draw.texture.wrapS;
-                auroraDraw.texture.wrapT = draw.texture.wrapT;
-                auroraDraw.texture.minFilter = draw.texture.minFilter;
-                auroraDraw.texture.magFilter = draw.texture.magFilter;
-                auroraDraw.texture.tevMode = draw.texture.tevMode;
-                auroraDraw.texture.enabled = draw.texture.enabled != 0;
-                auroraDraw.texture.thpUData = draw.texture.thpUData;
-                auroraDraw.texture.thpVData = draw.texture.thpVData;
+                    TextureLevelSize(texture.width, texture.height, texture.format);
+                auroraDraw.texture.sourceId = reinterpret_cast<uintptr_t>(texture.data);
+                auroraDraw.texture.sourceGeneration = texture.sourceGeneration;
+                auroraDraw.texture.revision = texture.dataRevision;
+                auroraDraw.texture.globalEpoch = texture.globalEpoch;
+                auroraDraw.texture.format = texture.format;
+                auroraDraw.texture.width = texture.width;
+                auroraDraw.texture.height = texture.height;
+                auroraDraw.texture.wrapS = texture.wrapS;
+                auroraDraw.texture.wrapT = texture.wrapT;
+                auroraDraw.texture.minFilter = texture.minFilter;
+                auroraDraw.texture.magFilter = texture.magFilter;
+                auroraDraw.texture.tevMode = texture.tevMode;
+                auroraDraw.texture.enabled = texture.enabled != 0;
+                auroraDraw.texture.thpUData = texture.thpUData;
+                auroraDraw.texture.thpVData = texture.thpVData;
                 auroraDraw.texture.thpUBytes = TextureLevelSize(
-                    draw.texture.thpChromaWidth, draw.texture.thpChromaHeight, GX_TF_I8);
+                    texture.thpChromaWidth, texture.thpChromaHeight, GX_TF_I8);
                 auroraDraw.texture.thpVBytes = auroraDraw.texture.thpUBytes;
-                auroraDraw.texture.thpUGeneration = draw.texture.thpUGeneration;
-                auroraDraw.texture.thpVGeneration = draw.texture.thpVGeneration;
-                auroraDraw.texture.thpURevision = draw.texture.thpURevision;
-                auroraDraw.texture.thpVRevision = draw.texture.thpVRevision;
-                auroraDraw.texture.thpChromaWidth = draw.texture.thpChromaWidth;
-                auroraDraw.texture.thpChromaHeight = draw.texture.thpChromaHeight;
-                auroraDraw.texture.thpYuv420 = draw.texture.thpYuv420 != 0;
+                auroraDraw.texture.thpUGeneration = texture.thpUGeneration;
+                auroraDraw.texture.thpVGeneration = texture.thpVGeneration;
+                auroraDraw.texture.thpURevision = texture.thpURevision;
+                auroraDraw.texture.thpVRevision = texture.thpVRevision;
+                auroraDraw.texture.thpChromaWidth = texture.thpChromaWidth;
+                auroraDraw.texture.thpChromaHeight = texture.thpChromaHeight;
+                auroraDraw.texture.thpYuv420 = texture.thpYuv420 != 0;
 #if defined(MKW_VITA_PERF_FORCE_3D_SOLID) && MKW_VITA_PERF_FORCE_3D_SOLID
-                // Diagnostic visibility mode: perspective G3D geometry keeps its real
-                // transform/depth but bypasses the currently incomplete multi-stage TEV,
-                // textures, blending, alpha test and culling. White opaque silhouettes prove
-                // whether missing models are a material problem rather than a geometry problem.
-                if (draw.transform.projectionType == GX_PERSPECTIVE) {
+                // Diagnostic visibility mode: perspective G3D geometry keeps its real XY
+                // transform but bypasses materials and depth. A neutral clip-space Z removes
+                // the last major visibility variable from the solid-white probe.
+                if (transform.projectionType == GX_PERSPECTIVE) {
                     // GX_PASSCLR consumes the raster/vertex color. Disabling the
                     // texture alone is not a white-material probe: G3D vertices
                     // can legitimately carry black or zero-alpha colors. This is
@@ -3428,6 +4358,9 @@ void RenderWorkerMain() {
                         solid.g = 0xFF;
                         solid.b = 0xFF;
                         solid.a = 0xFF;
+#if !MKW_VITA_PERF_SOLID_KEEP_DEPTH
+                        solid.z = 0.0f;
+#endif
                     }
                     auroraDraw.texture.enabled = false;
                     auroraDraw.texture.tevMode = static_cast<uint8_t>(GX_PASSCLR);
@@ -3440,19 +4373,25 @@ void RenderWorkerMain() {
                     auroraDraw.alphaOp = static_cast<uint32_t>(GX_AOP_AND);
                     auroraDraw.alphaRef0 = 0;
                     auroraDraw.alphaRef1 = 0;
+#if !MKW_VITA_PERF_SOLID_KEEP_DEPTH
+                    auroraDraw.depthFunc = static_cast<uint32_t>(GX_ALWAYS);
+                    auroraDraw.depthCompare = false;
+                    auroraDraw.depthUpdate = false;
+#endif
                     auroraDraw.colorUpdate = true;
                     auroraDraw.alphaUpdate = true;
                     static uint64_t s_forceSolidDraws = 0;
                     const uint64_t forceSolidN = ++s_forceSolidDraws;
-                    if (forceSolidN <= 16u || (forceSolidN & (forceSolidN - 1u)) == 0u) {
+                    if (MKW_VITA_PERF_LOG &&
+                        (forceSolidN <= 16u || (forceSolidN & (forceSolidN - 1u)) == 0u)) {
                         RT_LOGF(RT_TAG_GX,
                                 "perf_probe force_3d_solid n=%llu serial=%llu idx=%u verts=%u tev_simple=%u tex=%u\n",
                                 static_cast<unsigned long long>(forceSolidN),
                                 static_cast<unsigned long long>(serial),
                                 static_cast<unsigned>(i),
                                 static_cast<unsigned>(draw.vertexCount),
-                                static_cast<unsigned>(draw.texture.tevSimple),
-                                static_cast<unsigned>(draw.texture.enabled));
+                                static_cast<unsigned>(texture.tevSimple),
+                                static_cast<unsigned>(texture.enabled));
                     }
                 }
 #endif
@@ -3463,7 +4402,7 @@ void RenderWorkerMain() {
                         ++textureCounters.trackedDraws;
                     }
                 }
-                if (auroraDraw.texture.enabled && !TextureSourceStillMatches(draw.texture)) {
+                if (auroraDraw.texture.enabled && !TextureSourceStillMatches(texture)) {
                     auroraDraw.texture.enabled = false;
                     ++textureCounters.sourceRaceDraws;
                 }
@@ -3481,17 +4420,17 @@ void RenderWorkerMain() {
                 if (auroraResult.textureDrawn) {
                     ++textureCounters.draws;
                     if (auroraResult.textureEfb) ++efbTexturesSampled;
-                    if (draw.texture.mipmap || draw.texture.minFilter > static_cast<u8>(GX_LINEAR)) {
+                    if (texture.mipmap || texture.minFilter > static_cast<u8>(GX_LINEAR)) {
                         ++textureCounters.mipFallbackDraws;
                     }
-                    if (draw.texture.tevSimple) {
+                    if (texture.tevSimple) {
                         ++geometryTevSimpleDraws;
                     } else {
                         ++geometryTevFallbackDraws;
                     }
                 }
                 if (auroraResult.textureUploaded) {
-                    switch (draw.texture.format) {
+                    switch (texture.format) {
                     case GX_TF_I4: ++textureCounters.i4Uploads; break;
                     case GX_TF_I8: ++textureCounters.i8Uploads; break;
                     case GX_TF_IA4: ++textureCounters.ia4Uploads; break;
@@ -3503,6 +4442,14 @@ void RenderWorkerMain() {
                     case GX_TF_RGBA8_PC: ++textureCounters.rgba8PcUploads; break;
                     default: break;
                     }
+                }
+                if (!auroraResult.submitted) {
+                    RecordPerfCriticalEvent(serial, kPerfEventSubmitFailure,
+                                            static_cast<uint32_t>(auroraResult.prepareError), i);
+                }
+                if (auroraResult.textureUploadFailed) {
+                    RecordPerfCriticalEvent(serial, kPerfEventTextureFailure,
+                                            static_cast<uint32_t>(texture.format), i);
                 }
                 if (auroraResult.submitted) {
                     ++geometryDrawsPresented;
@@ -3520,13 +4467,14 @@ void RenderWorkerMain() {
                         !auroraResult.submitted ||
                         auroraResult.textureUnsupported ||
                         auroraResult.textureUploadFailed ||
-                        (draw.texture.enabled && draw.texture.texGenMode == 2u) ||
+                        (texture.enabled && texture.texGenMode == 2u) ||
                         texGenFailed ||
                         (std::isfinite(ndcMaxX) &&
                          (ndcMaxX - ndcMinX > 2.05f || ndcMaxY - ndcMinY > 2.05f));
                     static std::atomic<uint32_t> s_drawDetailCount{0};
-                    if (unusual && s_drawDetailCount.fetch_add(1, std::memory_order_relaxed) < 16u) {
-                        const f32* pm = draw.transform.projection.data();
+                    if (MKW_VITA_PERF_LOG && unusual &&
+                        s_drawDetailCount.fetch_add(1, std::memory_order_relaxed) < 16u) {
+                        const f32* pm = transform.projection.data();
                         RT_LOGF(RT_TAG_GX,
                                 "m12_draw serial=%llu idx=%u lr=%08X prim=0x%X verts=%u proj=%s "
                                 "pnmtx=%u vp=%.0f,%.0f,%.0f,%.0f sc=%u,%u,%u,%u "
@@ -3536,7 +4484,7 @@ void RenderWorkerMain() {
                                 static_cast<unsigned long long>(serial), static_cast<unsigned>(i),
                                 draw.guestLr, static_cast<unsigned>(draw.primitive),
                                 static_cast<unsigned>(draw.vertexCount),
-                                draw.transform.projectionType == GX_ORTHOGRAPHIC ? "ortho" : "persp",
+                                transform.projectionType == GX_ORTHOGRAPHIC ? "ortho" : "persp",
                                 static_cast<unsigned>(draw.pnMtxIndex),
                                 packet.viewport[0], packet.viewport[1], packet.viewport[2], packet.viewport[3],
                                 packet.scissor[0], packet.scissor[1], packet.scissor[2], packet.scissor[3],
@@ -3545,13 +4493,13 @@ void RenderWorkerMain() {
                                 std::isfinite(ndcMinY) ? ndcMinY : 0.0f,
                                 std::isfinite(ndcMaxY) ? ndcMaxY : 0.0f,
                                 pm[0], pm[5], pm[10], pm[15],
-                                static_cast<unsigned>(draw.texture.enabled),
-                                static_cast<unsigned>(draw.texture.format),
-                                static_cast<unsigned>(draw.texture.width),
-                                static_cast<unsigned>(draw.texture.height),
-                                static_cast<unsigned>(draw.texture.tevMode),
-                                static_cast<unsigned>(draw.texture.tevSimple),
-                                static_cast<unsigned>(draw.texture.texGenMode),
+                                static_cast<unsigned>(texture.enabled),
+                                static_cast<unsigned>(texture.format),
+                                static_cast<unsigned>(texture.width),
+                                static_cast<unsigned>(texture.height),
+                                static_cast<unsigned>(texture.tevMode),
+                                static_cast<unsigned>(texture.tevSimple),
+                                static_cast<unsigned>(texture.texGenMode),
                                 static_cast<unsigned>(auroraResult.submitted),
                                 static_cast<unsigned>(auroraResult.prepareError),
                                 static_cast<unsigned>(auroraResult.textureUnsupported),
@@ -3643,7 +4591,8 @@ void RenderWorkerMain() {
         }
 
 #if defined(MKW_TARGET_VITA)
-        if (serial <= 8u || (serial % 120u) == 0u) {
+        if (serial <= 8u || (serial % kPerfSummaryInterval) == 0u) {
+#if MKW_VITA_PERF_LOG
             RT_LOGF(
                 RT_TAG_GX,
                 "frame=%llu skipped_empty=0 packet_draws=%u packet_vertices=%u calls=%llu raw_ok=%llu raw_fail=%llu "
@@ -3816,12 +4765,144 @@ void RenderWorkerMain() {
                     static_cast<unsigned long long>(
                         packet.counters.textureStateCustomSignatureOverflow));
             }
+#else
+#if defined(MKW_VITA_AURORA_RENDERER)
+            RT_LOGF(RT_TAG_GX,
+                    "perf_summary serial=%llu draws=%u vertices=%u presented=%llu physical=%u "
+                    "raw_ok=%llu raw_fail=%llu raw_cap=%llu dropped=%u transform_fail=%llu "
+                    "persp=%llu clip_xy=%llu/%llu clip_xyz=%llu z=%.3f..%.3f "
+                    "render_us=%llu submit_us=%llu endframe_us=%llu swap_us=%llu "
+                    "pipeline=%u/%u stream=%llu/%llu overflow=%llu/%llu tex_fail=%llu "
+                    "compact=%u fallback=%u merged=%u runs=%u/%u state=%u/%u "
+                    "p4_state=%llu/%llu,%llu/%llu,%llu/%llu "
+                    "p4_layout=%llu/%llu p4_mesh=%llu/%llu/%llu/%llu "
+                    "profile_us=%llu/%llu/%llu/%llu/%llu/%llu "
+                    "efb=%u/%u efb_transfer=%u efb_exec=%llu/%llu sampled=%llu "
+                    "efb_us=%llu/%llu/%llu/%llu resident=%u/%llu reuse_wait_us=%llu "
+                    "producer_merge=%llu efb_coalesced=%llu efb_cap=%llu ring_write=%u\n",
+                    static_cast<unsigned long long>(serial),
+                    static_cast<unsigned>(packet.geometry.drawCount),
+                    static_cast<unsigned>(packet.geometry.vertexCount),
+                    static_cast<unsigned long long>(geometryDrawsPresented),
+                    auroraFrameStats.physicalDrawCalls,
+                    static_cast<unsigned long long>(packet.counters.rawDrawsDecoded),
+                    static_cast<unsigned long long>(packet.counters.rawDrawDecodeFailures),
+                    static_cast<unsigned long long>(packet.counters.rawDrawCapacityFailures),
+                    static_cast<unsigned>(packet.geometry.droppedVertices),
+                    static_cast<unsigned long long>(geometryTransformFailures),
+                    static_cast<unsigned long long>(geometryPerspectiveDraws),
+                    static_cast<unsigned long long>(geometryPerspectiveVerticesInsideXY),
+                    static_cast<unsigned long long>(geometryPerspectiveVertices),
+                    static_cast<unsigned long long>(geometryPerspectiveVerticesInsideXYZ),
+                    std::isfinite(geometryPerspectiveMinZ) ? geometryPerspectiveMinZ : 0.0f,
+                    std::isfinite(geometryPerspectiveMaxZ) ? geometryPerspectiveMaxZ : 0.0f,
+                    static_cast<unsigned long long>(swapEndUs - frameRenderBeginUs),
+                    static_cast<unsigned long long>(auroraSubmitEndUs - auroraBeginEndUs),
+                    static_cast<unsigned long long>(auroraEndFrameEndUs - auroraSubmitEndUs),
+                    static_cast<unsigned long long>(swapEndUs - swapBeginUs),
+                    auroraFrameStats.pipelineHits, auroraFrameStats.pipelineMisses,
+                    static_cast<unsigned long long>(auroraFrameStats.vertexBytes),
+                    static_cast<unsigned long long>(auroraFrameStats.indexBytes),
+                    static_cast<unsigned long long>(auroraFrameStats.vertexOverflows),
+                    static_cast<unsigned long long>(auroraFrameStats.indexOverflows),
+                    static_cast<unsigned long long>(textureCounters.uploadFailures),
+                    auroraFrameStats.compactDraws, auroraFrameStats.compactFallbacks,
+                    auroraFrameStats.batchMerges, auroraFrameStats.compactRunStarts,
+                    auroraFrameStats.compactRunExtends, auroraFrameStats.compactStateHits,
+                    auroraFrameStats.compactStateMisses,
+                    static_cast<unsigned long long>(packet.counters.transformStateBuilds),
+                    static_cast<unsigned long long>(packet.counters.transformStateReuses),
+                    static_cast<unsigned long long>(packet.counters.rasterStateBuilds),
+                    static_cast<unsigned long long>(packet.counters.rasterStateReuses),
+                    static_cast<unsigned long long>(packet.counters.textureStateBuilds),
+                    static_cast<unsigned long long>(packet.counters.textureStateReuses),
+                    static_cast<unsigned long long>(packet.counters.rawLayoutCacheHits),
+                    static_cast<unsigned long long>(packet.counters.rawLayoutCacheMisses),
+                    static_cast<unsigned long long>(packet.counters.rawMeshCacheHits),
+                    static_cast<unsigned long long>(packet.counters.rawMeshCacheMisses),
+                    static_cast<unsigned long long>(packet.counters.rawMeshCacheStores),
+                    static_cast<unsigned long long>(packet.counters.rawMeshCacheInvalidations),
+                    static_cast<unsigned long long>(auroraFrameStats.indexBuildUs),
+                    static_cast<unsigned long long>(auroraFrameStats.vertexPackUs),
+                    static_cast<unsigned long long>(auroraFrameStats.textureResolveUs),
+                    static_cast<unsigned long long>(auroraFrameStats.pipelineResolveUs),
+                    static_cast<unsigned long long>(auroraFrameStats.streamWriteUs),
+                    static_cast<unsigned long long>(auroraFrameStats.flushExecuteUs),
+                    auroraFrameStats.efbGpuCopies, auroraFrameStats.efbReadbackCopies,
+                    auroraFrameStats.efbTransferReadbacks,
+                    static_cast<unsigned long long>(efbCopiesExecuted),
+                    static_cast<unsigned long long>(efbCopyFailures),
+                    static_cast<unsigned long long>(efbTexturesSampled),
+                    static_cast<unsigned long long>(auroraFrameStats.efbSyncUs),
+                    static_cast<unsigned long long>(auroraFrameStats.efbReadbackUs),
+                    static_cast<unsigned long long>(auroraFrameStats.efbScaleUs),
+                    static_cast<unsigned long long>(auroraFrameStats.efbUploadUs),
+                    auroraFrameStats.efbResidentScaled,
+                    static_cast<unsigned long long>(auroraFrameStats.efbResidentUs),
+                    static_cast<unsigned long long>(auroraFrameStats.streamReuseWaitUs),
+                    static_cast<unsigned long long>(packet.counters.uiQuadMerges),
+                    static_cast<unsigned long long>(packet.counters.efbCommandsCoalesced),
+                    static_cast<unsigned long long>(packet.counters.efbCopyCapacityFailures),
+                    g_perfCriticalRing.write.load(std::memory_order_relaxed));
+#else
+            RT_LOGF(RT_TAG_GX,
+                    "perf_summary serial=%llu draws=%u vertices=%u presented=%llu raw_ok=%llu "
+                    "raw_fail=%llu dropped=%u transform_fail=%llu render_us=%llu swap_us=%llu ring_write=%u\n",
+                    static_cast<unsigned long long>(serial),
+                    static_cast<unsigned>(packet.geometry.drawCount),
+                    static_cast<unsigned>(packet.geometry.vertexCount),
+                    static_cast<unsigned long long>(geometryDrawsPresented),
+                    static_cast<unsigned long long>(packet.counters.rawDrawsDecoded),
+                    static_cast<unsigned long long>(packet.counters.rawDrawDecodeFailures),
+                    static_cast<unsigned>(packet.geometry.droppedVertices),
+                    static_cast<unsigned long long>(geometryTransformFailures),
+                    static_cast<unsigned long long>(swapEndUs - frameRenderBeginUs),
+                    static_cast<unsigned long long>(swapEndUs - swapBeginUs),
+                    g_perfCriticalRing.write.load(std::memory_order_relaxed));
+#endif
+#endif
+#if defined(MKW_VITA_AURORA_RENDERER)
+            RT_LOGF(RT_TAG_GX,
+                    "resource_summary serial=%llu tex_evict_total=%llu/%llu tex_blocked_total=%llu "
+                    "tex_protected=%llu/%llu tex_retry=%u/%u/%u retry_wait_us=%llu "
+                    "efb_path=%u/%u/%u/%u native=%u native_budget=%u resident_fail=%u "
+                    "efb_reason=%u/%u/%u/%u/%u/%u/%u/%u efb_mem=%llu/%llu/%llu entries=%u\n",
+                    static_cast<unsigned long long>(serial),
+                    static_cast<unsigned long long>(auroraFrameStats.texturePreEvictions),
+                    static_cast<unsigned long long>(auroraFrameStats.texturePreEvictedBytes),
+                    static_cast<unsigned long long>(auroraFrameStats.textureEvictBlocked),
+                    static_cast<unsigned long long>(auroraFrameStats.textureProtectedBytes),
+                    static_cast<unsigned long long>(auroraFrameStats.textureProtectedHighWaterBytes),
+                    auroraFrameStats.textureAllocRetry,
+                    auroraFrameStats.textureAllocRetrySuccess,
+                    auroraFrameStats.textureAllocFailAfterEvict,
+                    static_cast<unsigned long long>(auroraFrameStats.textureAllocRetryWaitUs),
+                    auroraFrameStats.efbGpuSameSize,
+                    auroraFrameStats.efbGpuResize,
+                    auroraFrameStats.efbCpuCopy,
+                    auroraFrameStats.efbCpuResize,
+                    auroraFrameStats.efbNativeResCopies,
+                    auroraFrameStats.efbNativeBudgetFallbacks,
+                    auroraFrameStats.efbResidentFailures,
+                    auroraFrameStats.efbFallbackInvalidSource,
+                    auroraFrameStats.efbFallbackUnsupportedSurface,
+                    auroraFrameStats.efbFallbackExistingSize,
+                    auroraFrameStats.efbFallbackAllocation,
+                    auroraFrameStats.efbFallbackBacking,
+                    auroraFrameStats.efbFallbackTransfer,
+                    auroraFrameStats.efbFallbackResizeUnavailable,
+                    auroraFrameStats.efbFallbackCpu,
+                    static_cast<unsigned long long>(auroraFrameStats.efbBytes),
+                    static_cast<unsigned long long>(auroraFrameStats.efbHighWaterBytes),
+                    static_cast<unsigned long long>(auroraFrameStats.efbBudgetBytes),
+                    auroraFrameStats.efbEntries);
+#endif
         }
 #endif
 
         {
             std::lock_guard<std::mutex> lock(g_renderMutex);
-            g_renderBusy = false;
+            activeSlot->state = FrameQueueSlotState::Free;
             g_completedSerial = serial;
             g_stats.framesCompleted = g_completedSerial;
             ++g_stats.framesPresented;
@@ -3895,8 +4976,7 @@ void RenderWorkerMain() {
     g_bootTextVertices.clear();
     g_bootTextVertices.shrink_to_fit();
     std::lock_guard<std::mutex> lock(g_renderMutex);
-    g_renderBusy = false;
-    g_renderPending = false;
+    for (auto& slot : g_frameQueue) slot.state = FrameQueueSlotState::Free;
     g_completedSerial = g_submittedSerial;
     g_renderIdle.notify_all();
 }
@@ -3932,8 +5012,12 @@ void SubmitFrame() {
     g_lastProducerSubmitUs = producerEnterUs;
     const uint64_t priorWaitCalls = g_guestWaitRenderCallsSinceSubmit;
     const uint64_t priorWaitUs = g_guestWaitRenderUsSinceSubmit;
+    const auto priorWaitCallsByReason = g_renderWaitCallsByReason;
+    const auto priorWaitUsByReason = g_renderWaitUsByReason;
     g_guestWaitRenderCallsSinceSubmit = 0;
     g_guestWaitRenderUsSinceSubmit = 0;
+    g_renderWaitCallsByReason.fill(0);
+    g_renderWaitUsByReason.fill(0);
     const uint32_t producerDraws = g_gx.geometry.drawCount;
     const uint32_t producerVertices = g_gx.geometry.vertexCount;
 
@@ -3979,45 +5063,88 @@ void SubmitFrame() {
         g_gx.geometry.drawCount = 0;
         g_gx.geometry.efbCommandCount = 0;
         g_gx.geometry.droppedVertices = 0;
+#if MKW_VITA_COMPACT_FRAME_STATE
+        g_gx.geometry.transforms.clear();
+        g_gx.geometry.rasters.clear();
+        g_gx.geometry.textures.clear();
+#if MKW_VITA_GX_STATE_GENERATIONS
+        g_gx.geometry.lastTransformGeneration = 0;
+        g_gx.geometry.lastRasterGeneration = 0;
+        g_gx.geometry.lastTextureGeneration = 0;
+#endif
+#endif
         g_gx.activeDraw = -1;
         return;
     }
 
     const uint64_t queueWaitBeginUs = sceKernelGetProcessTimeWide();
+    const bool requiresFrameBarrier = g_gx.geometry.efbCommandCount != 0;
     std::unique_lock<std::mutex> lock(g_renderMutex);
-    g_renderIdle.wait(lock, [] { return !g_renderPending && !g_renderBusy; });
+    g_renderIdle.wait(lock, [requiresFrameBarrier] {
+        if (g_frameBarrierSerial != 0 && g_completedSerial < g_frameBarrierSerial) return false;
+        if (requiresFrameBarrier && !AllFrameSlotsFreeLocked()) return false;
+        for (const auto& slot : g_frameQueue) {
+            if (slot.state == FrameQueueSlotState::Free) return true;
+        }
+        return false;
+    });
+    FrameQueueSlot* queueSlot = FindFreeFrameSlotLocked();
+    if (!queueSlot) return;
+    queueSlot->state = FrameQueueSlotState::Packing;
+    FramePacket& pendingFrame = queueSlot->packet;
+    // The slot is private while Packing. Release the queue lock so USER_1 can
+    // render a different Busy slot while USER_0 copies the next compact packet.
+    lock.unlock();
     const uint64_t queueWaitEndUs = sceKernelGetProcessTimeWide();
     const uint64_t packetCopyBeginUs = queueWaitEndUs;
-    g_pendingFrame.counters = g_gx.frame;
+    pendingFrame.counters = g_gx.frame;
     // Copy only the active prefixes. FrameGeometry is capacity-sized for worst-case
     // G3D scenes, so assigning the whole object would memcpy ~1.9 MiB even for a
     // 12-draw menu transition. Counts make the unused tail semantically irrelevant.
-    g_pendingFrame.geometry.vertexCount = g_gx.geometry.vertexCount;
-    g_pendingFrame.geometry.drawCount = g_gx.geometry.drawCount;
-    g_pendingFrame.geometry.efbCommandCount = g_gx.geometry.efbCommandCount;
-    g_pendingFrame.geometry.droppedVertices = g_gx.geometry.droppedVertices;
+    pendingFrame.geometry.vertexCount = g_gx.geometry.vertexCount;
+    pendingFrame.geometry.drawCount = g_gx.geometry.drawCount;
+    pendingFrame.geometry.efbCommandCount = g_gx.geometry.efbCommandCount;
+    pendingFrame.geometry.droppedVertices = g_gx.geometry.droppedVertices;
     std::copy_n(g_gx.geometry.vertices.begin(), g_gx.geometry.vertexCount,
-                g_pendingFrame.geometry.vertices.begin());
+                pendingFrame.geometry.vertices.begin());
     std::copy_n(g_gx.geometry.pnMtxRefs.begin(), g_gx.geometry.vertexCount,
-                g_pendingFrame.geometry.pnMtxRefs.begin());
+                pendingFrame.geometry.pnMtxRefs.begin());
     std::copy_n(g_gx.geometry.draws.begin(), g_gx.geometry.drawCount,
-                g_pendingFrame.geometry.draws.begin());
+                pendingFrame.geometry.draws.begin());
     std::copy_n(g_gx.geometry.efbCommands.begin(), g_gx.geometry.efbCommandCount,
-                g_pendingFrame.geometry.efbCommands.begin());
-    g_pendingFrame.viewport = g_gx.viewport;
-    g_pendingFrame.scissor = g_gx.scissor;
-    AccumulateFrameStats(g_pendingFrame.counters);
+                pendingFrame.geometry.efbCommands.begin());
+#if MKW_VITA_COMPACT_FRAME_STATE
+    pendingFrame.geometry.transforms = g_gx.geometry.transforms;
+    pendingFrame.geometry.rasters = g_gx.geometry.rasters;
+    pendingFrame.geometry.textures = g_gx.geometry.textures;
+#endif
+    pendingFrame.viewport = g_gx.viewport;
+    pendingFrame.scissor = g_gx.scissor;
     g_gx.frame = {};
     g_gx.geometry.vertexCount = 0;
     g_gx.geometry.drawCount = 0;
     g_gx.geometry.efbCommandCount = 0;
     g_gx.geometry.droppedVertices = 0;
+#if MKW_VITA_COMPACT_FRAME_STATE
+    g_gx.geometry.transforms.clear();
+    g_gx.geometry.rasters.clear();
+    g_gx.geometry.textures.clear();
+#if MKW_VITA_GX_STATE_GENERATIONS
+    g_gx.geometry.lastTransformGeneration = 0;
+    g_gx.geometry.lastRasterGeneration = 0;
+    g_gx.geometry.lastTextureGeneration = 0;
+#endif
+#endif
     g_gx.activeDraw = -1;
-    ++g_submittedSerial;
     const uint64_t packetCopyEndUs = sceKernelGetProcessTimeWide();
-    g_stats.framesSubmitted = g_submittedSerial;
-    g_renderPending = true;
+    lock.lock();
+    AccumulateFrameStats(pendingFrame.counters);
+    ++g_submittedSerial;
     const uint64_t submittedSerial = g_submittedSerial;
+    queueSlot->serial = submittedSerial;
+    queueSlot->state = FrameQueueSlotState::Ready;
+    if (requiresFrameBarrier) g_frameBarrierSerial = submittedSerial;
+    g_stats.framesSubmitted = g_submittedSerial;
     lock.unlock();
     g_renderWake.notify_one();
 
@@ -4027,14 +5154,18 @@ void SubmitFrame() {
 #endif
 
 #if defined(MKW_TARGET_VITA)
-    if (submittedSerial <= 8u || (submittedSerial % 30u) == 0u ||
-        producerDraws >= 1000u || producerIntervalUs >= 1000000u ||
-        g_pendingFrame.counters.immediateDrawCapacityFailures != 0 ||
-        g_pendingFrame.counters.rawDrawCapacityFailures != 0 ||
-        g_pendingFrame.counters.efbCopyCapacityFailures != 0) {
+    const bool producerCritical = producerIntervalUs >= 1000000u ||
+        pendingFrame.counters.immediateDrawCapacityFailures != 0 ||
+        pendingFrame.counters.rawDrawCapacityFailures != 0 ||
+        pendingFrame.counters.efbCopyCapacityFailures != 0;
+    const bool producerPeriodic = submittedSerial <= 8u ||
+        (submittedSerial % (MKW_VITA_PERF_LOG ? 30u : kPerfSummaryInterval)) == 0u;
+    const bool producerVerbose = MKW_VITA_PERF_LOG && producerDraws >= 1000u;
+    if (producerPeriodic || producerVerbose || producerCritical) {
         RT_LOGF(RT_TAG_GX,
                 "producer_frame=%llu interval_us=%llu queue_wait_us=%llu packet_copy_us=%llu "
-                "prior_wait_calls=%llu prior_wait_us=%llu draws=%u vertices=%u efb_cmds=%u "
+                "prior_wait_calls=%llu prior_wait_us=%llu wait_gx=%llu/%llu wait_worker=%llu/%llu "
+                "draws=%u vertices=%u efb_cmds=%u "
                 "requested_draws=%llu begin_cap=%llu raw_cap=%llu dropped=%u "
                 "efb_calls=%llu efb_recorded=%llu efb_cap_fail=%llu efb_destroy=%llu\n",
                 static_cast<unsigned long long>(submittedSerial),
@@ -4043,21 +5174,25 @@ void SubmitFrame() {
                 static_cast<unsigned long long>(packetCopyEndUs - packetCopyBeginUs),
                 static_cast<unsigned long long>(priorWaitCalls),
                 static_cast<unsigned long long>(priorWaitUs),
+                static_cast<unsigned long long>(priorWaitCallsByReason[static_cast<size_t>(RenderWaitReason::DrawDone)]),
+                static_cast<unsigned long long>(priorWaitUsByReason[static_cast<size_t>(RenderWaitReason::DrawDone)]),
+                static_cast<unsigned long long>(priorWaitCallsByReason[static_cast<size_t>(RenderWaitReason::FrameWorker)]),
+                static_cast<unsigned long long>(priorWaitUsByReason[static_cast<size_t>(RenderWaitReason::FrameWorker)]),
                 producerDraws, producerVertices,
-                static_cast<unsigned>(g_pendingFrame.geometry.efbCommandCount),
-                static_cast<unsigned long long>(g_pendingFrame.counters.drawCalls),
-                static_cast<unsigned long long>(g_pendingFrame.counters.immediateDrawCapacityFailures),
-                static_cast<unsigned long long>(g_pendingFrame.counters.rawDrawCapacityFailures),
-                g_pendingFrame.geometry.droppedVertices,
-                static_cast<unsigned long long>(g_pendingFrame.counters.efbCopyCalls),
-                static_cast<unsigned long long>(g_pendingFrame.counters.efbCopyRecorded),
-                static_cast<unsigned long long>(g_pendingFrame.counters.efbCopyCapacityFailures),
-                static_cast<unsigned long long>(g_pendingFrame.counters.efbDestroyRecorded));
+                static_cast<unsigned>(pendingFrame.geometry.efbCommandCount),
+                static_cast<unsigned long long>(pendingFrame.counters.drawCalls),
+                static_cast<unsigned long long>(pendingFrame.counters.immediateDrawCapacityFailures),
+                static_cast<unsigned long long>(pendingFrame.counters.rawDrawCapacityFailures),
+                pendingFrame.geometry.droppedVertices,
+                static_cast<unsigned long long>(pendingFrame.counters.efbCopyCalls),
+                static_cast<unsigned long long>(pendingFrame.counters.efbCopyRecorded),
+                static_cast<unsigned long long>(pendingFrame.counters.efbCopyCapacityFailures),
+                static_cast<unsigned long long>(pendingFrame.counters.efbDestroyRecorded));
     }
 #endif
 }
 
-void WaitRender() {
+void WaitRender(RenderWaitReason reason) {
     const uint64_t waitBeginUs = sceKernelGetProcessTimeWide();
     std::unique_lock<std::mutex> lock(g_renderMutex);
     const uint64_t serial = g_submittedSerial;
@@ -4071,8 +5206,12 @@ void WaitRender() {
         }
     }
     const uint64_t waitEndUs = sceKernelGetProcessTimeWide();
+    const uint64_t waitedUs = waitEndUs - waitBeginUs;
     ++g_guestWaitRenderCallsSinceSubmit;
-    g_guestWaitRenderUsSinceSubmit += waitEndUs - waitBeginUs;
+    g_guestWaitRenderUsSinceSubmit += waitedUs;
+    const size_t reasonIndex = static_cast<size_t>(reason);
+    ++g_renderWaitCallsByReason[reasonIndex];
+    g_renderWaitUsByReason[reasonIndex] += waitedUs;
 }
 
 bool WaitRenderFor(uint32_t timeoutMicros) {
@@ -4135,6 +5274,11 @@ void SetGuestBeginLr(uint32_t lr) noexcept {
 
 bool Initialize() noexcept {
     InitializeTransformDefaults();
+#if MKW_VITA_COMPACT_FRAME_STATE
+    g_gx.geometry.transforms.reserve(1024);
+    g_gx.geometry.rasters.reserve(512);
+    g_gx.geometry.textures.reserve(1024);
+#endif
     std::fill(g_gx.vtxDesc.begin(), g_gx.vtxDesc.end(), GX_NONE);
     std::fill(g_gx.sourceVtxDesc.begin(), g_gx.sourceVtxDesc.end(), GX_NONE);
     return EnsureRenderWorker();
@@ -4238,7 +5382,7 @@ const AuroraEvent* aurora_update() { return nullptr; }
 bool aurora_begin_frame() { return WiiCompiledVita::GxBackend::Initialize(); }
 void aurora_end_frame() { SubmitFrame(); }
 void aurora_set_frame_worker_wait_callback(AuroraFrameWorkerWaitCallback callback) { g_waitCallback = callback; }
-void aurora_wait_for_frame_worker() { WaitRender(); }
+void aurora_wait_for_frame_worker() { WaitRender(RenderWaitReason::FrameWorker); }
 bool aurora_wait_for_frame_worker_for(uint32_t timeoutMicros) { return WaitRenderFor(timeoutMicros); }
 void aurora_set_present_schedule(uint64_t, uint64_t) {}
 void aurora_report_producer_paced(bool) {}
@@ -4274,8 +5418,11 @@ void AuroraGetSurfaceSize(u32* width, u32* height) { AuroraGetRenderSize(width, 
 void GXSetViewportRender(f32 left, f32 top, f32 width, f32 height, f32 nearz, f32 farz) {
     GXSetViewport(left, top, width, height, nearz, farz);
 }
-void GXSetScissorRender(u32 left, u32 top, u32 width, u32 height) { GXSetScissor(left, top, width, height); }
-void GXSetViewportScissorRenderSafeArea(f32) {}
+void GXSetScissorRender(u32 left, u32 top, u32 width, u32 height) {
+    GXSetScissor(left, top, width, height);
+}
+void GXSetViewportScissorRenderSafeArea(f32) {
+    MarkRasterStateDirty();}
 void GXRestoreViewportScissorRender() {}
 void GXSetTexCopySrcRender(u16 left, u16 top, u16 width, u16 height) {
     GXSetTexCopySrc(left, top, width, height);
@@ -4310,11 +5457,17 @@ GXFifoObj* GXGetCPUFifo() { return g_cpuFifo; }
 GXFifoObj* GXGetGPFifo() { return g_gpFifo; }
 void GXSaveCPUFifo(GXFifoObj* fifo) { if (fifo && g_cpuFifo) std::memcpy(fifo, g_cpuFifo, sizeof(*fifo)); }
 void GXFlush() {}
-void GXDrawDone() { WaitRender(); }
+void GXDrawDone() { WaitRender(RenderWaitReason::DrawDone); }
 void GXPixModeSync() {}
 
 void GXSetVtxDesc(GXAttr attr, GXAttrType type) {
-    if (attr >= 0 && attr < GX_VA_MAX_ATTR) g_gx.vtxDesc[static_cast<size_t>(attr)] = type;
+    if (attr >= 0 && attr < GX_VA_MAX_ATTR) {
+        GXAttrType& current = g_gx.vtxDesc[static_cast<size_t>(attr)];
+        if (current != type) {
+            MarkVertexLayoutDirty();
+            current = type;
+        }
+    }
 }
 void GXSetSourceVtxDesc(GXAttr attr, GXAttrType type) {
     if (attr >= 0 && attr < GX_VA_MAX_ATTR) g_gx.sourceVtxDesc[static_cast<size_t>(attr)] = type;
@@ -4324,22 +5477,40 @@ void GXGetVtxDesc(GXAttr attr, GXAttrType* type) {
     *type = (attr >= 0 && attr < GX_VA_MAX_ATTR) ? g_gx.vtxDesc[static_cast<size_t>(attr)] : GX_NONE;
 }
 void GXClearVtxDesc() {
+    const bool changed =
+        std::any_of(g_gx.vtxDesc.begin(), g_gx.vtxDesc.end(),
+                    [](GXAttrType type) { return type != GX_NONE; }) ||
+        std::any_of(g_gx.sourceVtxDesc.begin(), g_gx.sourceVtxDesc.end(),
+                    [](GXAttrType type) { return type != GX_NONE; });
+    if (changed) MarkVertexLayoutDirty();
     std::fill(g_gx.vtxDesc.begin(), g_gx.vtxDesc.end(), GX_NONE);
     std::fill(g_gx.sourceVtxDesc.begin(), g_gx.sourceVtxDesc.end(), GX_NONE);
 }
 void GXSetVtxAttrFmt(GXVtxFmt fmt, GXAttr attr, GXCompCnt cnt, GXCompType type, u8 frac) {
     if (fmt >= 0 && fmt < GX_MAX_VTXFMT && attr >= 0 && attr < GX_VA_MAX_ATTR) {
-        g_gx.vtxFmt[static_cast<size_t>(fmt)][static_cast<size_t>(attr)] = {cnt, type, frac};
+        VtxFmtState& current =
+            g_gx.vtxFmt[static_cast<size_t>(fmt)][static_cast<size_t>(attr)];
+        if (current.cnt != cnt || current.type != type || current.frac != frac) {
+            MarkVertexLayoutDirty();
+            current = {cnt, type, frac};
+        }
     }
 }
 void GXSetArray(GXAttr attr, const void* data, u32 size, u8 stride, bool le) {
     if (attr >= 0 && attr < GX_VA_MAX_ATTR) {
-        g_gx.arrays[static_cast<size_t>(attr)] = {data, size, stride, le};
+        ArrayState& current = g_gx.arrays[static_cast<size_t>(attr)];
+        if (current.data != data || current.size != size ||
+            current.stride != stride || current.littleEndian != le) {
+            MarkArrayStateDirty();
+            current = {data, size, stride, le};
+        }
     }
 }
-void GXSetNumTexGens(u8 n) { g_gx.numTexGens = n; }
+void GXSetNumTexGens(u8 n) {
+    MarkTextureStateDirty(); g_gx.numTexGens = n; }
 void GXSetTexCoordGen2(GXTexCoordID dst, GXTexGenType type, GXTexGenSrc src,
                        u32 mtx, GXBool normalize, u32 postMtx) {
+    MarkTextureStateDirty();
     if (dst < GX_TEXCOORD0 || dst >= GX_MAX_TEXCOORD) {
         return;
     }
@@ -4390,6 +5561,7 @@ void GXBegin(GXPrimitive primitive, GXVtxFmt fmt, u16 nverts) {
     }
 }
 void GXEnd() {
+    if (g_gx.activeDraw >= 0) MergeAdjacentUiQuads();
     g_gx.declaredVertices = 0;
     g_gx.activeDraw = -1;
 }
@@ -4481,6 +5653,14 @@ void GXCallDisplayList(const void* data, u32 nbytes) {
 void GXApplyBPReg(u8 reg, u32 value) {
     value &= 0x00ffffffu;
     g_gx.bpRegs[reg] = value;
+    if (reg == 0x00u) {
+        MarkRasterStateDirty();
+        MarkTextureStateDirty();
+    } else if ((reg >= 0x28u && reg <= 0x2Fu) || (reg >= 0xC0u && reg <= 0xDFu)) {
+        MarkTextureStateDirty();
+    } else if (reg == 0x40u || reg == 0x41u || reg == 0xF3u) {
+        MarkRasterStateDirty();
+    }
     if (reg >= 0xC0u && reg <= 0xDFu) {
         const size_t stage = static_cast<size_t>(reg - 0xC0u) / 2u;
         if (stage < g_gx.tevPresetValid.size()) {
@@ -4570,6 +5750,7 @@ void GXApplyBPReg(u8 reg, u32 value) {
 }
 
 void GXSetProjection(const void* mtx, GXProjectionType type) {
+    MarkTransformStateDirty();
     InitializeTransformDefaults();
     if (mtx) {
         std::memcpy(g_gx.projection.data(), mtx, sizeof(f32) * 16);
@@ -4583,6 +5764,7 @@ void GXSetProjection(const void* mtx, GXProjectionType type) {
     g_gx.projectionType = type;
 }
 void GXLoadPosMtxImm(const void* mtx, u32 id) {
+    MarkTransformStateDirty();
     if (!mtx) return;
     InitializeTransformDefaults();
     const size_t slot = std::min<size_t>(id / 3u, g_gx.posMtx.size() - 1u);
@@ -4594,6 +5776,7 @@ void GXLoadNrmMtxImm(const void* mtx, u32 id) {
     std::memcpy(g_gx.nrmMtx[slot].data(), mtx, sizeof(f32) * 12);
 }
 void GXLoadTexMtxImm(const void* mtx, u32 id, GXTexMtxType type) {
+    MarkTextureStateDirty();
     if (!mtx) return;
     const size_t count = type == GX_MTX2x4 ? 8u : 12u;
     if (id >= GX_PTTEXMTX0 && id <= GX_PTIDENTITY) {
@@ -4623,7 +5806,9 @@ void GXSetCurrentMtx(u32 id) {
     g_gx.pendingPnMtxRef = DefaultPnMtxRef();
 }
 void GXSetViewport(f32 left, f32 top, f32 width, f32 height, f32 nearz, f32 farz) {
-    g_gx.viewport = {left, top, width, height, nearz, farz};
+    const std::array<f32, 6> next{left, top, width, height, nearz, farz};
+    if (g_gx.viewport != next) MarkRasterStateDirty();
+    g_gx.viewport = next;
     const f32 sx = width * 0.5f;
     const f32 sy = -height * 0.5f;
     const f32 zmin = 16777216.0f * nearz;
@@ -4640,17 +5825,26 @@ void GXSetViewportJitter(f32 left, f32 top, f32 width, f32 height, f32 nearz, f3
 }
 void GXSetZScaleOffset(f32 scale, f32 offset) { g_gx.zScale = scale; g_gx.zOffset = offset; }
 void GXSetScissorBoxOffset(s32 x, s32 y) { g_gx.scissorOffsetX = x; g_gx.scissorOffsetY = y; }
-void GXSetScissor(u32 left, u32 top, u32 width, u32 height) { g_gx.scissor = {left, top, width, height}; }
+void GXSetScissor(u32 left, u32 top, u32 width, u32 height) {
+    const std::array<u32, 4> next{left, top, width, height};
+    if (g_gx.scissor != next) MarkRasterStateDirty();
+    g_gx.scissor = next;
+}
 void GXSetClipMode(GXClipMode mode) { g_gx.clipMode = mode; }
-void GXSetCullMode(GXCullMode mode) { g_gx.cullMode = mode; }
+void GXSetCullMode(GXCullMode mode) {
+    MarkRasterStateDirty(); g_gx.cullMode = mode; }
 void GXSetCoPlanar(GXBool) {}
 
 void GXSetBlendMode(GXBlendMode type, GXBlendFactor src, GXBlendFactor dst, GXLogicOp op) {
+    MarkRasterStateDirty();
     g_gx.blendMode = type; g_gx.blendSrc = src; g_gx.blendDst = dst; g_gx.logicOp = op;
 }
-void GXSetColorUpdate(GXBool enabled) { g_gx.colorUpdate = enabled; }
-void GXSetAlphaUpdate(GXBool enabled) { g_gx.alphaUpdate = enabled; }
+void GXSetColorUpdate(GXBool enabled) {
+    MarkRasterStateDirty(); g_gx.colorUpdate = enabled; }
+void GXSetAlphaUpdate(GXBool enabled) {
+    MarkRasterStateDirty(); g_gx.alphaUpdate = enabled; }
 void GXSetZMode(GXBool compare, GXCompare func, GXBool update) {
+    MarkRasterStateDirty();
     g_gx.depthCompare = compare; g_gx.depthFunc = func; g_gx.depthUpdate = update;
 }
 void GXSetZCompLoc(GXBool before) { g_gx.zCompBeforeTex = before; }
@@ -4659,6 +5853,7 @@ void GXSetDither(GXBool enabled) { g_gx.dither = enabled; }
 void GXSetDstAlpha(GXBool enabled, u8 alpha) { g_gx.dstAlphaEnable = enabled; g_gx.dstAlpha = alpha; }
 void GXSetFog(GXFogType, f32, f32, f32, f32, GXColor) {}
 void GXSetAlphaCompare(GXCompare comp0, u8 ref0, GXAlphaOp op, GXCompare comp1, u8 ref1) {
+    MarkRasterStateDirty();
     g_gx.alphaComp0 = comp0;
     g_gx.alphaRef0 = ref0;
     g_gx.alphaOp = op;
@@ -4667,14 +5862,17 @@ void GXSetAlphaCompare(GXCompare comp0, u8 ref0, GXAlphaOp op, GXCompare comp1, 
 }
 void GXSetZTexture(GXZTexOp, GXTexFmt, u32) {}
 
-void GXSetNumTevStages(u8 n) { g_gx.numTevStages = n; }
+void GXSetNumTevStages(u8 n) {
+    MarkTextureStateDirty(); g_gx.numTevStages = n; }
 void GXSetTevOp(GXTevStageID stage, GXTevMode mode) {
+    MarkTextureStateDirty();
     if (stage >= 0 && stage < GX_MAX_TEVSTAGE) {
         g_gx.tevModes[static_cast<size_t>(stage)] = mode;
         g_gx.tevPresetValid[static_cast<size_t>(stage)] = 1u;
     }
 }
 void GXSetTevOrder(GXTevStageID stage, GXTexCoordID coord, GXTexMapID map, GXChannelID) {
+    MarkTextureStateDirty();
     if (stage >= 0 && stage < GX_MAX_TEVSTAGE) {
         g_gx.tevTexCoords[static_cast<size_t>(stage)] = coord;
         g_gx.tevTexMaps[static_cast<size_t>(stage)] = map;
@@ -4682,6 +5880,7 @@ void GXSetTevOrder(GXTevStageID stage, GXTexCoordID coord, GXTexMapID map, GXCha
 }
 void GXSetTevColorIn(GXTevStageID stage, GXTevColorArg a, GXTevColorArg b,
                      GXTevColorArg c, GXTevColorArg d) {
+    MarkTextureStateDirty();
     if (stage >= 0 && stage < GX_MAX_TEVSTAGE) {
         const size_t index = static_cast<size_t>(stage);
         g_gx.tevPresetValid[index] = 0u;
@@ -4694,6 +5893,7 @@ void GXSetTevColorIn(GXTevStageID stage, GXTevColorArg a, GXTevColorArg b,
 }
 void GXSetTevAlphaIn(GXTevStageID stage, GXTevAlphaArg a, GXTevAlphaArg b,
                      GXTevAlphaArg c, GXTevAlphaArg d) {
+    MarkTextureStateDirty();
     if (stage >= 0 && stage < GX_MAX_TEVSTAGE) {
         const size_t index = static_cast<size_t>(stage);
         g_gx.tevPresetValid[index] = 0u;
@@ -4706,6 +5906,7 @@ void GXSetTevAlphaIn(GXTevStageID stage, GXTevAlphaArg a, GXTevAlphaArg b,
 }
 void GXSetTevColorOp(GXTevStageID stage, GXTevOp op, GXTevBias bias, GXTevScale scale,
                      GXBool clamp, GXTevRegID outReg) {
+    MarkTextureStateDirty();
     if (stage >= 0 && stage < GX_MAX_TEVSTAGE) {
         const size_t index = static_cast<size_t>(stage);
         g_gx.tevPresetValid[index] = 0u;
@@ -4724,6 +5925,7 @@ void GXSetTevColorOp(GXTevStageID stage, GXTevOp op, GXTevBias bias, GXTevScale 
 }
 void GXSetTevAlphaOp(GXTevStageID stage, GXTevOp op, GXTevBias bias, GXTevScale scale,
                      GXBool clamp, GXTevRegID outReg) {
+    MarkTextureStateDirty();
     if (stage >= 0 && stage < GX_MAX_TEVSTAGE) {
         const size_t index = static_cast<size_t>(stage);
         g_gx.tevPresetValid[index] = 0u;
@@ -4741,10 +5943,12 @@ void GXSetTevAlphaOp(GXTevStageID stage, GXTevOp op, GXTevBias bias, GXTevScale 
     }
 }
 void GXSetTevColor(GXTevRegID id, GXColor color) {
+    MarkTextureStateDirty();
     if (id >= 0 && static_cast<size_t>(id) < g_gx.tevColor.size()) g_gx.tevColor[static_cast<size_t>(id)] = color;
 }
 void GXSetTevColorS10(GXTevRegID, GXColorS10) {}
 void GXSetTevKColor(GXTevKColorID id, GXColor color) {
+    MarkTextureStateDirty();
     if (id >= 0 && id < GX_MAX_KCOLOR) g_gx.kColor[static_cast<size_t>(id)] = color;
 }
 void GXSetTevKColorSel(GXTevStageID, GXTevKColorSel) {}
@@ -4787,6 +5991,7 @@ void GXLoadLightObjImm(GXLightObj*, GXLightID) {}
 
 void GXInitTexObj(GXTexObj* obj, const void* data, u16 width, u16 height, GXTexFmt format,
                   GXTexWrapMode wrapS, GXTexWrapMode wrapT, GXBool mipmap) {
+    MarkTextureStateDirty();
     if (!obj) return;
     std::memset(obj, 0, sizeof(*obj));
     auto& t = Tex(obj);
@@ -4800,25 +6005,33 @@ void GXInitTexObjCI(GXTexObj* obj, const void* data, u16 width, u16 height, GXCI
     if (obj) Tex(obj).tlut = tlut;
 }
 void GXInitTexObjData(GXTexObj* obj, const void* data) {
+    MarkTextureStateDirty();
     if (!obj) return;
     Tex(obj).data = data;
     Tex(obj).dataRevision = NextTextureRevision();
 }
 void GXInitTexObjLOD(GXTexObj* obj, GXTexFilter minFilter, GXTexFilter magFilter, f32 minLod, f32 maxLod,
                      f32 bias, GXBool biasClamp, GXBool edgeLod, GXAnisotropy aniso) {
+    MarkTextureStateDirty();
     if (!obj) return;
     auto& t = Tex(obj); t.minFilter = minFilter; t.magFilter = magFilter; t.minLod = minLod;
     t.maxLod = maxLod; t.lodBias = bias; t.biasClamp = biasClamp; t.edgeLod = edgeLod; t.maxAniso = aniso;
 }
 void GXInitTexObjWrapMode(GXTexObj* obj, GXTexWrapMode s, GXTexWrapMode t) {
+    MarkTextureStateDirty();
     if (obj) { Tex(obj).wrapS = s; Tex(obj).wrapT = t; }
 }
-void GXInitTexObjTlut(GXTexObj* obj, u32 tlut) { if (obj) Tex(obj).tlut = tlut; }
+void GXInitTexObjTlut(GXTexObj* obj, u32 tlut) {
+    MarkTextureStateDirty();
+    if (obj) Tex(obj).tlut = tlut;
+}
 void GXInitTexObjUserData(GXTexObj* obj, void* data) { if (obj) Tex(obj).userData = data; }
 void GXLoadTexObj(GXTexObj* obj, GXTexMapID id) {
+    MarkTextureStateDirty();
     if (id >= 0 && id < GX_MAX_TEXMAP) g_gx.textures[static_cast<size_t>(id)] = obj;
 }
 void GXDestroyTexObj(GXTexObj* obj) {
+    MarkTextureStateDirty();
     if (!obj) return;
     for (auto& bound : g_gx.textures) {
         if (bound == obj) {
@@ -4828,6 +6041,7 @@ void GXDestroyTexObj(GXTexObj* obj) {
     std::memset(obj, 0, sizeof(*obj));
 }
 void GXInvalidateTexAll() {
+    MarkTextureStateDirty();
     ++g_gx.frame.textureInvalidateAllCalls;
     ++g_gx.textureGlobalEpoch;
     if (g_gx.textureGlobalEpoch == 0) {
@@ -4858,9 +6072,31 @@ void GXLoadTlut(const GXTlutObj* obj, u32 idx) {
     if (idx < g_gx.tluts.size()) g_gx.tluts[idx] = const_cast<GXTlutObj*>(obj);
 }
 void GXDestroyTlutObj(GXTlutObj* obj) { if (obj) std::memset(obj, 0, sizeof(*obj)); }
+EfbFrameCommand* ReserveEfbCommand(void* destination, EfbFrameCommandType type) {
+    if (!destination) return nullptr;
+    auto& geometry = g_gx.geometry;
+    if (geometry.efbCommandCount) {
+        auto& previous = geometry.efbCommands[geometry.efbCommandCount - 1];
+        // No intervening draw or command can have sampled this result. A clear
+        // is an observable framebuffer side effect and must never disappear.
+        if (WiiCompiledVita::CanReplaceEfbCommand(
+            previous.afterDrawCount == geometry.drawCount,
+            previous.destination == reinterpret_cast<uintptr_t>(destination), previous.clear,
+            previous.type == EfbFrameCommandType::Copy, type == EfbFrameCommandType::Destroy)) {
+            ++g_gx.frame.efbCommandsCoalesced;
+            return &previous;
+        }
+    }
+    if (geometry.efbCommandCount >= kMaxFrameEfbCommands) {
+        ++g_gx.frame.efbCopyCapacityFailures; // count rejected destroys too
+        return nullptr;
+    }
+    return &geometry.efbCommands[geometry.efbCommandCount++];
+}
 void GXDestroyCopyTex(void* destination) {
-    if (!destination || g_gx.geometry.efbCommandCount >= kMaxFrameEfbCommands) return;
-    EfbFrameCommand& command = g_gx.geometry.efbCommands[g_gx.geometry.efbCommandCount++];
+    EfbFrameCommand* reserved = ReserveEfbCommand(destination, EfbFrameCommandType::Destroy);
+    if (!reserved) return;
+    EfbFrameCommand& command = *reserved;
     command = {};
     command.type = EfbFrameCommandType::Destroy;
     command.afterDrawCount = g_gx.geometry.drawCount;
@@ -4889,11 +6125,9 @@ void GXCopyTex(void* destination, GXBool clear) {
         g_gx.texCopyWidth == 0 || g_gx.texCopyHeight == 0) {
         return;
     }
-    if (g_gx.geometry.efbCommandCount >= kMaxFrameEfbCommands) {
-        ++g_gx.frame.efbCopyCapacityFailures;
-        return;
-    }
-    EfbFrameCommand& command = g_gx.geometry.efbCommands[g_gx.geometry.efbCommandCount++];
+    EfbFrameCommand* reserved = ReserveEfbCommand(destination, EfbFrameCommandType::Copy);
+    if (!reserved) return;
+    EfbFrameCommand& command = *reserved;
     command = {};
     command.type = EfbFrameCommandType::Copy;
     command.afterDrawCount = g_gx.geometry.drawCount;
@@ -4914,7 +6148,7 @@ void GXCopyTex(void* destination, GXBool clear) {
     ++g_gx.frame.efbCopyRecorded;
     static std::uint64_t s_efbRecordTrace = 0;
     const std::uint64_t trace = ++s_efbRecordTrace;
-    if (trace <= 32u) {
+    if (MKW_VITA_PERF_LOG && trace <= 32u) {
         RT_LOGF(RT_TAG_GX,
                 "efb_record n=%llu after_draw=%u dest=%p src=%u,%u %ux%u dst=%ux%u fmt=0x%X clear=%u\n",
                 static_cast<unsigned long long>(trace),
@@ -4940,8 +6174,20 @@ bool submit_raw_draw(GXPrimitive primitive, GXVtxFmt fmt, const uint8_t* vertice
 #if defined(MKW_TARGET_VITA)
     static uint64_t s_rawFailTrace = 0;
     const uint64_t trace = ++s_rawFailTrace;
-    if (trace <= 32u || (trace & (trace - 1u)) == 0u) {
-        const RawDecodeFailure failure = g_rawDecodeFailure;
+    const RawDecodeFailure failure = g_rawDecodeFailure;
+    RecordPerfCriticalEvent(0, kPerfEventRawDecodeFailure,
+                            static_cast<uint32_t>(failure.reason),
+                            (static_cast<uint32_t>(failure.attr) << 16) | failure.desc);
+#if MKW_VITA_PERF_LOG
+    const bool emitRawFailure = trace <= 32u || (trace & (trace - 1u)) == 0u;
+#else
+    static uint32_t s_rawFailureReasonMask = 0;
+    const uint32_t reasonBit = static_cast<uint32_t>(failure.reason) < 31u
+        ? (1u << static_cast<uint32_t>(failure.reason)) : 0x80000000u;
+    const bool emitRawFailure = (s_rawFailureReasonMask & reasonBit) == 0u;
+    s_rawFailureReasonMask |= reasonBit;
+#endif
+    if (emitRawFailure) {
         RT_LOGF(RT_TAG_GX,
                 "raw_decode_fail n=%llu reason=%s(%u) prim=0x%X fmt=%u verts=%u bytes=%u "
                 "vertex=%u attr=%u desc=%u index=%u elem=%u array=%u stride=%u cursor=%u\n",

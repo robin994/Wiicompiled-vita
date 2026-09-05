@@ -2148,24 +2148,361 @@ texture and pipeline ownership, but add a WiiCompiled-specific compact frame sub
 The complete ordered plan, proposed build flags, performance targets and hardware A/B procedure
 are recorded in [`PERFORMANCE_OPTIMIZATION_PLAN.md`](PERFORMANCE_OPTIMIZATION_PLAN.md).
 
+## M13.3-P4.1 — Astra performance program (2026-09-05)
+
+Performance work is now the primary development priority. The M13.2 profiling architecture was
+implemented incrementally behind build flags and validated on real PS Vita with EFB, LightTexture,
+Billboards and real materials enabled. The objective is to reduce producer and consumer CPU cost
+without replacing Aurora's already validated shader/texture/pipeline ownership.
+
+### P0 — low-overhead profiling / reproducible builds  (DONE)
+
+- Hot per-draw/progress logging is compiled out with `MKW_VITA_PERF_LOG=0`; bounded counters and
+  periodic summaries remain.
+- A small in-memory perf ring preserves critical events without synchronous per-draw file I/O.
+- Producer waits are split into `GXDrawDone` and generic render-worker waits.
+- EFB timing is split into sync / readback / scale / upload.
+- Build identity is recorded in a generated manifest: git HEAD, native config, translated build
+  directory/options, VitaGL archive/toolchain and SHA-256 for VitaGL/ELF/VPK. The selected VitaGL
+  archive is also a real ELF prerequisite so replacing it forces a relink.
+
+### P1-P3 — compact consumer path / frame queue / DL template cache  (DONE, hardware-tested)
+
+The active performance path now uses:
+
+- compact bridge vertices instead of the generic CanonicalVertex expansion;
+- direct mapped VBO/IBO writes and U16 indices;
+- adjacent run batching before expensive per-draw command construction;
+- dense `renderStateId` values so only the first draw in a run resolves pipeline/bindings/uniforms;
+- compact per-frame transform/raster/texture state tables instead of duplicating full state per draw;
+- a two-slot producer/renderer queue;
+- conservative display-list template caching;
+- EFB boundaries still flush/serialize for correctness.
+
+Hardware evidence confirms the run path is effective. A representative frame with 1,619 logical
+draws is reduced to 87 physical draws; 1,444 of the 1,619 draws extend an existing state run. Heavy
+frames similarly collapse thousands of logical draws into tens/low hundreds of physical submissions.
+The consumer is therefore no longer dominated by constructing one full DrawPacket per logical draw.
+
+### P4 — GX generations + layout decoder + object-space mesh cache  (DONE, hardware-tested)
+
+P4 moves the main optimization focus to USER_0/display-list replay:
+
+- separate generations for transform, raster, texture, vertex-layout and array state;
+- conservative XF/BP invalidation split by state category;
+- value-sensitive vertex descriptor/VAT/array invalidation;
+- transform/raster/texture snapshots are reused while their generation is unchanged;
+- raw GX layouts are precompiled per `GXVtxFmt`, so each vertex no longer rescans the complete
+  PNMTXIDX..TEX7 descriptor range;
+- a bounded object-space mesh cache stores decoded `RenderVertex` data plus PN-matrix references;
+- cache entries are validated against guest-write generations for both the display-list payload and
+  every indexed source array. Untracked memory is never cached.
+
+The first P4 cache used 256 direct-mapped entries / 4 MiB payload budget. Hardware showed that state
+and layout reuse were already excellent, but the mesh cache thrashed:
+
+- representative `p4_state` reuse: roughly 88-90%;
+- `p4_layout=1457/45` (~97% hits);
+- `p4_mesh=194/1308/1106/0` on one representative frame (~13% hits, zero invalidations);
+- another heavy sample reached only about 6% mesh hits, again with zero invalidations.
+
+Even this first version reduced representative display-list CPU time from about 50 ms to about
+36.9 ms, and a heavier ~82 ms case to about 64 ms. The low hit rate was therefore identified as a
+capacity/collision problem rather than changing guest geometry.
+
+Artifact preserved for the first P4 hardware pass:
+
+- `build/vita/wiicompiled-vita-mkw-firstboot-astra-p4-performance.vpk`
+- SHA-256 `f126e0bd1a73c9d90fca5ddfb9c518fd018b6b5879eb444d81e3dcf7b96667fc`
+- exact ELF SHA-256 `943c18e3ca834295197e0c96d1ab9d515b9646a0c8d6923796233819e29a80f4`.
+
+### P4.1 — 4-way object-space mesh cache  (DONE, hardware-tested, target reached)
+
+P4.1 keeps the 4 MiB mesh payload budget but replaces the 256-entry direct-mapped cache with a
+2,048-entry, 512-set, 4-way set-associative cache using per-set LRU replacement. Dependency metadata
+was reduced to the maximum real indexed GX vertex attributes rather than reserving every GX enum
+slot per entry. Guest-write validation and correctness fallbacks are unchanged.
+
+Real-hardware results are the strongest performance result so far:
+
+- `p4_mesh=1289/213/11/0` -> approximately **85.8% mesh-cache hits**, zero invalidations;
+- `p4_layout=1457/45` remains approximately 97% hit;
+- representative `dl_us` falls to **13.861 ms** for 1,300 raw draws / 9,176 vertices;
+- this is ~62% faster than the first P4 cache and ~72% faster than the ~50 ms pre-P4 baseline;
+- the Astra intermediate target **display-list replay <20 ms is reached**;
+- the same representative producer interval is approximately 220.6 ms.
+
+No correctness regression accompanies the speedup in the measured samples: `raw_fail=0`,
+`transform_fail=0`, no draw/vertex overflow, no dropped draws and no texture failures. Further
+mesh-cache enlargement is no longer the highest-value optimization.
+
+P4.1 artifact:
+
+- `build/vita/wiicompiled-vita-mkw-firstboot-astra-p4_1-meshcache.vpk`
+- SHA-256 `9bbb8f109671a1d7e5beffeda1e70bb80d99cc36029dfa0c060abdfe93b655af`
+- exact ELF SHA-256 `fd87ecd686910b3db1d08a23cfa2b4fab63b1c65edfbb267a03bd393c41d571e`.
+
+### Current dominant performance blocker — EFB CPU round-trip / GXDrawDone
+
+With DL replay reduced below 20 ms, the hardware profile now points overwhelmingly at EFB. In the
+same representative P4.1 frame:
+
+- renderer: ~101.9 ms;
+- 12 EFB copies execute successfully;
+- EFB sync: ~1.0 ms;
+- EFB readback: ~42.6 ms;
+- CPU scale/flip: ~19.5 ms;
+- texture upload: ~18.0 ms;
+- total measured EFB work: ~81.1 ms, roughly 80% of renderer CPU time;
+- producer prior-wait: ~91.9 ms, almost entirely `GXDrawDone` (~91.9 ms), while generic worker
+  wait is effectively zero.
+
+This means the synchronous EFB path is hurting both USER_1 and USER_0: the framebuffer is read back
+to CPU RAM, scaled/flipped, uploaded again, and the guest producer then waits for the renderer/GPU
+barrier. Removing this round-trip has a much larger expected payoff than further mesh-cache tuning.
+
+The old `MKW_VITA_EFB_GPU_BLIT=1` transient-FBO implementation remains **rejected**. It previously
+crashed on hardware in `SceGxm+0x1E638` / DFAR `0xFFFFFFFF`; do not re-enable it as the P5 fix.
+The next EFB architecture must keep sampled copies GPU-resident without repeated transient render-
+target/FBO switching, preserve FIFO copy/clear semantics and retain a CPU-read fallback only for
+copies that are genuinely exposed to guest CPU reads.
+
+Other measured performance debt remains after P5:
+
+- `prebegin_us` is still about 130-135 ms in representative G3D frames and must be decomposed after
+  EFB/GXDrawDone no longer dominates synchronization;
+- heavy scenes can request hundreds of EFB operations and exceed the current 128-command frame cap;
+  simply increasing the cap while every copy performs a CPU readback is not viable;
+- later scenes can saturate the ~10 MiB sampled texture cache and require bounded eviction/pre-
+  eviction rather than failed uploads;
+- UI/LYT run batching, full resource-fence ownership and selective translated-shard optimization
+  remain later Astra stages.
+
 ## Next
 
-- For the missing models, capture one bounded perspective draw end to end: source position and
-  PN index, selected matrix, clip-space output, NDC, viewport/scissor/depth state, packed vertex
-  bytes and final draw range. Add a clip-space overlay A/B with depth disabled to distinguish a
-  transform/depth failure from a packet/layout/submission failure.
-- Preserve the successful indexed raw path. Account separately for the capacity failures at the
-  49,152-vertex boundary; do not treat them as the old indexed descriptor bug or solve them only
-  by indefinitely enlarging the current 7.5 MiB packet.
-- Start performance phase P0: compile out per-128-draw progress logs and repeated hot warnings,
-  retain bounded in-memory counters, clear/rename `runtime.log`, then repeat the same hardware
-  route to obtain an uncontaminated baseline.
-- Profile `submit_us` into vertex transform/packing, index build, pipeline key, texture resolution,
-  staging copy and final vitaGL work. Then implement the compact vertex plus frame-wide batching
-  path behind build flags, one change per hardware A/B.
-- Add the decoded display-list cache and faithful adjacent-quad UI batching only after the compact
-  renderer baseline. The glyph raw fast path is already active and is not the first UI target.
-- Re-enable EFB, billboards, LightTexture, textures/materials, movies and native THP one at a time
-  only after the solid-geometry path is visible and the performance baseline is clean.
-- Keep the old transient-FBO GPU EFB implementation rejected. A future EFB speedup must use a different persistent/offscreen architecture rather than re-enabling the path that crashes inside SceGxm.
-- RFL/default RFL_DB.dat and native THP remain independent follow-up tasks after the 3D/material and indexed-DL blockers are understood.
+- P5/P6/P7 sono ora hardware-tested: non tornare al vecchio readback EFB salvo fallback.
+- La priorita performance successiva e il **ridimensionamento EFB interamente GPU** o un percorso equivalente che elimini i ~59 ms/copia-resize CPU osservati nei frame G3D.
+- In parallelo, correggere la texture cache nelle scene pesanti: servono eviction/pre-eviction bounded che proteggano le texture del frame in-flight; non aumentare semplicemente il budget globale.
+- Dopo queste due correzioni, rimisurare GXDrawDone e prebegin_us e solo allora scegliere il prossimo hotspot guest/producer.
+- L O2 selettivo billboard non va reso default: i log P7 e P7-O2 non mostrano un beneficio ripetibile oltre il rumore.
+- La correttezza 3D/materiale resta sospesa mentre performance ha priorita; le sagome bianche hanno gia dimostrato che la geometria reale viene rasterizzata.
+
+
+## M13.3-P5–P8 — implementazioni offline e quattro VPK A/B (2026-09-05)
+
+Valutate e preservate P0–P4.1. Il campione hardware seriale 900 resta la baseline:
+producer 220,643 ms, renderer 101,851 ms, cache mesh 1289/213, EFB 12 copie
+con sync/read/scale/upload 1,026/42,594/19,522/18,008 ms.
+
+Nuovo codice implementato nel backend Aurora effettivamente compilato
+(`aurora-main/platforms/vita/gfx`) e nel bridge `vita/`:
+
+- **P5**: texture EFB persistenti senza FBO transitori; copia GXM sincronizzata
+  per dimensioni uguali, nearest-neighbour CPU direttamente nella texture per
+  dimensioni diverse. Fallback precedente conservato. Non è ancora scaling
+  interamente GPU né readback/packing nella RAM guest.
+- **P6**: riuso dei buffer protetto da drain GPU misurato (`reuse_wait_us`);
+  coda EFB a 16 bit, capacità 512 nei profili avanzati, accorpamento soltanto
+  di comandi adiacenti non osservabili e senza eliminare clear. Budget texture
+  con margine temporaneo condiviso e conteggio EFB comprensivo di pitch.
+- **P7**: unione nel producer di quad UI ortografici adiacenti con stato identico,
+  senza attraversare copie EFB; LYT fedele invariato.
+- **P8**: lista esplicita di shard O2/O3 con oggetti separati. Compilata variante
+  O2 del solo shard billboard contenente il ritorno 0x8003EA94; staging completo
+  `mkwii_translated_neon_os` conservato. Nessun fast-math globale.
+- Profilo **full-features** compilato con filmati e THP nativo abilitati;
+  questa compilazione non ne dimostra il funzionamento sulla console.
+
+Passano i test host con ASan/UBSan: equivalenza dei pixel EFB con stride e
+orientamenti diversi; 1.000.000 operazioni FIFO confrontate prima/dopo
+accorpamento; budget texture, pin del frame, LRU e invalidazioni. Nel test
+1 MiB/texture 16x16, residenti 15/30 prima e 30/30 con margine condiviso.
+Passa anche `graphics-check`. I quattro pacchetti hanno compile/link,
+VELF/FSELF e verifica ZIP completati con exit 0.
+
+Report completo, limiti, comandi e hash:
+`docs/performance-60fps-2026-09-05/IMPLEMENTATION.md`.
+Evidenza aggregata: `docs/performance-60fps-2026-09-05/artifacts-implemented.json`.
+Test: `build/vita/performance-helper-tests.json`.
+Build riproducibili: `python3 vita/tools/build_performance_profile.py PROFILO`.
+
+| Profilo | VPK byte | SHA-256 VPK | SHA-256 ELF |
+|---|---:|---|---|
+| p5-resident | 40875331 | `8d2f2873b49e8fffd906e61799b77917ce244be8635d5170f15a35f53a70c2fb` | `f8c6b0940d764e81e2f09e335d50eab8cef3e3da67fccb9da553fbcfcd362e89` |
+| p7-ui | 40876061 | `5a40dfd924105a1170588edc563fdf4f0d8b9fa640b351d369b1e4d596de6625` | `afcfb0143a3e133e701d2b31256e83a5df1f375a9bcd325db85bd4b2722fb51a` |
+| p7-ui-hot-O2-f171ce57 | 41016734 | `af0d6072de223520b53edac319abedad559e7c3ecfeba22932050fb7cc080010` | `22b37d0401dfad4007d49389c4c28dec6c36d0ffee21d8646e6ee2ac3cf3bd91` |
+| full-features | 41277088 | `ae4066100ff4646876b11e99f403773d4df7d3cb3054d566bc64bcb2b0f6e811` | `9019cce437afd4ebe4c14a3862e895549ec16b95a6cd2b2a6543b23da9e27e8a` |
+
+Vedere la tabella completa nel report e i manifest `.evidence.json` accanto ai VPK.
+
+**Stato offline di questa sezione:** superato dai test hardware riportati sotto. Le build qui elencate restano gli artefatti di riferimento, ma P5/P6/P7 non sono piu soltanto candidate offline.
+
+
+## M13.3-P5–P8 — validazione hardware P7 / P7-O2 / full-features (2026-09-05)
+
+Tre nuovi log reali PS Vita validano il programma successivo a P4.1. I profili P7 e P7-O2 partono con movies disabilitati, mentre la sessione full-features corretta parte piu avanti nel log append e dichiara movies_disabled=0 / native_thp=1. Tutti i profili avanzati usano packet compatto, batching/state compatti, queue depth 2, DL template cache, GX generations, layout cache, raw mesh cache e capacita EFB 512.
+
+### P5 — EFB resident copy  (HARDWARE-TESTED, PARZIALMENTE EFFICACE)
+
+Il percorso resident e stabile nei campioni G3D testati: 12 copie EFB vengono eseguite senza fault e senza usare il vecchio transient-FBO. Il percorso elimina readback+upload intermedi, ma nel resize Wii continua a fare nearest-neighbour CPU direttamente dal framebuffer mappato alla texture persistente.
+
+Campione P7 serial 900:
+
+- renderer ~118.0 ms;
+- 12/12 EFB resident, 0 failure;
+- sync EFB ~19.2 ms;
+- resident resize/copy ~59.7 ms;
+- totale EFB osservato ~78.9 ms;
+- producer interval ~261.8 ms;
+- GXDrawDone wait ~106.0 ms.
+
+Risultato: P5 e hardware-stabile ma **non rimuove ancora il blocker EFB dominante** nel caso 960x544 -> dimensioni Wii, perche circa 59 ms restano nel resize CPU. La prossima evoluzione deve spostare anche il resize/filtro su GPU o evitare la copia quando semanticamente non osservabile.
+
+### P6 — sicurezza risorse, capacita EFB e texture headroom  (HARDWARE-TESTED)
+
+La protezione del riuso streaming non introduce uno stall significativo nei campioni normali: reuse_wait_us e tipicamente ~30-56 us. La capacita EFB 512 evita il vecchio overflow a 128 nei percorsi testati; nei nuovi log efb_cap=0 e non compaiono drop/cap failure nei frame campione. Le scene con 28 copy + 17 destroy rientrano nella nuova capacita.
+
+Il texture shared headroom migliora la contabilita, ma la full-feature dimostra che **non basta ancora per il working set pesante**. A serial 2100 la cache arriva a ~10 MiB e registra tex_fail=1700; compaiono failure anche per texture 1024x512 e 256x256. Serve quindi eviction/pre-eviction bounded con protezione delle texture referenziate dal frame in-flight, non un semplice aumento del budget.
+
+### P7 — producer UI quad runs  (HARDWARE-TESTED, EFFICACE)
+
+Il merge producer funziona realmente sulla UI fedele. Nel campione full-features serial 900:
+
+- requested_draws=665;
+- draws dopo merge=179;
+- producer_merge=486;
+- renderer ~8.9 ms;
+- producer interval ~125.5 ms;
+- reuse_wait_us=31 us.
+
+Quindi circa il 73% dei quad richiesti in quella schermata viene assorbito dal producer merge senza cambiare LYT faithful. Nei frame G3D il merge e naturalmente piu piccolo, ad esempio 126 draw a serial 1500 o 410 a serial 1800, perche la geometria prospettica non viene unita da questo pass.
+
+### P8 — hot-shard O2  (HARDWARE A/B: NESSUN VANTAGGIO CONVINCENTE)
+
+La variante con il solo shard billboard O2 e stabile, ma i confronti equivalenti non mostrano un miglioramento ripetibile. Un frame G3D di transizione con requested_draws=3382 misura ~1.109 s in P7 e ~1.103 s in P7-O2 (~0.6% a favore O2), mentre un campione serial 900 comparabile misura ~261.8 ms in P7 e ~263.3 ms in P7-O2 (~0.6% peggiore).
+
+Conclusione: la differenza e nel rumore del test. **Non rendere O2 billboard default**; mantenere l infrastruttura selective-hot-shard, ma scegliere futuri shard solo da nuovi hotspot misurati dopo EFB/texture fixes.
+
+### Full-features — hardware run avanzato
+
+La sessione full-features corretta dichiara movies_disabled=0 e native_thp=1 insieme a tutto il percorso performance P4.1/P5/P6/P7. La sessione arriva almeno a serial 2100 e attraversa piu Scene Exit senza terminal crash nel tratto acquisito. Tuttavia il log non contiene ancora telemetria THP decode utile: l abilitazione del profilo multimedia e hardware-confermata, ma la riproduzione THP non e ancora dimostrata.
+
+Campioni rappresentativi:
+
+- serial 1200: render ~100.0 ms, DL ~13.3 ms, prebegin ~118.6 ms, p4_mesh=1289/55, resident=12/~59.3 ms, sync EFB ~16.8 ms;
+- serial 1500: producer ~226.7 ms, GXDrawDone ~90.9 ms, render ~101.1 ms, resident=12/~58.8 ms, tex_fail=0;
+- serial 1800: render ~108.3 ms, resident=12/~59.1 ms, tex_fail=0;
+- serial 2100: producer ~554.7 ms, GXDrawDone ~239.1 ms, render ~291.1 ms, tex_fail=1700, transform_fail=32, EFB resident=9, 2 fallback readback e 1 copy failure.
+
+A serial 2100 l EFB non e piu l unico problema: la saturazione texture e il fallback EFB fanno esplodere il frame. Questo diventa il secondo blocker prioritario insieme al resize EFB CPU.
+
+### Stato performance dopo questi test
+
+- P0-P4.1: DONE + hardware-tested.
+- P5: implementato + hardware-tested; stabile, ma resize CPU ancora troppo costoso.
+- P6: implementato + hardware-tested; safe reuse/capacity passano, texture headroom insufficiente nelle scene pesanti.
+- P7: implementato + hardware-tested; producer UI merge efficace.
+- P8 selective hot-shard: infrastruttura valida, ma il candidato billboard O2 non porta un vantaggio misurabile.
+- full-features: profilo hardware-tested fino a scene avanzate; multimedia abilitato ma THP decode/playback non ancora validato.
+- target 60 FPS / 16.67 ms: **non raggiunto**.
+
+### Nuove priorita
+
+1. Hardware-testare il candidato **P5.1-A** gia implementato: native-resolution resident EFB bounded + safe texture retry.
+2. Verificare se il native-res trasforma davvero il resize dominante in `GpuSameSize` senza superare il budget EFB; se non basta, passare a uno scaler shader/GXM persistente nearest senza transient FBO.
+3. Verificare sulla scena heavy se la retirement/fence bounded riduce `tex_fail=1700` senza introdurre stall eccessivi o use-after-free GPU.
+4. Rimisurare GXDrawDone e prebegin_us dopo 1-3: oggi il frame G3D normale resta ~100-118 ms renderer e ~90-106 ms di wait GX.
+5. Solo dopo scegliere nuovi hot shard O2/O3 dai profili aggiornati.
+6. Correttezza 3D/materiali/xyzw e validazione THP restano task separati; non confondere l avanzamento performance con feature-completeness grafica/multimedia.
+
+## M13.3-P5.1-A — primo hardware run + misura pulita richiesta (2026-09-05)
+
+Stato: **native-res hardware confermato; performance A/B non ancora chiusa**.
+
+Nuovi flag del profilo `full-features-p5_1`:
+
+- `MKW_VITA_EFB_NATIVE_RES_COPY=1`;
+- `MKW_VITA_TEXTURE_SAFE_RETRY=1`;
+- `MKW_VITA_PERF_LOG=1` per acquisire la nuova telemetria;
+- nessun `MKW_TRANSLATED_HOT_SHARDS` e nessun O2/O3 selettivo.
+
+P5.1-A non riabilita il percorso transient-FBO rifiutato. Quando il budget EFB
+4 MiB lo consente, una sampled copy che normalmente farebbe 960x544 -> Wii size
+mantiene il backing fisico e usa `sceGxmTransferCopy` same-size. Se il backing
+fisico non entra nel budget, il percorso torna automaticamente al nearest CPU
+resident gia hardware-stabile. `sceGxmTransferDownscale` non viene usato perche
+non replica in generale il reticolo nearest corrente.
+
+La texture cache non e stata sostituita: la LRU/pre-eviction P6 e stata estesa
+con protezione `useEpoch` e retirement esplicito. Se l'allocazione e bloccata
+solo da texture ancora protette, il renderer puo fare al massimo quattro
+flush+`glFinish` di emergenza per frame, segnare gli usi precedenti come ritirati,
+evictare LRU sicure e ritentare. Le texture usate dopo la fence nello stesso frame
+ricevono un nuovo epoch e tornano protette.
+
+Offline PASS:
+
+- ARM32 VitaSDK: `vita_efb.o`, `vita_texture_cache.o`, `aurora_packet_renderer.o`,
+  `gx_backend.o` compilati con P4/P5/P5.1/P6/P7 attivi;
+- host ASan/UBSan EFB FIFO/resample PASS;
+- host texture budget P6 PASS;
+- host texture budget P5.1 safe-retry PASS;
+- `make -f Makefile.vita -j1 graphics-check` PASS.
+
+Il nuovo log hardware deve contenere `resource_summary` e distinguere almeno:
+`efb_path`, native/native-budget fallback, resident reason failures,
+`tex_evict_total`, `tex_blocked_total`, `tex_protected`, `tex_retry`,
+`retry_wait_us`, oltre a `tex_fail`, `resident`, `wait_gx`, producer e prebegin.
+La fase resta aperta finche non esiste questo confronto hardware.
+
+Artefatto P5.1-A da installare su hardware reale:
+
+- `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-features-p5_1.vpk`
+- SHA-256 VPK: `c0f6a38b96cf35a03b413b568f99c134cd9d91ac9772f1f0120ffd38a56de732`
+- SHA-256 ELF: `92bf1f0bfe1aaefc00e21477add70b5858a18cda9539a203517b87f65fb737bd`
+- VPK: 41,281,316 byte; ELF: 218,486,352 byte.
+
+Packaging e ZIP verification passano. Il manifest conferma full-feature,
+P4.1/P5/P5.1/P6/P7, queue depth 2, cap EFB 512, nessun hot shard O2/O3 e
+translated baseline NEON `-Os`. Questo registra soltanto la riproducibilita della
+build: **non e una validazione hardware delle prestazioni P5.1**.
+
+### Primo hardware log P5.1-A
+
+Il run reale del candidato raggiunge serial 981 senza fault nel tratto acquisito.
+Il marker iniziale conferma `efb_native_res_copy=1`, `texture_safe_retry=1`,
+movies/native THP attivi e transient-FBO disabilitato. A serial 900 il nuovo
+`resource_summary` riporta `efb_path=12/0/0/0`, `native=12`,
+`native_budget=0`, `resident_fail=0`: tutte le 12 copie del frame sono quindi
+GPU same-size e il precedente nearest CPU non viene usato. EFB resident
+3.546.816 / 4.194.304 byte, nessun overflow/fallback.
+
+La cache texture non e ancora nel caso heavy: `tex_blocked_total=0`,
+`tex_protected=0/0`, `tex_retry=0/0/0`; il run termina prima della scena che nel
+baseline produceva `tex_fail=1700`.
+
+I tempi di questo run non sono direttamente confrontabili col baseline:
+`full-features-p5_1` forza `MKW_VITA_PERF_LOG=1`, che abilita `render_large` per
+ogni frame >=1000 draw, progress ogni 128 draw e producer telemetry molto piu
+frequente. Serial 900 misura ~148 ms renderer e intorno a serial 905 il producer
+passa ~130 ms in `wait_gx`; serial 981 chiude a ~169 ms. Prima di attribuire
+questa regressione al native-res serve quindi un A/B senza tracing intrusivo.
+
+Nuovo profilo dedicato: `full-features-p5_1-measure`, identico al candidato ma
+con `MKW_VITA_PERF_LOG=0`. In questa configurazione il `perf_summary` dettagliato
+e il `resource_summary` restano disponibili ogni 300 serial, mentre vengono
+eliminati i trace per-frame/per-draw che alterano il timing. Questo e il prossimo
+artefatto da usare per il confronto 1200/1500/1800/2100 e per raggiungere la
+pressione texture heavy.
+
+Artefatto measurement verificato:
+
+- `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-features-p5_1-measure.vpk`
+- SHA-256 VPK: `e6eb8dc5be2e0e03ce9dfcfa6e38bfdda518070fec67ba6a43a7341aa0d4832a`
+- SHA-256 ELF: `43aa341f6a6a575c9a039741cec1e00d962748a7a446ea6c1203e772fc8b468d`
+- VPK: 41.280.337 byte; ELF: 218.461.580 byte.
+
+Packaging, `verify-mkw-firstboot-vpk` e `unzip -t` passano. Il manifest mostra
+`perf_log=0`, `efb_native_res_copy=1`, `texture_safe_retry=1`, movies/native THP,
+queue depth 2, cap EFB 512 e nessun hot shard. L'ELF contiene sia il detailed
+`perf_summary` sia `resource_summary`.

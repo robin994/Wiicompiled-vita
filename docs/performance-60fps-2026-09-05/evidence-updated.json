@@ -1,0 +1,254 @@
+{
+  "source": "/Users/robin994/Documents/Code/PSVita/wiicompiled-vita/build/vita/runtime.log",
+  "sha256": "7d2bb4d30e7b7408da64808af795d7ef07260d0e73859fd0f15a0245a210bc1b",
+  "session_count": 5,
+  "session_start_line": 6801,
+  "line_count": 7506,
+  "boot_configuration": "[gx] init_marker=vglInitExtended phase=begin t_us=1942005 renderer=aurora vitagl=speedhack-custom-heap rt_scenes=8/8 frame_draw_cap=8192 frame_vertex_cap=49152 efb_cap=128 packet_bytes=1430744 efb_gpu_blit=0 movies_disabled=1 native_thp=0 lyt_direct=0 lyt_faithful=1 dl_indexed_raw=1 perf_skip_efb=0 perf_skip_billboards=1 perf_skip_lighttexture=1 perf_force_3d_solid=1 perf_inject_clip_triangle=0 perf_inject_wii_triangle=0 perf_log=0 perf_ring=1 perf_summary_interval=300 compact_vertex=1 frame_batcher=1 direct_stream_write=1 compact_frame_state=1 frame_queue_depth=2 dl_template_cache=1",
+  "summary_samples": [
+    {
+      "serial": 900,
+      "draws": 1561,
+      "vertices": 10220,
+      "presented": 1561,
+      "physical": 105,
+      "raw_ok": 1344,
+      "raw_fail": 0,
+      "raw_cap": 0,
+      "dropped": 0,
+      "transform_fail": 0,
+      "persp": 1300,
+      "clip_xy": "9176/9176",
+      "clip_xyz": 9176,
+      "z": "-0.089..-0.001",
+      "render_us": 234345,
+      "submit_us": 232356,
+      "endframe_us": 1727,
+      "swap_us": 156,
+      "pipeline": "83/0",
+      "stream": "245280/40524",
+      "overflow": "0/0",
+      "tex_fail": 0,
+      "compact": 1561,
+      "fallback": 0,
+      "merged": 1456,
+      "state": "1285/276",
+      "profile_us": "1421/0/774/1961/17586/1984",
+      "ring_write": 0,
+      "line": 7472
+    }
+  ],
+  "efb_samples": [
+    {
+      "line": 7230,
+      "text": "[gx] efb_copy_exec n=1 path=readback dest=0x634B2DE0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7232,
+      "text": "[gx] efb_copy_exec n=1 path=readback dest=0x634B2DE0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7234,
+      "text": "[gx] efb_copy_exec n=2 path=readback dest=0x634B2DE0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7235,
+      "text": "[gx] efb_copy_exec n=3 path=readback dest=0x634B2DE0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7236,
+      "text": "[gx] efb_copy_exec n=4 path=readback dest=0x634BADE0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7237,
+      "text": "[gx] efb_copy_exec n=5 path=readback dest=0x634BADE0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7238,
+      "text": "[gx] efb_copy_exec n=6 path=readback dest=0x634B2DE0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7239,
+      "text": "[gx] efb_copy_exec n=7 path=readback dest=0x634B2DE0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7240,
+      "text": "[gx] efb_copy_exec n=8 path=readback dest=0x634B2DE0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7241,
+      "text": "[gx] efb_copy_exec n=9 path=readback dest=0x634BADE0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7242,
+      "text": "[gx] efb_copy_exec n=10 path=readback dest=0x634BADE0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7243,
+      "text": "[gx] efb_copy_exec n=11 path=readback dest=0x87469260 src=0,517 48x27 dst=32x27 fmt=0x6 clear=1"
+    },
+    {
+      "line": 7244,
+      "text": "[gx] efb_copy_exec n=12 path=readback dest=0x8746A440 src=0,517 48x27 dst=32x27 fmt=0x6 clear=1"
+    },
+    {
+      "line": 7245,
+      "text": "[gx] efb_copy_exec n=13 path=readback dest=0x634E5EC0 src=0,0 144x109 dst=48x48 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7246,
+      "text": "[gx] efb_copy_exec n=14 path=readback dest=0x634B2DE0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7247,
+      "text": "[gx] efb_copy_exec n=15 path=readback dest=0x634B2DE0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7248,
+      "text": "[gx] efb_copy_exec n=16 path=readback dest=0x634B2DE0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7249,
+      "text": "[gx] efb_copy_exec n=17 path=readback dest=0x634BADE0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7250,
+      "text": "[gx] efb_copy_exec n=18 path=readback dest=0x634BADE0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7251,
+      "text": "[gx] efb_copy_exec n=19 path=readback dest=0x87469260 src=0,517 48x27 dst=32x27 fmt=0x6 clear=1"
+    },
+    {
+      "line": 7252,
+      "text": "[gx] efb_copy_exec n=20 path=readback dest=0x8746A440 src=0,517 48x27 dst=32x27 fmt=0x6 clear=1"
+    },
+    {
+      "line": 7253,
+      "text": "[gx] efb_copy_exec n=21 path=readback dest=0x6350D3E0 src=0,0 288x218 dst=96x96 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7303,
+      "text": "[gx] efb_copy_exec n=22 path=readback dest=0x632BD3E0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7305,
+      "text": "[gx] efb_copy_exec n=22 path=readback dest=0x632BD3E0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7306,
+      "text": "[gx] efb_copy_exec n=23 path=readback dest=0x632BD3E0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7307,
+      "text": "[gx] efb_copy_exec n=24 path=readback dest=0x632BD3E0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7308,
+      "text": "[gx] efb_copy_exec n=25 path=readback dest=0x632C53E0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7309,
+      "text": "[gx] efb_copy_exec n=26 path=readback dest=0x632C53E0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7310,
+      "text": "[gx] efb_copy_exec n=27 path=readback dest=0x632BD3E0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7311,
+      "text": "[gx] efb_copy_exec n=28 path=readback dest=0x632BD3E0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7312,
+      "text": "[gx] efb_copy_exec n=29 path=readback dest=0x632BD3E0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7313,
+      "text": "[gx] efb_copy_exec n=30 path=readback dest=0x632C53E0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7314,
+      "text": "[gx] efb_copy_exec n=31 path=readback dest=0x632C53E0 src=0,0 192x145 dst=128x128 fmt=0x5 clear=1"
+    },
+    {
+      "line": 7315,
+      "text": "[gx] efb_copy_exec n=32 path=readback dest=0x87469340 src=0,517 48x27 dst=32x27 fmt=0x6 clear=1"
+    }
+  ],
+  "windows": [
+    {
+      "frames": [
+        775,
+        801
+      ],
+      "n": 27,
+      "draw_range": [
+        3356,
+        3357
+      ],
+      "efb_commands": [
+        12
+      ],
+      "stats_us": {
+        "interval_us": {
+          "p50": 516782,
+          "p95": 523040,
+          "max": 525700
+        },
+        "prior_wait_us": {
+          "p50": 257990,
+          "p95": 261123,
+          "max": 261782
+        },
+        "packet_copy_us": {
+          "p50": 2406,
+          "p95": 2668,
+          "max": 2753
+        },
+        "queue_wait_us": {
+          "p50": 2,
+          "p95": 2,
+          "max": 2
+        }
+      }
+    },
+    {
+      "frames": [
+        850,
+        900
+      ],
+      "n": 51,
+      "draw_range": [
+        1561,
+        1594
+      ],
+      "efb_commands": [
+        12
+      ],
+      "stats_us": {
+        "interval_us": {
+          "p50": 423519,
+          "p95": 429906,
+          "max": 506385
+        },
+        "prior_wait_us": {
+          "p50": 216682,
+          "p95": 221862,
+          "max": 241211
+        },
+        "packet_copy_us": {
+          "p50": 1241,
+          "p95": 1428,
+          "max": 1457
+        },
+        "queue_wait_us": {
+          "p50": 2,
+          "p95": 2,
+          "max": 2
+        }
+      }
+    }
+  ],
+  "user_visual_observation": "Latest version renders upside-down white 3D models; performance decreased."
+}

@@ -10,6 +10,13 @@
 #include <mutex>
 #include <vector>
 
+#ifndef MKW_VITA_PERF_LOG
+#define MKW_VITA_PERF_LOG 1
+#endif
+#ifndef MKW_VITA_PERF_SUMMARY_INTERVAL
+#define MKW_VITA_PERF_SUMMARY_INTERVAL 300
+#endif
+
 namespace {
 // Copy destinations stay GPU-only until an explicit/lazy readback. Track the
 // guest ranges that own those results so a later data-cache flush over a reused
@@ -22,6 +29,11 @@ uint32_t g_largestEfbCopyDestination = 0;
 
 #if defined(MKW_TARGET_VITA)
 void LogGxBeginHot(const GxCpuPerfSnapshot& snapshot, int frame) {
+#if !MKW_VITA_PERF_LOG
+    (void)snapshot;
+    (void)frame;
+    return;
+#else
     bool hasLongGap = false;
     for (uint32_t i = 0; i < snapshot.gxBeginCallerCount; ++i) {
         hasLongGap |= snapshot.gxBeginCallers[i].maxGapUs >= 100000u;
@@ -95,6 +107,7 @@ void LogGxBeginHot(const GxCpuPerfSnapshot& snapshot, int frame) {
                 static_cast<unsigned long long>(caller.gapUs),
                 static_cast<unsigned long long>(caller.maxGapUs), caller.count);
     }
+#endif
 }
 #endif
 
@@ -213,11 +226,12 @@ extern "C" void GX__CopyDisp_8016fc38(uint32_t da, uint32_t c) {
     const auto copyUs = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now() - copyBegin).count();
     const GxCpuPerfSnapshot cpuPerf = GX_HLE_TakeCpuPerfSnapshot();
-    if (g_gxFrameCount <= 8 || (g_gxFrameCount % 30) == 0) {
+    if ((MKW_VITA_PERF_LOG && (g_gxFrameCount <= 8 || (g_gxFrameCount % 30) == 0)) ||
+        (!MKW_VITA_PERF_LOG && (g_gxFrameCount % MKW_VITA_PERF_SUMMARY_INTERVAL) == 0)) {
         RT_LOGF(RT_TAG_GX,
                 "gx_cpu_perf frame=%d lyt_calls=%llu lyt_us=%llu lyt_direct=%llu lyt_packet=%llu lyt_faithful=%llu "
                 "dl_calls=%llu dl_us=%llu dl_bytes=%llu dl_cache=%llu/%llu dl_fallback=%llu "
-                "dl_raw=%llu/%llu verts=%llu fail=%llu "
+                "dl_raw=%llu/%llu verts=%llu fail=%llu dl_template=%llu/%llu draws=%llu fallback=%llu "
                 "glyph_fast=%llu setup=%llu texload=%llu glyph_raw=%llu glyph_fallback=%llu prebegin_us=%llu tail_us=%llu copydisp_us=%llu\n",
                 g_gxFrameCount,
                 static_cast<unsigned long long>(cpuPerf.lytCalls),
@@ -235,6 +249,10 @@ extern "C" void GX__CopyDisp_8016fc38(uint32_t da, uint32_t c) {
                 static_cast<unsigned long long>(cpuPerf.dlRawIndexedDraws),
                 static_cast<unsigned long long>(cpuPerf.dlRawFastVertices),
                 static_cast<unsigned long long>(cpuPerf.dlRawFastFailures),
+                static_cast<unsigned long long>(cpuPerf.dlTemplateHits),
+                static_cast<unsigned long long>(cpuPerf.dlTemplateMisses),
+                static_cast<unsigned long long>(cpuPerf.dlTemplateDraws),
+                static_cast<unsigned long long>(cpuPerf.dlTemplateFallbacks),
                 static_cast<unsigned long long>(cpuPerf.glyphFastCalls),
                 static_cast<unsigned long long>(cpuPerf.glyphSetupCalls),
                 static_cast<unsigned long long>(cpuPerf.glyphTextureLoads),

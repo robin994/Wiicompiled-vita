@@ -1,0 +1,74 @@
+[
+  {
+    "profile": "p5-resident",
+    "artifacts": {
+      "build/vita/wiicompiled-vita-mkw-firstboot-astra-p5-resident.vpk": {
+        "sha256": "8d2f2873b49e8fffd906e61799b77917ce244be8635d5170f15a35f53a70c2fb",
+        "bytes": 40875331
+      },
+      "build/vita/wiicompiled-vita-mkw-firstboot-astra-p5-resident.manifest.txt": {
+        "sha256": "f5a3ee1e329c26a391dae98eec6fca0c644d5f4e887a41b0701f27678770152b",
+        "bytes": 1545
+      },
+      "build/vita/mkwii_runtime/wiicompiled-vita-mkw-firstboot-astra-p5-resident.elf": {
+        "sha256": "f8c6b0940d764e81e2f09e335d50eab8cef3e3da67fccb9da553fbcfcd362e89",
+        "bytes": 217422756
+      }
+    },
+    "hardware_validated": false
+  },
+  {
+    "profile": "p7-ui",
+    "artifacts": {
+      "build/vita/wiicompiled-vita-mkw-firstboot-astra-p7-ui.vpk": {
+        "sha256": "5a40dfd924105a1170588edc563fdf4f0d8b9fa640b351d369b1e4d596de6625",
+        "bytes": 40876061
+      },
+      "build/vita/wiicompiled-vita-mkw-firstboot-astra-p7-ui.manifest.txt": {
+        "sha256": "467dd157c56d886de996c9c40d2cc261fe91e3ac022eede56b3c8fe150b223a4",
+        "bytes": 1533
+      },
+      "build/vita/mkwii_runtime/wiicompiled-vita-mkw-firstboot-astra-p7-ui.elf": {
+        "sha256": "afcfb0143a3e133e701d2b31256e83a5df1f375a9bcd325db85bd4b2722fb51a",
+        "bytes": 217466772
+      }
+    },
+    "hardware_validated": false
+  },
+  {
+    "profile": "p7-ui-hot-O2-f171ce57",
+    "artifacts": {
+      "build/vita/wiicompiled-vita-mkw-firstboot-astra-p7-ui-hot-O2-f171ce57.vpk": {
+        "sha256": "af0d6072de223520b53edac319abedad559e7c3ecfeba22932050fb7cc080010",
+        "bytes": 41016734
+      },
+      "build/vita/wiicompiled-vita-mkw-firstboot-astra-p7-ui-hot-O2-f171ce57.manifest.txt": {
+        "sha256": "3361f964c09a8af792112d24897b9878189c4a3b68ed80b9f06b44594e73d610",
+        "bytes": 1624
+      },
+      "build/vita/mkwii_runtime/wiicompiled-vita-mkw-firstboot-astra-p7-ui-hot-O2-f171ce57.elf": {
+        "sha256": "22b37d0401dfad4007d49389c4c28dec6c36d0ffee21d8646e6ee2ac3cf3bd91",
+        "bytes": 217831296
+      }
+    },
+    "hardware_validated": false
+  },
+  {
+    "profile": "full-features",
+    "artifacts": {
+      "build/vita/wiicompiled-vita-mkw-firstboot-astra-full-features.vpk": {
+        "sha256": "ae4066100ff4646876b11e99f403773d4df7d3cb3054d566bc64bcb2b0f6e811",
+        "bytes": 41277088
+      },
+      "build/vita/wiicompiled-vita-mkw-firstboot-astra-full-features.manifest.txt": {
+        "sha256": "ba0ab38c97721e2658e53b829a7a75ab404bf621e932a13a2cb9421524c49653",
+        "bytes": 1549
+      },
+      "build/vita/mkwii_runtime/wiicompiled-vita-mkw-firstboot-astra-full-features.elf": {
+        "sha256": "9019cce437afd4ebe4c14a3862e895549ec16b95a6cd2b2a6543b23da9e27e8a",
+        "bytes": 218451140
+      }
+    },
+    "hardware_validated": false
+  }
+]

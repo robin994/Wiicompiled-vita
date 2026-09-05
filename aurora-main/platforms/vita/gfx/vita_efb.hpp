@@ -8,6 +8,30 @@
 namespace aurora::vita::gfx {
 class EfbManager {
 public:
+  enum class ResidentPath : uint8_t {
+    None = 0,
+    GpuSameSize,
+    GpuResize,
+    CpuCopy,
+    CpuResize,
+  };
+  enum class ResidentFallbackReason : uint8_t {
+    None = 0,
+    InvalidSource,
+    UnsupportedSurface,
+    ExistingSizeMismatch,
+    AllocationFailed,
+    TextureBackingInvalid,
+    GpuTransferFailed,
+    GpuResizeUnavailable,
+    CpuCopyFailed,
+  };
+  struct ResidentCopyStats {
+    uint64_t syncUs=0, copyUs=0;
+    bool gpu=false;
+    ResidentPath path=ResidentPath::None;
+    ResidentFallbackReason fallbackReason=ResidentFallbackReason::None;
+  };
   ~EfbManager();
   Handle create(uint32_t width,uint32_t height,bool depth=true) noexcept;
   bool bind(Handle h) noexcept;
@@ -21,6 +45,11 @@ public:
   // from the currently rendered target; no framebuffer/renderbuffer or temporary capture texture
   // is allocated. Existing handles are updated in-place when dimensions match.
   Handle upload_rgba(Handle existing,uint32_t width,uint32_t height,const void* rgba) noexcept;
+  // Default Vita display surface only. GPU transfer for equal dimensions;
+  // otherwise nearest resampling directly into persistent sampled storage.
+  // Always completes previous GPU readers/writers before accessing storage.
+  Handle capture_resident(Handle existing,int32_t x,int32_t y,uint32_t sw,uint32_t sh,
+                          uint32_t dw,uint32_t dh,bool topDown,ResidentCopyStats& stats) noexcept;
   bool bind_texture(Handle h,unsigned unit,const SamplerDesc& sampler) noexcept;
   bool read_rgba(Handle h,std::vector<uint8_t>& out) noexcept;
   bool dimensions(Handle h,uint32_t& width,uint32_t& height) const noexcept;

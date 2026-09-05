@@ -89,6 +89,10 @@ struct GxCpuPerfSnapshot {
     uint64_t dlRawIndexedDraws = 0;
     uint64_t dlRawFastVertices = 0;
     uint64_t dlRawFastFailures = 0;
+    uint64_t dlTemplateHits = 0;
+    uint64_t dlTemplateMisses = 0;
+    uint64_t dlTemplateDraws = 0;
+    uint64_t dlTemplateFallbacks = 0;
     uint64_t glyphFastCalls = 0;
     uint64_t glyphSetupCalls = 0;
     uint64_t glyphTextureLoads = 0;

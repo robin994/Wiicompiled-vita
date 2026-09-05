@@ -2,6 +2,10 @@
 #include "gx_internal.h"
 #include "runtime_log.h"
 
+#ifndef MKW_VITA_PERF_LOG
+#define MKW_VITA_PERF_LOG 1
+#endif
+
 // Aurora's CHECK() on these tev array indices compiles to nothing under NDEBUG, so this
 // guest->native boundary must reject out-of-range IDs itself; a bad ID here is a malformed
 // display list, never legitimate traffic.
@@ -9,7 +13,18 @@ namespace {
 
 bool GxTevIdOk(uint32_t value, uint32_t limit, const char* what) {
     if (value < limit) return true;
+#if MKW_VITA_PERF_LOG
     RT_LOGF(RT_TAG_GX, "%s out of range: %u (max %u), ignoring\n", what, value, limit - 1u);
+#else
+    // Malformed traffic can repeat thousands of times in one frame. Keep the
+    // reject semantics but only emit a bounded sample in the performance build.
+    static uint32_t emittedInvalidIds = 0;
+    if (emittedInvalidIds < 8u) {
+        ++emittedInvalidIds;
+        RT_LOGF(RT_TAG_GX, "%s out of range: %u (max %u), ignoring sample=%u/8\n",
+                what, value, limit - 1u, emittedInvalidIds);
+    }
+#endif
     return false;
 }
 
