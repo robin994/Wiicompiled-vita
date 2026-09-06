@@ -43,6 +43,7 @@ GLuint link_program(const char* vs,const char* fs,std::string* diagnostics) noex
   }
   glAttachShader(p,v);glAttachShader(p,f);
   glBindAttribLocation(p,0,"a_position");glBindAttribLocation(p,1,"a_color0");glBindAttribLocation(p,2,"a_color1");
+  glBindAttribLocation(p,11,"a_clip_w");
   for(unsigned i=0;i<8;i++){char n[16];std::snprintf(n,sizeof(n),"a_tex%u",i);glBindAttribLocation(p,3+i,n);}glLinkProgram(p);
   GLint ok=0;glGetProgramiv(p,GL_LINK_STATUS,&ok);if(!ok){GLint n=0;glGetProgramiv(p,GL_INFO_LOG_LENGTH,&n);std::vector<char> log(n>1?n:2);glGetProgramInfoLog(p,(GLsizei)log.size(),nullptr,log.data());std::printf("[aurora-vita] program link failed: %s\n",log.data());if(diagnostics){diagnostics->append("program link failed:\n");diagnostics->append(log.data());diagnostics->push_back('\n');}glDeleteProgram(p);p=0;}
   glDeleteShader(v);glDeleteShader(f);return p;

@@ -3,9 +3,12 @@
 #include "generated/RuntimeConfig.h"
 #include "guest_flat_memory.h"
 #include "gx_guest_write.h"
+#include "hle_stubs.h"
 #include "system_bridge.h"
 #include "wiicompiled_vita/gx_backend.h"
 #include "wiicompiled_vita/host_thread.h"
+
+#include <aurora/aurora.h>
 
 #include <psp2/io/stat.h>
 #include <psp2/kernel/processmgr.h>
@@ -79,6 +82,14 @@ void LogFreeMemory(const char* phase) noexcept {
                      phase, info.size_user, info.size_cdram, info.size_phycont);
     }
     std::fflush(stderr);
+}
+
+void ServiceGuestTimingDuringAuroraFrameWait() {
+    // The Vita entrypoint bypasses runtime/src/main.cpp, so install the same
+    // bounded guest timing service explicitly on USER_0 while USER_1 drains.
+    VI_HLE_ProcessRetracesDeferred(8);
+    OS_HLE_ProcessAlarmsDeferred(8);
+    Audio_HLE_PollDeferred();
 }
 
 void ShutdownRuntime(bool fibersReady, bool gxReady) noexcept {
@@ -210,6 +221,14 @@ int main() {
         cpu.gpr[2] = RuntimeConfig::SDA2_BASE;
         cpu.gpr[13] = RuntimeConfig::SDA1_BASE;
         cpu.pc = kDefaultEntryAddress;
+
+#if MKW_VITA_WAIT_TIMING_SERVICE
+        aurora_set_frame_worker_wait_callback(ServiceGuestTimingDuringAuroraFrameWait);
+        BootLog("BOOT", "Aurora wait timing service installed");
+#else
+        aurora_set_frame_worker_wait_callback(nullptr);
+        BootLog("BOOT", "Aurora wait timing service disabled");
+#endif
 
         std::fprintf(stderr,
                      "[BOOT] entry 0x%08X (%s), r1=0x%08X r2=0x%08X r13=0x%08X\n",

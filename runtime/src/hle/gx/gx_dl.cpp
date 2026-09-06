@@ -625,6 +625,7 @@ struct DlScanCacheRecord {
     bool mayContainDraw = false;
     uint64_t contentDigest = 0;
     uint64_t writeGeneration = kDlWriteGenerationUntracked;
+    uint64_t lastUse = 0;
     std::vector<DlCpWrite> cpWrites{};
     std::vector<uint8_t> flattened{};
     // P3: only valid for command streams containing NOP + draw opcodes. State
@@ -637,6 +638,13 @@ struct DlScanCacheRecord {
 struct DlScanCacheState {
     std::unordered_map<uint64_t, DlScanCacheRecord> entries{};
     size_t storedCommandBytes = 0;
+    size_t peakStoredCommandBytes = 0;
+    uint64_t useSerial = 0;
+    uint64_t evictions = 0;
+    uint64_t evictedBytes = 0;
+    uint64_t fullClears = 0;
+    uint64_t fullClearBytes = 0;
+    uint64_t budgetSkips = 0;
 };
 
 static uint64_t HashScanLayoutState() {
@@ -702,6 +710,7 @@ static DlScanCacheProbe ProbeDlScanCache(const uint8_t* list, uint32_t listAddr,
             record.writeGeneration == probe.writeGeneration) {
             // Nothing has flushed a write over these bytes since the digest was
             // taken, so the stored digest still describes them. Skip XXH3.
+            record.lastUse = ++s_cache.useSerial;
             probe.record = &record;
             probe.contentDigest = record.contentDigest;
             probe.digestValid = true;
@@ -714,6 +723,7 @@ static DlScanCacheProbe ProbeDlScanCache(const uint8_t* list, uint32_t listAddr,
                                                  probe.contentDigest)) {
                 // False alarm: the bump did not actually change this list
                 record.writeGeneration = probe.writeGeneration;
+                record.lastUse = ++s_cache.useSerial;
                 probe.record = &record;
             }
         }
@@ -726,6 +736,48 @@ static size_t DlScanCacheRecordBytes(const DlScanCacheRecord& record) {
            record.drawTemplate.size() * sizeof(DlTemplateDraw);
 }
 
+static bool EnsureDlScanCacheCapacity(DlScanCacheState& cache, uint64_t protectedKey,
+                                      size_t replacedBytes, size_t incomingBytes,
+                                      bool addingEntry) {
+#if MKW_VITA_INCREMENTAL_CACHE_EVICTION
+    if (incomingBytes > kDlScanCacheMaxStoredBytes) {
+        ++cache.budgetSkips;
+        return false;
+    }
+    const auto fits = [&]() {
+        const size_t retainedBytes =
+            cache.storedCommandBytes - std::min(cache.storedCommandBytes, replacedBytes);
+        const size_t projectedEntries = cache.entries.size() + (addingEntry ? 1u : 0u);
+        return projectedEntries <= kDlScanCacheMaxEntries &&
+               retainedBytes + incomingBytes <= kDlScanCacheMaxStoredBytes;
+    };
+    if (fits()) return true;
+
+    constexpr size_t kMaxEvictionsPerStore = 64;
+    for (size_t eviction = 0; eviction < kMaxEvictionsPerStore && !fits(); ++eviction) {
+        auto victim = cache.entries.end();
+        for (auto it = cache.entries.begin(); it != cache.entries.end(); ++it) {
+            if (it->first == protectedKey) continue;
+            if (victim == cache.entries.end() || it->second.lastUse < victim->second.lastUse) {
+                victim = it;
+            }
+        }
+        if (victim == cache.entries.end()) break;
+        const size_t bytes = DlScanCacheRecordBytes(victim->second);
+        cache.storedCommandBytes -= std::min(cache.storedCommandBytes, bytes);
+        ++cache.evictions;
+        cache.evictedBytes += bytes;
+        cache.entries.erase(victim);
+    }
+    if (fits()) return true;
+    ++cache.budgetSkips;
+    return false;
+#else
+    (void)cache; (void)protectedKey; (void)replacedBytes; (void)incomingBytes; (void)addingEntry;
+    return true;
+#endif
+}
+
 static void StoreDlDrawTemplate(uint32_t listAddr, uint32_t nbytes, uint64_t layoutHash,
                                 std::vector<DlTemplateDraw>&& draws) {
 #if MKW_VITA_DL_TEMPLATE_CACHE
@@ -734,14 +786,19 @@ static void StoreDlDrawTemplate(uint32_t listAddr, uint32_t nbytes, uint64_t lay
     const uint64_t key = DlScanCacheKey(listAddr, nbytes, layoutHash);
     auto it = cache.entries.find(key);
     if (it == cache.entries.end()) return;
-    const size_t oldBytes = DlScanCacheRecordBytes(it->second);
     const size_t incoming = draws.size() * sizeof(DlTemplateDraw);
-    if (cache.storedCommandBytes - oldBytes + oldBytes + incoming > kDlScanCacheMaxStoredBytes) {
-        return;
-    }
+#if MKW_VITA_INCREMENTAL_CACHE_EVICTION
+    if (!EnsureDlScanCacheCapacity(cache, key, 0, incoming, false)) return;
+#else
+    if (cache.storedCommandBytes + incoming > kDlScanCacheMaxStoredBytes) return;
+#endif
+    it = cache.entries.find(key);
+    if (it == cache.entries.end()) return;
     it->second.drawTemplate = std::move(draws);
     it->second.drawTemplateValid = true;
+    it->second.lastUse = ++cache.useSerial;
     cache.storedCommandBytes += incoming;
+    cache.peakStoredCommandBytes = std::max(cache.peakStoredCommandBytes, cache.storedCommandBytes);
 #else
     (void)listAddr; (void)nbytes; (void)layoutHash; (void)draws;
 #endif
@@ -759,12 +816,22 @@ static void StoreDlScanCache(uint32_t listAddr, uint32_t nbytes, uint64_t layout
     size_t replacedBytes = replacing ? DlScanCacheRecordBytes(old->second) : 0;
     const size_t incomingBytes = static_cast<size_t>(flattenedBytes) +
                                  cpWrites.size() * sizeof(DlCpWrite);
-    if ((!replacing && s_cache.entries.size() >= kDlScanCacheMaxEntries) ||
-        s_cache.storedCommandBytes - replacedBytes + incomingBytes > kDlScanCacheMaxStoredBytes) {
+    const bool overBudget = (!replacing && s_cache.entries.size() >= kDlScanCacheMaxEntries) ||
+        s_cache.storedCommandBytes - replacedBytes + incomingBytes > kDlScanCacheMaxStoredBytes;
+    if (overBudget) {
+#if MKW_VITA_INCREMENTAL_CACHE_EVICTION
+        if (!EnsureDlScanCacheCapacity(s_cache, key, replacedBytes, incomingBytes, !replacing)) return;
+        old = s_cache.entries.find(key);
+        replacing = old != s_cache.entries.end();
+        replacedBytes = replacing ? DlScanCacheRecordBytes(old->second) : 0;
+#else
+        ++s_cache.fullClears;
+        s_cache.fullClearBytes += s_cache.storedCommandBytes;
         s_cache.entries.clear();
         s_cache.storedCommandBytes = 0;
         replacing = false;
         replacedBytes = 0;
+#endif
     }
     DlScanCacheRecord record{};
     record.result = entry;
@@ -776,6 +843,7 @@ static void StoreDlScanCache(uint32_t listAddr, uint32_t nbytes, uint64_t layout
     // Sampled before the digest was taken, so a write racing the digest can only
     // make the next call re-digest, never make it trust a stale entry.
     record.writeGeneration = writeGeneration;
+    record.lastUse = ++s_cache.useSerial;
     record.cpWrites = std::move(cpWrites);
     if (flattened != nullptr && flattenedBytes != 0) {
         record.flattened.assign(flattened, flattened + flattenedBytes);
@@ -786,6 +854,7 @@ static void StoreDlScanCache(uint32_t listAddr, uint32_t nbytes, uint64_t layout
     if (replacing) {
         s_cache.storedCommandBytes -= replacedBytes;
     }
+    s_cache.peakStoredCommandBytes = std::max(s_cache.peakStoredCommandBytes, s_cache.storedCommandBytes);
 }
 
 static void BuildScanVertexLayout(GXVtxFmt vtxfmt, std::array<ScanAttrStep, 26>& indexedSteps,
@@ -1654,7 +1723,16 @@ static bool ApplyAuroraIndexedXFArraysForDisplayList(const std::array<uint32_t, 
 
 GxCpuPerfSnapshot GX_HLE_TakeCpuPerfSnapshot() noexcept {
     const auto now = std::chrono::steady_clock::now();
-    const GxCpuPerfSnapshot snapshot = g_cpuPerf;
+    GxCpuPerfSnapshot snapshot = g_cpuPerf;
+    const auto& dlCache = DlScanCache();
+    snapshot.dlCacheEntries = dlCache.entries.size();
+    snapshot.dlCacheStoredBytes = dlCache.storedCommandBytes;
+    snapshot.dlCachePeakBytes = dlCache.peakStoredCommandBytes;
+    snapshot.dlCacheEvictions = dlCache.evictions;
+    snapshot.dlCacheEvictedBytes = dlCache.evictedBytes;
+    snapshot.dlCacheFullClears = dlCache.fullClears;
+    snapshot.dlCacheFullClearBytes = dlCache.fullClearBytes;
+    snapshot.dlCacheBudgetSkips = dlCache.budgetSkips;
     g_cpuPerf = {};
     g_lastGxBeginRecordTime = {};
     g_lastGxPerfSnapshotTime = now;

@@ -314,6 +314,13 @@ struct FrameCounters {
     uint64_t rawMeshCacheMisses = 0;
     uint64_t rawMeshCacheStores = 0;
     uint64_t rawMeshCacheInvalidations = 0;
+    uint64_t rawMeshCacheEvictions = 0;
+    uint64_t rawMeshCacheEvictedBytes = 0;
+    uint64_t rawMeshCacheFullClears = 0;
+    uint64_t rawMeshCacheFullClearBytes = 0;
+    uint64_t rawMeshCacheBudgetSkips = 0;
+    uint64_t rawMeshCacheBytes = 0;
+    uint64_t rawMeshCachePeakBytes = 0;
     std::array<uint32_t, 7> primitiveDraws{};
     std::array<uint32_t, 8> vertexFormatDraws{};
 };
@@ -328,8 +335,11 @@ struct RenderVertex {
     u8 a = 255;
     f32 s = 0.0f;
     f32 t = 0.0f;
+#if MKW_VITA_CLIP_W
+    f32 clipW = 1.0f;
+#endif
 };
-static_assert(sizeof(RenderVertex) == 24);
+static_assert(sizeof(RenderVertex) == (MKW_VITA_CLIP_W ? 28 : 24));
 #if defined(MKW_VITA_AURORA_RENDERER)
 static_assert(sizeof(RenderVertex) == sizeof(WiiCompiledVita::AuroraPacketVertex));
 static_assert(alignof(RenderVertex) == alignof(WiiCompiledVita::AuroraPacketVertex));
@@ -674,6 +684,8 @@ struct TexGenState {
 };
 
 struct DrawTextureState {
+    u32 materialRgba = 0xffffffffu;
+    u8 materialMask = 0; // bit 0: unlit register RGB, bit 1: unlit register alpha
     const void* data = nullptr;
     u32 dataRevision = 0;
     u32 globalEpoch = 0;
@@ -810,6 +822,7 @@ struct GxState {
     std::array<GXColor, GX_MAX_KCOLOR> kColor{};
     std::array<GXColor, 4> chanAmb{};
     std::array<GXColor, 4> chanMat{};
+    std::array<u32, 4> chanControl{1u, 1u, 1u, 1u};
     std::array<GXTexCoordID, GX_MAX_TEVSTAGE> tevTexCoords{};
     std::array<GXTexMapID, GX_MAX_TEVSTAGE> tevTexMaps{};
     std::array<GXTevMode, GX_MAX_TEVSTAGE> tevModes{};
@@ -950,6 +963,9 @@ uint64_t g_completedSerial = 0;
 uint64_t g_lastProducerSubmitUs = 0;
 uint64_t g_guestWaitRenderCallsSinceSubmit = 0;
 uint64_t g_guestWaitRenderUsSinceSubmit = 0;
+uint64_t g_waitCallbackCallsSinceSubmit = 0;
+uint64_t g_waitCallbackUsSinceSubmit = 0;
+uint64_t g_waitCallbackMaxUsSinceSubmit = 0;
 enum class RenderWaitReason : u8 { DrawDone = 0, FrameWorker = 1, Count = 2 };
 std::array<uint64_t, static_cast<size_t>(RenderWaitReason::Count)> g_renderWaitCallsByReason{};
 std::array<uint64_t, static_cast<size_t>(RenderWaitReason::Count)> g_renderWaitUsByReason{};
@@ -1420,11 +1436,19 @@ void RecordCustomTevSignature(size_t selectedStage, size_t stageCount) {
 void CaptureDrawTextureState(DrawTextureState& textureState) {
     struct CaptureTarget { DrawTextureState& texture; } draw{textureState};
     draw.texture = {};
+    if (g_gx.numChans) {
+        const auto& c = g_gx.chanMat[0];
+        draw.texture.materialRgba = (u32(c.r)<<24)|(u32(c.g)<<16)|(u32(c.b)<<8)|c.a;
+        if ((g_gx.chanControl[0] & 3u) == 0u) draw.texture.materialMask |= 1u;
+        if ((g_gx.chanControl[2] & 3u) == 0u) draw.texture.materialMask |= 2u;
+    }
     if (g_gx.numTexGens == 0) {
         ++g_gx.frame.textureStateNoTexGen;
         return;
     }
-    if (g_gx.vtxDesc[GX_VA_TEX0] == GX_NONE) {
+    // Generated coordinates (e.g. position projected into an EFB texture) do
+    // not require a TEX0 vertex attribute. Only the TEX0 source does.
+    if (g_gx.vtxDesc[GX_VA_TEX0] == GX_NONE && g_gx.texGen[0].src == GX_TG_TEX0) {
         ++g_gx.frame.textureStateNoTexAttr;
         return;
     }
@@ -1632,7 +1656,8 @@ bool SameDrawRaster(const DrawRasterState& a, const DrawRasterState& b) {
 }
 
 bool SameDrawTexture(const DrawTextureState& a, const DrawTextureState& b) {
-    return a.data == b.data && a.dataRevision == b.dataRevision &&
+    return a.materialRgba == b.materialRgba && a.materialMask == b.materialMask &&
+           a.data == b.data && a.dataRevision == b.dataRevision &&
            a.globalEpoch == b.globalEpoch && a.sourceGeneration == b.sourceGeneration &&
            a.format == b.format && a.width == b.width && a.height == b.height &&
            a.wrapS == b.wrapS && a.wrapT == b.wrapT &&
@@ -1850,6 +1875,9 @@ bool TransformVertex(const DrawTransform& transform, u8 pnMtxRef,
     output.x = clipX * invW;
     output.y = clipY * invW;
     output.z = clipZ * invW;
+#if MKW_VITA_CLIP_W
+    output.clipW = clipW;
+#endif
     return std::isfinite(output.x) && std::isfinite(output.y) && std::isfinite(output.z);
 }
 
@@ -2137,6 +2165,26 @@ bool ApplyXfPacketImpl(const uint8_t* packet, uint32_t packetBytes) {
             }
         }
 
+        if (addr == 0x1009u) {
+            g_gx.numChans = u8(ReadU32(word, false) & 3u);
+            textureStateDirty = true;
+            ++supportedWords;
+            continue;
+        }
+        if (addr >= 0x100Au && addr <= 0x100Du) {
+            const u32 raw = ReadU32(word, false);
+            auto& colors = addr < 0x100Cu ? g_gx.chanAmb : g_gx.chanMat;
+            colors[(addr - 0x100Au) & 1u] = GXColor{u8(raw>>24),u8(raw>>16),u8(raw>>8),u8(raw)};
+            textureStateDirty = true;
+            ++supportedWords;
+            continue;
+        }
+        if (addr >= 0x100Eu && addr <= 0x1011u) {
+            g_gx.chanControl[addr - 0x100Eu] = ReadU32(word, false);
+            textureStateDirty = true;
+            ++supportedWords;
+            continue;
+        }
         if (addr == 0x1018u) {
             const uint32_t raw = ReadU32(word, false);
             g_gx.currentMtx = raw & 0x3Fu;
@@ -2723,6 +2771,7 @@ struct RawMeshCacheEntry {
 
 std::array<RawMeshCacheEntry, kRawMeshCacheCapacity> g_rawMeshCache{};
 size_t g_rawMeshCacheBytes = 0;
+size_t g_rawMeshCachePeakBytes = 0;
 uint64_t g_rawMeshCacheUseSerial = 0;
 
 size_t RawMeshEntryBytes(u16 capacity) {
@@ -2730,8 +2779,55 @@ size_t RawMeshEntryBytes(u16 capacity) {
 }
 
 void ClearRawMeshCache() {
+    const size_t clearedBytes = g_rawMeshCacheBytes;
     for (RawMeshCacheEntry& entry : g_rawMeshCache) entry = RawMeshCacheEntry{};
     g_rawMeshCacheBytes = 0;
+    if (clearedBytes != 0) {
+        ++g_gx.frame.rawMeshCacheFullClears;
+        g_gx.frame.rawMeshCacheFullClearBytes += clearedBytes;
+    }
+}
+
+bool EvictRawMeshCacheToFit(RawMeshCacheEntry* protectedEntry, size_t oldBytes, size_t newBytes) {
+#if MKW_VITA_INCREMENTAL_CACHE_EVICTION
+    if (newBytes > kRawMeshCacheBudgetBytes) {
+        ++g_gx.frame.rawMeshCacheBudgetSkips;
+        return false;
+    }
+    const auto fits = [&]() {
+        const size_t retainedBytes =
+            g_rawMeshCacheBytes - std::min(g_rawMeshCacheBytes, oldBytes);
+        return retainedBytes + newBytes <= kRawMeshCacheBudgetBytes;
+    };
+    if (fits()) return true;
+
+    constexpr size_t kMaxEvictionsPerStore = 64;
+    for (size_t eviction = 0; eviction < kMaxEvictionsPerStore && !fits(); ++eviction) {
+        RawMeshCacheEntry* oldest = nullptr;
+        for (RawMeshCacheEntry& candidate : g_rawMeshCache) {
+            if (&candidate == protectedEntry || candidate.capacity == 0) continue;
+            if (!oldest ||
+                (!candidate.valid && oldest->valid) ||
+                (candidate.valid == oldest->valid && candidate.lastUse < oldest->lastUse)) {
+                oldest = &candidate;
+            }
+        }
+        if (!oldest) break;
+        const size_t evictedBytes = RawMeshEntryBytes(oldest->capacity);
+        g_rawMeshCacheBytes -= std::min(g_rawMeshCacheBytes, evictedBytes);
+        ++g_gx.frame.rawMeshCacheEvictions;
+        g_gx.frame.rawMeshCacheEvictedBytes += evictedBytes;
+        *oldest = RawMeshCacheEntry{};
+    }
+    if (fits()) return true;
+    ++g_gx.frame.rawMeshCacheBudgetSkips;
+    return false;
+#else
+    (void)protectedEntry;
+    (void)oldBytes;
+    (void)newBytes;
+    return true;
+#endif
 }
 
 size_t RawMeshCacheSet(const uint8_t* payload, uint32_t vertexBytes,
@@ -2868,10 +2964,14 @@ bool StoreRawMeshCache(const RawLayoutPlan& plan, GXPrimitive primitive, GXVtxFm
         const size_t newBytes = RawMeshEntryBytes(vtxCount);
         const size_t retainedBytes = g_rawMeshCacheBytes - std::min(g_rawMeshCacheBytes, oldBytes);
         if (retainedBytes + newBytes > kRawMeshCacheBudgetBytes) {
+#if MKW_VITA_INCREMENTAL_CACHE_EVICTION
+            if (!EvictRawMeshCacheToFit(entry, oldBytes, newBytes)) return false;
+#else
             ClearRawMeshCache();
             entry = &SelectRawMeshCacheVictim(
                 payload, vertexBytes, primitive, fmt, vtxCount, plan.signature, defaultPnMtxRef);
             oldBytes = 0;
+#endif
         }
         std::unique_ptr<RenderVertex[]> newVertices(new (std::nothrow) RenderVertex[vtxCount]);
         std::unique_ptr<u8[]> newPnMtxRefs(new (std::nothrow) u8[vtxCount]);
@@ -2880,6 +2980,7 @@ bool StoreRawMeshCache(const RawLayoutPlan& plan, GXPrimitive primitive, GXVtxFm
         entry->pnMtxRefs = std::move(newPnMtxRefs);
         entry->capacity = vtxCount;
         g_rawMeshCacheBytes = g_rawMeshCacheBytes - std::min(g_rawMeshCacheBytes, oldBytes) + newBytes;
+        g_rawMeshCachePeakBytes = std::max(g_rawMeshCachePeakBytes, g_rawMeshCacheBytes);
     }
 
     entry->payload = payload;
@@ -3507,7 +3608,8 @@ void RenderWorkerMain() {
             "gx_state_generations=%u raw_layout_cache=%u raw_mesh_cache=%u "
             "efb_readback_flip_y=%u efb_transfer_readback=%u efb_resident_copy=%u "
             "efb_native_res_copy=%u stream_safe_reuse=%u ui_quad_runs=%u "
-            "texture_shared_headroom=%u texture_safe_retry=%u\n",
+            "texture_shared_headroom=%u texture_safe_retry=%u clip_w=%u "
+            "wait_timing_service=%u incremental_cache_eviction=%u\n",
             static_cast<unsigned long long>(vglInitBeginUs), kRendererVariant, kVitaGlVariant,
             static_cast<unsigned>(kRenderTargetScenes), static_cast<unsigned>(kRenderTargetScenes),
             static_cast<unsigned>(kMaxFrameDraws), static_cast<unsigned>(kMaxFrameVertices),
@@ -3544,7 +3646,10 @@ void RenderWorkerMain() {
             static_cast<unsigned>(MKW_VITA_STREAM_SAFE_REUSE),
             static_cast<unsigned>(MKW_VITA_UI_QUAD_RUNS),
             static_cast<unsigned>(MKW_VITA_TEXTURE_SHARED_HEADROOM),
-            static_cast<unsigned>(MKW_VITA_TEXTURE_SAFE_RETRY));
+            static_cast<unsigned>(MKW_VITA_TEXTURE_SAFE_RETRY),
+            static_cast<unsigned>(MKW_VITA_CLIP_W),
+            static_cast<unsigned>(MKW_VITA_WAIT_TIMING_SERVICE),
+            static_cast<unsigned>(MKW_VITA_INCREMENTAL_CACHE_EVICTION));
     const bool resolutionFallback =
         vglInitExtended(0, kSurfaceWidth, kSurfaceHeight, kVitaGlUserRamReserve,
                         SCE_GXM_MULTISAMPLE_NONE) == GL_TRUE;
@@ -4216,6 +4321,15 @@ void RenderWorkerMain() {
                         ++geometryTransformFailures;
                         RecordPerfCriticalEvent(serial, kPerfEventTransformFailure, i, vertexIndex);
                     }
+                    if (texture.materialMask) {
+                        auto& v = g_renderVertices[vertexIndex];
+                        if (texture.materialMask & 1u) {
+                            v.r = u8(texture.materialRgba>>24);
+                            v.g = u8(texture.materialRgba>>16);
+                            v.b = u8(texture.materialRgba>>8);
+                        }
+                        if (texture.materialMask & 2u) v.a = u8(texture.materialRgba);
+                    }
                     if (texture.enabled &&
                         !TransformTexCoord(texture, packet.geometry.vertices[vertexIndex],
                                            g_renderVertices[vertexIndex])) {
@@ -4776,6 +4890,7 @@ void RenderWorkerMain() {
                     "compact=%u fallback=%u merged=%u runs=%u/%u state=%u/%u "
                     "p4_state=%llu/%llu,%llu/%llu,%llu/%llu "
                     "p4_layout=%llu/%llu p4_mesh=%llu/%llu/%llu/%llu "
+                    "mesh_mem=%llu/%llu mesh_evict=%llu/%llu mesh_clear=%llu/%llu mesh_skip=%llu "
                     "profile_us=%llu/%llu/%llu/%llu/%llu/%llu "
                     "efb=%u/%u efb_transfer=%u efb_exec=%llu/%llu sampled=%llu "
                     "efb_us=%llu/%llu/%llu/%llu resident=%u/%llu reuse_wait_us=%llu "
@@ -4822,6 +4937,13 @@ void RenderWorkerMain() {
                     static_cast<unsigned long long>(packet.counters.rawMeshCacheMisses),
                     static_cast<unsigned long long>(packet.counters.rawMeshCacheStores),
                     static_cast<unsigned long long>(packet.counters.rawMeshCacheInvalidations),
+                    static_cast<unsigned long long>(packet.counters.rawMeshCacheBytes),
+                    static_cast<unsigned long long>(packet.counters.rawMeshCachePeakBytes),
+                    static_cast<unsigned long long>(packet.counters.rawMeshCacheEvictions),
+                    static_cast<unsigned long long>(packet.counters.rawMeshCacheEvictedBytes),
+                    static_cast<unsigned long long>(packet.counters.rawMeshCacheFullClears),
+                    static_cast<unsigned long long>(packet.counters.rawMeshCacheFullClearBytes),
+                    static_cast<unsigned long long>(packet.counters.rawMeshCacheBudgetSkips),
                     static_cast<unsigned long long>(auroraFrameStats.indexBuildUs),
                     static_cast<unsigned long long>(auroraFrameStats.vertexPackUs),
                     static_cast<unsigned long long>(auroraFrameStats.textureResolveUs),
@@ -5012,10 +5134,16 @@ void SubmitFrame() {
     g_lastProducerSubmitUs = producerEnterUs;
     const uint64_t priorWaitCalls = g_guestWaitRenderCallsSinceSubmit;
     const uint64_t priorWaitUs = g_guestWaitRenderUsSinceSubmit;
+    const uint64_t priorWaitCallbackCalls = g_waitCallbackCallsSinceSubmit;
+    const uint64_t priorWaitCallbackUs = g_waitCallbackUsSinceSubmit;
+    const uint64_t priorWaitCallbackMaxUs = g_waitCallbackMaxUsSinceSubmit;
     const auto priorWaitCallsByReason = g_renderWaitCallsByReason;
     const auto priorWaitUsByReason = g_renderWaitUsByReason;
     g_guestWaitRenderCallsSinceSubmit = 0;
     g_guestWaitRenderUsSinceSubmit = 0;
+    g_waitCallbackCallsSinceSubmit = 0;
+    g_waitCallbackUsSinceSubmit = 0;
+    g_waitCallbackMaxUsSinceSubmit = 0;
     g_renderWaitCallsByReason.fill(0);
     g_renderWaitUsByReason.fill(0);
     const uint32_t producerDraws = g_gx.geometry.drawCount;
@@ -5097,6 +5225,10 @@ void SubmitFrame() {
     lock.unlock();
     const uint64_t queueWaitEndUs = sceKernelGetProcessTimeWide();
     const uint64_t packetCopyBeginUs = queueWaitEndUs;
+#if MKW_VITA_RAW_MESH_CACHE
+    g_gx.frame.rawMeshCacheBytes = g_rawMeshCacheBytes;
+    g_gx.frame.rawMeshCachePeakBytes = g_rawMeshCachePeakBytes;
+#endif
     pendingFrame.counters = g_gx.frame;
     // Copy only the active prefixes. FrameGeometry is capacity-sized for worst-case
     // G3D scenes, so assigning the whole object would memcpy ~1.9 MiB even for a
@@ -5165,6 +5297,7 @@ void SubmitFrame() {
         RT_LOGF(RT_TAG_GX,
                 "producer_frame=%llu interval_us=%llu queue_wait_us=%llu packet_copy_us=%llu "
                 "prior_wait_calls=%llu prior_wait_us=%llu wait_gx=%llu/%llu wait_worker=%llu/%llu "
+                "wait_service=%llu/%llu/%llu "
                 "draws=%u vertices=%u efb_cmds=%u "
                 "requested_draws=%llu begin_cap=%llu raw_cap=%llu dropped=%u "
                 "efb_calls=%llu efb_recorded=%llu efb_cap_fail=%llu efb_destroy=%llu\n",
@@ -5178,6 +5311,9 @@ void SubmitFrame() {
                 static_cast<unsigned long long>(priorWaitUsByReason[static_cast<size_t>(RenderWaitReason::DrawDone)]),
                 static_cast<unsigned long long>(priorWaitCallsByReason[static_cast<size_t>(RenderWaitReason::FrameWorker)]),
                 static_cast<unsigned long long>(priorWaitUsByReason[static_cast<size_t>(RenderWaitReason::FrameWorker)]),
+                static_cast<unsigned long long>(priorWaitCallbackCalls),
+                static_cast<unsigned long long>(priorWaitCallbackUs),
+                static_cast<unsigned long long>(priorWaitCallbackMaxUs),
                 producerDraws, producerVertices,
                 static_cast<unsigned>(pendingFrame.geometry.efbCommandCount),
                 static_cast<unsigned long long>(pendingFrame.counters.drawCalls),
@@ -5200,7 +5336,13 @@ void WaitRender(RenderWaitReason reason) {
         if (g_renderIdle.wait_for(lock, std::chrono::milliseconds(1)) == std::cv_status::timeout) {
             lock.unlock();
             if (g_waitCallback) {
+                const uint64_t callbackBeginUs = sceKernelGetProcessTimeWide();
                 g_waitCallback();
+                const uint64_t callbackUs = sceKernelGetProcessTimeWide() - callbackBeginUs;
+                ++g_waitCallbackCallsSinceSubmit;
+                g_waitCallbackUsSinceSubmit += callbackUs;
+                g_waitCallbackMaxUsSinceSubmit =
+                    std::max(g_waitCallbackMaxUsSinceSubmit, callbackUs);
             }
             lock.lock();
         }
@@ -5965,16 +6107,32 @@ void GXSetTevIndirect(GXTevStageID, GXIndTexStageID, GXIndTexFormat, GXIndTexBia
                       GXIndTexWrap, GXIndTexWrap, GXBool, GXBool, GXIndTexAlphaSel) {}
 void GXSetTevIndWarp(GXTevStageID, GXIndTexStageID, GXBool, GXBool, GXIndTexMtxID) {}
 
-void GXSetNumChans(u8 n) { g_gx.numChans = n; }
+void GXSetNumChans(u8 n) { g_gx.numChans = n; MarkTextureStateDirty(); }
+void SetChannelRegister(std::array<GXColor,4>& colors,GXChannelID chan,GXColor color) {
+    if (chan < GX_COLOR0 || chan > GX_COLOR1A1) return;
+    auto& dst=colors[static_cast<unsigned>(chan)&1u];
+    if (chan != GX_ALPHA0 && chan != GX_ALPHA1) { dst.r=color.r;dst.g=color.g;dst.b=color.b; }
+    if (chan != GX_COLOR0 && chan != GX_COLOR1) dst.a=color.a;
+    MarkTextureStateDirty();
+}
 void GXSetChanAmbColor(GXChannelID chan, GXColor color) {
-    const size_t idx = static_cast<size_t>(chan) & 3u;
-    g_gx.chanAmb[idx] = color;
+    SetChannelRegister(g_gx.chanAmb,chan,color);
 }
 void GXSetChanMatColor(GXChannelID chan, GXColor color) {
-    const size_t idx = static_cast<size_t>(chan) & 3u;
-    g_gx.chanMat[idx] = color;
+    SetChannelRegister(g_gx.chanMat,chan,color);
 }
-void GXSetChanCtrl(GXChannelID, GXBool, GXColorSrc, GXColorSrc, u32, GXDiffuseFn, GXAttnFn) {}
+void GXSetChanCtrl(GXChannelID chan,GXBool enabled,GXColorSrc amb,GXColorSrc mat,
+                   u32 lights,GXDiffuseFn diff,GXAttnFn attn) {
+    if (chan < GX_COLOR0 || chan > GX_COLOR1A1) return;
+    const u32 value=(u32(mat)&1u)|(u32(enabled!=0)<<1)|((lights&15u)<<2)|
+        ((u32(amb)&1u)<<6)|((u32(attn==GX_AF_SPEC?GX_DF_NONE:diff)&3u)<<7)|
+        (u32(attn!=GX_AF_NONE)<<9)|(u32(attn!=GX_AF_SPEC)<<10)|(((lights>>4)&15u)<<11);
+    if (chan == GX_COLOR0A0 || chan == GX_COLOR1A1) {
+        const unsigned color=static_cast<unsigned>(chan)&1u;
+        g_gx.chanControl[color]=g_gx.chanControl[color+2]=value;
+    } else g_gx.chanControl[static_cast<unsigned>(chan)]=value;
+    MarkTextureStateDirty();
+}
 
 void GXInitLightColor(GXLightObj* obj, GXColor color) { if (obj) Light(obj).color = color; }
 void GXInitLightAttn(GXLightObj* obj, f32 a0, f32 a1, f32 a2, f32 k0, f32 k1, f32 k2) {

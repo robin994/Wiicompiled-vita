@@ -84,6 +84,14 @@ struct GxCpuPerfSnapshot {
     uint64_t dlBytes = 0;
     uint64_t dlCacheHits = 0;
     uint64_t dlCacheMisses = 0;
+    uint64_t dlCacheEntries = 0;
+    uint64_t dlCacheStoredBytes = 0;
+    uint64_t dlCachePeakBytes = 0;
+    uint64_t dlCacheEvictions = 0;
+    uint64_t dlCacheEvictedBytes = 0;
+    uint64_t dlCacheFullClears = 0;
+    uint64_t dlCacheFullClearBytes = 0;
+    uint64_t dlCacheBudgetSkips = 0;
     uint64_t dlFallbacks = 0;
     uint64_t dlRawFastDraws = 0;
     uint64_t dlRawIndexedDraws = 0;

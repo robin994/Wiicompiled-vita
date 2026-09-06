@@ -230,7 +230,8 @@ extern "C" void GX__CopyDisp_8016fc38(uint32_t da, uint32_t c) {
         (!MKW_VITA_PERF_LOG && (g_gxFrameCount % MKW_VITA_PERF_SUMMARY_INTERVAL) == 0)) {
         RT_LOGF(RT_TAG_GX,
                 "gx_cpu_perf frame=%d lyt_calls=%llu lyt_us=%llu lyt_direct=%llu lyt_packet=%llu lyt_faithful=%llu "
-                "dl_calls=%llu dl_us=%llu dl_bytes=%llu dl_cache=%llu/%llu dl_fallback=%llu "
+                "dl_calls=%llu dl_us=%llu dl_bytes=%llu dl_cache=%llu/%llu "
+                "dl_cache_mem=%llu/%llu/%llu dl_evict=%llu/%llu dl_clear=%llu/%llu dl_skip=%llu dl_fallback=%llu "
                 "dl_raw=%llu/%llu verts=%llu fail=%llu dl_template=%llu/%llu draws=%llu fallback=%llu "
                 "glyph_fast=%llu setup=%llu texload=%llu glyph_raw=%llu glyph_fallback=%llu prebegin_us=%llu tail_us=%llu copydisp_us=%llu\n",
                 g_gxFrameCount,
@@ -244,6 +245,14 @@ extern "C" void GX__CopyDisp_8016fc38(uint32_t da, uint32_t c) {
                 static_cast<unsigned long long>(cpuPerf.dlBytes),
                 static_cast<unsigned long long>(cpuPerf.dlCacheHits),
                 static_cast<unsigned long long>(cpuPerf.dlCacheMisses),
+                static_cast<unsigned long long>(cpuPerf.dlCacheEntries),
+                static_cast<unsigned long long>(cpuPerf.dlCacheStoredBytes),
+                static_cast<unsigned long long>(cpuPerf.dlCachePeakBytes),
+                static_cast<unsigned long long>(cpuPerf.dlCacheEvictions),
+                static_cast<unsigned long long>(cpuPerf.dlCacheEvictedBytes),
+                static_cast<unsigned long long>(cpuPerf.dlCacheFullClears),
+                static_cast<unsigned long long>(cpuPerf.dlCacheFullClearBytes),
+                static_cast<unsigned long long>(cpuPerf.dlCacheBudgetSkips),
                 static_cast<unsigned long long>(cpuPerf.dlFallbacks),
                 static_cast<unsigned long long>(cpuPerf.dlRawFastDraws),
                 static_cast<unsigned long long>(cpuPerf.dlRawIndexedDraws),

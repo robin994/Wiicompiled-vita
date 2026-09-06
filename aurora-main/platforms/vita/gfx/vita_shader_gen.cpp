@@ -258,12 +258,22 @@ ShaderSources build_tev_glsl(const PipelineDesc& desc) noexcept {
   ShaderSources out;
   out.key = pipeline_key(desc);
 
+  // Compact Vita vertices retain NDC for CPU diagnostics and carry W in a
+  // separate attribute. Restore homogeneous position before GPU clipping and
+  // interpolation. Canonical vertices already carry a four-component position.
+  bool separateClipW = false;
+  for (unsigned i=0;i<desc.layout.count && i<MaxVertexAttributes;++i)
+    separateClipW |= desc.positionIsClipSpace && desc.layout.attributes[i].location==11 &&
+                     desc.layout.attributes[i].components==1;
+
   std::ostringstream vs;
   vs << "precision highp float;\n"
         "attribute vec4 a_position;\nattribute vec4 a_color0;\nattribute vec4 a_color1;\n";
   for (unsigned i = 0; i < MaxTextures; i++) vs << "attribute vec3 a_tex" << i << ";\nvarying vec3 v_tex" << i << ";\n";
+  if (separateClipW) vs << "attribute float a_clip_w;\n";
   vs << "varying vec4 v_color0;\nvarying vec4 v_color1;\nuniform mat4 u_mvp;\n"
-        "void main(){ gl_Position=" << (desc.positionIsClipSpace ? "a_position" : "u_mvp*a_position") << "; v_color0=a_color0; v_color1=a_color1;";
+        "void main(){ gl_Position=" << (separateClipW ? "vec4(a_position.xyz*a_clip_w,a_clip_w)" :
+           desc.positionIsClipSpace ? "a_position" : "u_mvp*a_position") << "; v_color0=a_color0; v_color1=a_color1;";
   for (unsigned i = 0; i < MaxTextures; i++) vs << "v_tex" << i << "=a_tex" << i << ";";
   vs << "}\n";
   out.vertex = vs.str();

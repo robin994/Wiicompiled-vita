@@ -15,6 +15,9 @@ struct AuroraPacketVertex {
     std::uint8_t a;
     float s;
     float t;
+#if MKW_VITA_CLIP_W
+    float clipW = 1.0f;
+#endif
 };
 
 struct AuroraPacketTexture {

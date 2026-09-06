@@ -9,6 +9,8 @@ import tempfile
 root = Path(__file__).resolve().parents[2]
 gfx = "aurora-main/platforms/vita/gfx/"
 cases = [
+    ("clip-position", ["vita/tests/clip_position.cpp", gfx+"vita_shader_gen.cpp",
+                        gfx+"vita_pipeline_key.cpp"], ["-DMKW_VITA_CLIP_W=1"]),
     ("efb-fifo", ["vita/tests/performance_helpers.cpp"], []),
     *[(f"texture-budget-{flag}", ["vita/tests/texture_budget.cpp", gfx+"vita_texture_cache.cpp",
        gfx+"vita_texture_decode.cpp", gfx+"vita_pipeline_key.cpp"],

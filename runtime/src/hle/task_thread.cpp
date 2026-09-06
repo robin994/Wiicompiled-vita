@@ -70,6 +70,12 @@ uint32_t RunMovieManagerPrepareAsync(uint32_t manager, CpuContext* cpu)
     };
 
     uint32_t openResult = callThpPlayerOpen();
+    static uint64_t movieOpenAttempts=0;
+    const uint64_t attempt=++movieOpenAttempts;
+    if (attempt<=4 || (attempt&(attempt-1))==0) {
+        RT_LOGF(RT_TAG_HLE,"movie: open n=%llu manager=0x%08X result=%u buffer=0x%08X\n",
+            static_cast<unsigned long long>(attempt),manager,openResult,Memory::Read32(manager+0x1Cu));
+    }
     if (openResult == 0 && ShouldRetryThpPrepareAfterClose(0x80529D68u, manager, 0)) {
         {
             CpuContextScope scope(cpu);
@@ -123,6 +129,9 @@ uint32_t RunMovieManagerPrepareAsync(uint32_t manager, CpuContext* cpu)
         Memory::Write32(manager + 0xACu, 1);
     }
     cpu->gpr[3] = prepareResult;
+    if (attempt<=4 || (attempt&(attempt-1))==0)
+        RT_LOGF(RT_TAG_HLE,"movie: prepare n=%llu memory=%u result=%u state=%u\n",
+            static_cast<unsigned long long>(attempt),needMemory,prepareResult,Memory::Read32(manager+0xACu));
     GuestStallWatchdog::RecordMovieManager(manager, Memory::Read32(manager + 0xACu), prepareResult);
     return prepareResult;
 #endif

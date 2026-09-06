@@ -263,6 +263,9 @@ static std::atomic<bool> s_inAdvanceRetrace{false};
 struct ViDiag {
     std::atomic<uint64_t> pollTotal{0};
     std::atomic<uint64_t> dueTotal{0};
+    std::atomic<uint64_t> deferredCalls{0};
+    std::atomic<uint64_t> deferredInterruptDisabled{0};
+    std::atomic<uint64_t> deferredRetracesAdvanced{0};
     std::atomic<uint64_t> advanceEnterTotal{0};
     std::atomic<uint64_t> advanceReentryTotal{0};
     std::atomic<uint64_t> advanceCompleteTotal{0};
@@ -419,9 +422,9 @@ bool AdvanceRetrace(CpuContext* ctx, Clock::time_point retraceStamp, bool servic
     return true;
 }
 
-bool AdvanceDueRetraces(CpuContext* ctx, int maxToProcess, bool serviceAurora)
+int AdvanceDueRetraces(CpuContext* ctx, int maxToProcess, bool serviceAurora)
 {
-    bool advancedAny = false;
+    int advancedCount = 0;
 
     for (int catchUpCount = 0; catchUpCount < maxToProcess; ++catchUpCount) {
         Clock::time_point target;
@@ -429,11 +432,11 @@ bool AdvanceDueRetraces(CpuContext* ctx, int maxToProcess, bool serviceAurora)
         {
             std::lock_guard<std::mutex> lock(g_viMutex);
             if (!g_vi.initialized) {
-                return advancedAny;
+                return advancedCount;
             }
             target = g_vi.lastRetrace + g_vi.retraceInterval;
             if (now < target) {
-                return advancedAny;
+                return advancedCount;
             }
         }
 
@@ -445,10 +448,10 @@ bool AdvanceDueRetraces(CpuContext* ctx, int maxToProcess, bool serviceAurora)
             // not claim progress that did not happen.
             break;
         }
-        advancedAny = true;
+        ++advancedCount;
     }
 
-    return advancedAny;
+    return advancedCount;
 }
 
 } // namespace
@@ -495,7 +498,8 @@ void VI_HLE_LogDiagnostics() noexcept {
     RT_LOGF(RT_TAG_OS,
             "vi_stall retrace_count=%u last_retrace_age_us=%lld next_retrace_due_us=%lld in_advance=%d "
             "pre_cb=0x%08X post_cb=0x%08X sSystem=0x%08X "
-            "poll_total=%llu due_total=%llu advance_enter=%llu advance_reentry=%llu advance_complete=%llu "
+            "poll_total=%llu due_total=%llu deferred=%llu/%llu/%llu "
+            "advance_enter=%llu advance_reentry=%llu advance_complete=%llu "
             "pre_cb_total=%llu post_cb_total=%llu post_cb_no_system=%llu post_cb_zero=%llu retrace_wake_total=%llu "
             "last_post_cb=0x%08X last_post_cb_us=%llu last_retrace_count=%u last_advance_complete_us=%llu\n",
             retraceCount, static_cast<long long>(lastAgeUs), static_cast<long long>(nextDueUs),
@@ -503,6 +507,9 @@ void VI_HLE_LogDiagnostics() noexcept {
             preCbPtr, postCbPtr, sSystemPtr,
             static_cast<unsigned long long>(g_viDiag.pollTotal.load(std::memory_order_relaxed)),
             static_cast<unsigned long long>(g_viDiag.dueTotal.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(g_viDiag.deferredCalls.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(g_viDiag.deferredInterruptDisabled.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(g_viDiag.deferredRetracesAdvanced.load(std::memory_order_relaxed)),
             static_cast<unsigned long long>(g_viDiag.advanceEnterTotal.load(std::memory_order_relaxed)),
             static_cast<unsigned long long>(g_viDiag.advanceReentryTotal.load(std::memory_order_relaxed)),
             static_cast<unsigned long long>(g_viDiag.advanceCompleteTotal.load(std::memory_order_relaxed)),
@@ -526,7 +533,12 @@ void VI_HLE_PollRetrace(CpuContext* ctx) {
 }
 
 void VI_HLE_ProcessRetracesDeferred(int maxToProcess) {
-    if (maxToProcess <= 0 || !OS_HLE_InterruptsEnabled()) {
+    g_viDiag.deferredCalls.fetch_add(1, std::memory_order_relaxed);
+    if (maxToProcess <= 0) {
+        return;
+    }
+    if (!OS_HLE_InterruptsEnabled()) {
+        g_viDiag.deferredInterruptDisabled.fetch_add(1, std::memory_order_relaxed);
         return;
     }
 
@@ -542,7 +554,9 @@ void VI_HLE_ProcessRetracesDeferred(int maxToProcess) {
     // all recursive Aurora/event work until the native GX call has unwound.
     OS_HLE_BeginDeferredGuestCallbacks();
     try {
-        AdvanceDueRetraces(cpu, maxToProcess, false);
+        const int advanced = AdvanceDueRetraces(cpu, maxToProcess, false);
+        g_viDiag.deferredRetracesAdvanced.fetch_add(
+            static_cast<uint64_t>(std::max(advanced, 0)), std::memory_order_relaxed);
     } catch (...) {
         OS_HLE_EndDeferredGuestCallbacks();
         throw;

@@ -77,6 +77,21 @@ uint32_t TiledPlaneBytes(uint32_t width, uint32_t height) noexcept {
 }
 
 void NativeThpVideoDecode(CpuContext* ctx) {
+    static thread_local uint64_t calls=0, failures=0;
+    const char* phase="arguments";
+    const uint64_t call=++calls;
+    if (call<=2) RT_LOGF(RT_TAG_HLE,"thp: decode_enter n=%llu src=0x%08X\n",
+        static_cast<unsigned long long>(call),ctx->gpr[3]);
+    struct TraceResult {
+        CpuContext* ctx; const char*& phase; uint64_t& failures;
+        ~TraceResult() {
+            if (ctx->gpr[3]==kThpErrNone) return;
+            const uint64_t n=++failures;
+            if (n<=4 || (n&(n-1))==0)
+                RT_LOGF(RT_TAG_HLE,"thp: decode_error n=%llu phase=%s code=%u\n",
+                    static_cast<unsigned long long>(n),phase,ctx->gpr[3]);
+        }
+    } trace{ctx,phase,failures};
     const uint32_t srcAddr = ctx->gpr[3];
     const uint32_t dstYAddr = ctx->gpr[4];
     const uint32_t dstUAddr = ctx->gpr[5];
@@ -111,6 +126,7 @@ void NativeThpVideoDecode(CpuContext* ctx) {
     }
 
     int width = 0;
+    phase="jpeg_header";
     int height = 0;
     int subsamp = 0;
     int colorspace = 0;
@@ -137,6 +153,7 @@ void NativeThpVideoDecode(CpuContext* ctx) {
     // THP is Motion-JPEG and its frames are transient. FASTDCT is materially
     // cheaper on the Vita's Cortex-A9 while remaining more than adequate for a
     // 960x544 display; avoid spending guest-core time on the accurate DCT path.
+    phase="jpeg_pixels";
     if (tjDecompressToYUVPlanes(tj, src, jpegSize, planes, width, strides, height,
                                 TJFLAG_FASTDCT) != 0) {
         ctx->gpr[3] = kThpErrDecode;
@@ -144,6 +161,7 @@ void NativeThpVideoDecode(CpuContext* ctx) {
     }
 
     const uint32_t dstAddr[3] = {dstYAddr, dstUAddr, dstVAddr};
+    phase="guest_planes";
     for (int c = 0; c < 3; ++c) {
         const uint32_t need = TiledPlaneBytes(planeW[c], planeH[c]);
         uint8_t* dst = Memory::GetPointer(dstAddr[c], need);

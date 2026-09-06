@@ -288,3 +288,117 @@ Per tutti e quattro: compilazione/link, VELF/FSELF, packaging e verifica ZIP ter
 La variante O2 sostituisce esattamente un oggetto nel link, con VPK +140.673 byte ed ELF +364.524 byte rispetto a P7.
 La Vita al server FTP configurato `192.168.1.217:1337` non risponde (timeout): nessun deploy o test hardware eseguito.
 Prossima azione: installare **p5-resident**, acquisire un log nuovo nella stessa scena P4.1 e confrontare `efb_us`, `resident`, `efb_exec` e `producer_frame`, oltre a orientamento e colori. Solo dopo passare a P7, O2 e full-features.
+
+
+## M13.4 — priorità al contenuto 3D, build full-content-3d (2026-09-06)
+
+La richiesta aggiornata mette correttezza 3D/texture/filmati prima di ulteriori ottimizzazioni. Il log nuovo contiene due sessioni; l'ultima ha già tutti i contenuti abilitati e perf_log=0. Ai seriali 1200/1500/1800 il renderer misura 39,904/47,071/50,245 ms con 12 copie GPU e zero resize CPU; il producer 158,846/175,224/202,473 ms. Il caso heavy termina a serial 1996 con producer 1,492 s e allocazioni texture fallite: manca il resource_summary finale. Nessun successo decode THP osservato.
+
+Implementati W prospettico nel vertice compatto (28 byte, clip_w=1), ammissione delle texture generate dalla posizione anche senza TEX0, controlli e colori materiale non illuminati da API/XF, diagnostica limitata di apertura/preparazione e decode/errori THP. Profilo full-content-3d con contenuti attivi, P4.1/P5.1/P6/P7 conservati e nessun hot shard. PASS ARM32/link/VPK/ZIP, manifest/hash, graphics-check e test host ASan/UBSan. Nuova build non hardware-validata.
+
+**Non è ancora GX completo:** restano TEV multistadio/multitexture, illuminazione completa, altri texgen, pressione texture heavy e prova di riproduzione dei filmati. Non dichiarare risolti tutti i modelli bianchi/capovolti né 60 FPS.
+
+Report e continuazione: `docs/full-content-2026-09-06/REPORT.md`.
+Log estratto: `docs/full-content-2026-09-06/hardware-log.json`.
+VPK: `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-3d.vpk`.
+SHA-256 VPK: `84a5c216ad7bcbd0626c79c188a2a108e8c5233f917ec4e8b09b87449795c112`.
+ELF: `build/vita/mkwii_runtime/wiicompiled-vita-mkw-firstboot-astra-full-content-3d.elf`.
+SHA-256 ELF: `b5d3a0569d5ddd8d5be7711c2e485ba8fcf6b1c3b5c2a492c307c23b740a91ed`.
+
+## P5.2 — servizio guest timing durante WaitRender Vita
+
+L'audit `docs/performance-audit-2026-09-06/PRODUCER-AUDIT.md` separa la scena
+heavy finale in circa 1.495,397 ms producer mediani, 1.132,575 ms di renderer/GX
+wait, 358,624 ms residui e 5,504 ms di packet copy. Il queue wait e trascurabile.
+Il codice mostrava inoltre un boundary errato: `WaitRender()` contiene gia un
+poll ogni 1 ms di `g_waitCallback`, ma la callback VI/allarmi/audio veniva
+registrata soltanto dal main desktop escluso dalla build Vita.
+
+Implementazione P5.2:
+
+- `vita/main_vita.cpp` registra `ServiceGuestTimingDuringAuroraFrameWait`;
+- ogni invocazione bounded esegue `VI_HLE_ProcessRetracesDeferred(8)`,
+  `OS_HLE_ProcessAlarmsDeferred(8)` e `Audio_HLE_PollDeferred()`;
+- `MKW_VITA_WAIT_TIMING_SERVICE` e un kill switch compilabile;
+- native config/manifest registrano `wait_timing_service`;
+- `WaitRender` accumula callback count, tempo totale e massimo;
+- `producer_frame` esporta `wait_service=calls/total_us/max_us` senza abilitare
+  il tracing invasivo `MKW_VITA_PERF_LOG=1`.
+
+Profilo A/B: `full-content-p5_2-timing-service`. Mantiene il full-content
+auditato (`clip_w=1`, movies/native THP), P4.1/P5.1/P6/P7, native-res EFB,
+texture safe retry, queue depth 2, EFB cap 512 e translated NEON `-Os`; nessun
+hot shard. `perf_log=0` e summary interval 300.
+
+Artefatto verificato:
+
+- VPK: `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p5_2-timing-service.vpk`
+- VPK SHA-256: `f4e8a0bcc831364538cb604150fe1b0ac2ccc2b047333b042b4a662824478d47`
+- VPK bytes: `41286179`
+- ELF: `build/vita/mkwii_runtime/wiicompiled-vita-mkw-firstboot-astra-full-content-p5_2-timing-service.elf`
+- ELF SHA-256: `83f474a5f2fae6e09901825f6bbd5403061bbfcc4f45f59b9a0f03ee2fb1fa7d`
+- ELF bytes: `219270448`
+
+PASS: compile ARM32, link, VELF/FSELF, packaging, `verify-mkw-firstboot-vpk`,
+`unzip -t` e `git diff --check`. Il manifest conferma `wait_timing_service=1`,
+`clip_w=1`, `perf_log=0`, nessun hot shard e tutti i flag P5.1/P6/P7 previsti.
+
+Chiusura hardware P5.2: raggiungere la stessa scena heavy dell'audit, verificare
+che `wait_service` sia non nullo nelle attese lunghe, confrontare producer,
+`wait_gx`, residual e VI debt, e controllare audio/input/scheduler. Non cambiare
+contemporaneamente eviction cache o packet ownership: il primo test deve isolare
+il timing service. Dopo l'A/B, misurare i clear globali raw-mesh/DL e solo se
+restano un costo reale passare a eviction incrementale; packet swap viene dopo.
+
+## M13.6 / P5.3 — hardware P5.2 + incremental cache eviction (2026-09-06)
+
+Il primo log hardware P5.2 conferma che il timing service Vita viene installato e
+che il suo overhead e trascurabile rispetto agli stall misurati. A serial 421 il
+producer dura 6.563.918 us, di cui 6.477.089 us in WaitRender; 4.040 invocazioni
+del timing service costano complessivamente 6.374 us (max 52 us). A serial 423
+953 invocazioni costano 1.604 us durante 1.541.896 us di wait. Il servizio viene
+quindi mantenuto.
+
+P5.2 non risolve pero il timing globale: serial 853 dura 6.284.921 us con appena
+48 us di WaitRender e wait_service nullo, quindi quasi tutto lo stall e producer/guest
+fuori dal renderer. Verso serial 1030 il VI debt e ancora ~12,35 s e il frame
+combina 1.752.852 us di GX wait con circa 287 ms residui. Il log termina intorno a
+serial 1030 e non raggiunge la vecchia finestra heavy 1655-1691, quindi non chiude
+l'A/B prestazionale completo.
+
+La telemetria P5.2 contava ogni invocazione del servizio anche quando
+VI_HLE_ProcessRetracesDeferred usciva subito per interrupt guest disabilitati. P5.3
+aggiunge quindi a vi_stall deferred=calls/interrupt-disabled/retraces-advanced, senza
+cambiare la semantica degli interrupt.
+
+Seguendo il passo successivo del performance audit, P5.3 sostituisce inoltre i clear
+globali delle cache con eviction incrementale bounded, mantenendo invariati i budget:
+
+- raw mesh: 4 MiB, LRU globale bounded fino a 64 vittime per store; se non basta,
+  viene saltato soltanto il nuovo inserimento;
+- DL scan/template: 8 MiB e 8192 entry, eviction LRU bounded fino a 64 record per
+  store, senza distruggere il working set completo;
+- flag A/B MKW_VITA_INCREMENTAL_CACHE_EVICTION;
+- perf_summary: mesh_mem, mesh_evict, mesh_clear, mesh_skip;
+- gx_cpu_perf: dl_cache_mem, dl_evict, dl_clear, dl_skip.
+
+Profilo: full-content-p5_3-cache-eviction. Conserva clip_w=1, movies/native THP,
+P4.1/P5.1/P6/P7/P5.2, queue depth 2, EFB cap 512, PERF_LOG=0 e nessun hot shard.
+
+Artefatto verificato:
+
+- VPK: build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p5_3-cache-eviction.vpk
+- VPK SHA-256: e49f1e59b5c6c3af925524ee26d44d3aa9ec1b6d81eacf4ad59cb1b3d5108ce4
+- VPK bytes: 41.279.756
+- ELF: build/vita/mkwii_runtime/wiicompiled-vita-mkw-firstboot-astra-full-content-p5_3-cache-eviction.elf
+- ELF SHA-256: d911e980b787cca230843c1362ca16cf01df3044034ee40deddd41dc118a9103
+- ELF bytes: 219.296.100
+
+PASS: git diff --check, graphics-check ARM32, link, VELF/FSELF, packaging,
+verify-mkw-firstboot-vpk e unzip -t. Il manifest conferma incremental_cache_eviction=1,
+wait_timing_service=1, perf_log=0 e translated_hot_shards vuoto.
+
+Il prossimo hardware log deve raggiungere almeno la stessa zona di serial 1030 e,
+idealmente, 1655-1691/2000. I criteri decisivi sono deferred, mesh_evict/clear/skip,
+dl_evict/clear/skip, producer/wait_gx/residual e VI debt. Packet ownership/swap resta
+il passo successivo solo se il packet_copy heavy (~5,5 ms storico) rimane misurabile.

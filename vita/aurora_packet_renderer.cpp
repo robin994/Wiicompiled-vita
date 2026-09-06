@@ -54,7 +54,7 @@
 #define MKW_VITA_TEXTURE_SAFE_RETRY 0
 #endif
 
-static_assert(sizeof(WiiCompiledVita::AuroraPacketVertex) == 24,
+static_assert(sizeof(WiiCompiledVita::AuroraPacketVertex) == (MKW_VITA_CLIP_W ? 28 : 24),
               "compact packet vertex must stay 24 bytes");
 
 namespace WiiCompiledVita {
@@ -468,6 +468,11 @@ gfx::VertexLayout CompactVertexLayout() noexcept {
                             sizeof(AuroraPacketVertex), offsetof(AuroraPacketVertex, r)};
     layout.attributes[2] = {3, 2, gfx::VertexScalar::F32, false,
                             sizeof(AuroraPacketVertex), offsetof(AuroraPacketVertex, s)};
+#if MKW_VITA_CLIP_W
+    layout.count = 4;
+    layout.attributes[3] = {11, 1, gfx::VertexScalar::F32, false,
+                            sizeof(AuroraPacketVertex), offsetof(AuroraPacketVertex, clipW)};
+#endif
     return layout;
 }
 
@@ -1020,6 +1025,12 @@ AuroraPacketSubmitResult AuroraPacketRendererSubmit(const AuroraPacketDraw& draw
             destination.position[1] = source.y;
             destination.position[2] = source.z;
             destination.position[3] = 1.0f;
+#if MKW_VITA_CLIP_W
+            destination.position[0] *= source.clipW;
+            destination.position[1] *= source.clipW;
+            destination.position[2] *= source.clipW;
+            destination.position[3] = source.clipW;
+#endif
             destination.color0[0] = source.r;
             destination.color0[1] = source.g;
             destination.color0[2] = source.b;

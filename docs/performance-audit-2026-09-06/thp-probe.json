@@ -1,0 +1,2987 @@
+{
+  "scope": "Host functional reproduction only. Not Vita timing or runtime validation.",
+  "libturbojpeg": "/opt/homebrew/Cellar/jpeg-turbo/3.2.0/lib/libturbojpeg.0.5.0.dylib",
+  "summary": {
+    "sample_count": 81,
+    "asset_count": 27,
+    "current_decode_failures": 69,
+    "bounded_original_decode_failures": 69,
+    "stuffed_decode_failures": 0,
+    "premature_eoi_scans": 30
+  },
+  "samples": [
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/battle/battle_cup_select.thp",
+      "frame": 0,
+      "offset": 92,
+      "source_size": 42708,
+      "source_sha256": "1508ba6ae5ab76f37ad472cefddb84564f78c54ebeb2cfeb3722d42904454536",
+      "entropy_offset": 402,
+      "entropy_ff_count": 144,
+      "first_eoi_offset": 21688,
+      "actual_eoi_offset": 42703,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 336,
+        "height": 528,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x8a",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 336,
+        "height": 528,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x8a",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 336,
+        "height": 528,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "d3a1bc1a4d5d5d3a7067531385b8831084b409bdc704bd45c6792b32fb384705"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/battle/battle_cup_select.thp",
+      "frame": 300,
+      "offset": 12459644,
+      "source_size": 41848,
+      "source_sha256": "430e3acc2b39fe46cfcf7631756ebcc410cc7e38b8564789b9a0d8d49b016139",
+      "entropy_offset": 380,
+      "entropy_ff_count": 149,
+      "first_eoi_offset": 41845,
+      "actual_eoi_offset": 41845,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 336,
+        "height": 528,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x9d",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 336,
+        "height": 528,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x9d",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 336,
+        "height": 528,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "18f8d3af426184e8831710184632f4e49f99cf929fab7332fbf6678b6480e863"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/battle/battle_cup_select.thp",
+      "frame": 599,
+      "offset": 24861852,
+      "source_size": 40156,
+      "source_sha256": "c108db62c6aecbf389f39f7a104113413ab3657e467cd39bb5d2f6e7d7f6779f",
+      "entropy_offset": 377,
+      "entropy_ff_count": 142,
+      "first_eoi_offset": 40154,
+      "actual_eoi_offset": 40154,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 336,
+        "height": 528,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0xbd",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 336,
+        "height": 528,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0xbd",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 336,
+        "height": 528,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "e17229556e363269f658b6d91b61cd42ed808f60b47a15646a488a4eddeb899e"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/battle/battle_retro.thp",
+      "frame": 0,
+      "offset": 92,
+      "source_size": 84024,
+      "source_sha256": "979293ccc831f8017942e80f83985c3e0cf383aeec98d26508647969c804bafb",
+      "entropy_offset": 393,
+      "entropy_ff_count": 273,
+      "first_eoi_offset": 84022,
+      "actual_eoi_offset": 84022,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 672,
+        "height": 752,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x85",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 672,
+        "height": 752,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x85",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 672,
+        "height": 752,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "ba8eb932af7746552e8fae1b35c4e6f638b73b7ce31038e4066d358cb3bf1831"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/battle/battle_retro.thp",
+      "frame": 240,
+      "offset": 20081340,
+      "source_size": 84796,
+      "source_sha256": "64cf0d23cb998727d8d0bd3e86168c00e5efcfb5e358ec8945f6dd39ca1f109a",
+      "entropy_offset": 384,
+      "entropy_ff_count": 356,
+      "first_eoi_offset": 45233,
+      "actual_eoi_offset": 84794,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 672,
+        "height": 752,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x7a",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 672,
+        "height": 752,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x7a",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 672,
+        "height": 752,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "8ec8e13834dc3d6acd67c55ad500cd1f5e6c8ae22c5f7f4a9408ff6d6f699245"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/battle/battle_retro.thp",
+      "frame": 479,
+      "offset": 40153180,
+      "source_size": 83672,
+      "source_sha256": "341bddbb1762a861868d15f8b1917ad53fbe8b26064ac5492983aeb752540d20",
+      "entropy_offset": 381,
+      "entropy_ff_count": 376,
+      "first_eoi_offset": 59771,
+      "actual_eoi_offset": 83670,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 672,
+        "height": 752,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x31",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 672,
+        "height": 752,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x31",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 672,
+        "height": 752,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "5e5133a97599d2aebb307e0834cc50ddc27fe1acd646dda7a52bb24db79fa663"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/battle/battle_select.thp",
+      "frame": 0,
+      "offset": 92,
+      "source_size": 39668,
+      "source_sha256": "9b05f56610b2ae655baa4c4373ab82814d38331dc6b5058b36f2295c41a4de24",
+      "entropy_offset": 393,
+      "entropy_ff_count": 142,
+      "first_eoi_offset": 39666,
+      "actual_eoi_offset": 39666,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 496,
+        "height": 240,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0xf5",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 496,
+        "height": 240,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0xf5",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 496,
+        "height": 240,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "f4c4f34414de4e4905557025c9f65bba651917425b518dd6e32fec9cfe68efb1"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/battle/battle_select.thp",
+      "frame": 240,
+      "offset": 9720956,
+      "source_size": 39740,
+      "source_sha256": "2228c29f92ee673b99fc98a29993bc3f1a251746c170df7b8dbda5b84b6fe8df",
+      "entropy_offset": 404,
+      "entropy_ff_count": 140,
+      "first_eoi_offset": 39737,
+      "actual_eoi_offset": 39737,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 496,
+        "height": 240,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x5c",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 496,
+        "height": 240,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x5c",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 496,
+        "height": 240,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "5988a11abd11147320c49fb8291586ce7076d8ba81790338ebdd875aa421e66f"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/battle/battle_select.thp",
+      "frame": 479,
+      "offset": 19389180,
+      "source_size": 41112,
+      "source_sha256": "4d166bb14f5ffc3a084a61c73c91ca6bd14a1abdf47a6bf4a5cef735c0288277",
+      "entropy_offset": 393,
+      "entropy_ff_count": 144,
+      "first_eoi_offset": 1044,
+      "actual_eoi_offset": 41110,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 496,
+        "height": 240,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x6a",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 496,
+        "height": 240,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x6a",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 496,
+        "height": 240,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "449ec8a215b277ee35196680a8f7a603e2d06fe51652fd2c1bb2762192deaaa9"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/battle/battle_wii.thp",
+      "frame": 0,
+      "offset": 92,
+      "source_size": 85512,
+      "source_sha256": "40b4eebeda0249cd976419db58f105feae6e24826ee6b1a1b99ba7edc1f0a7e1",
+      "entropy_offset": 384,
+      "entropy_ff_count": 314,
+      "first_eoi_offset": 85507,
+      "actual_eoi_offset": 85507,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 672,
+        "height": 752,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x33",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 672,
+        "height": 752,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x33",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 672,
+        "height": 752,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "45fbaea7c4153ae84ffaadbd956dcb30863a817b75508d925cca375b487a2b96"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/battle/battle_wii.thp",
+      "frame": 240,
+      "offset": 20170140,
+      "source_size": 83480,
+      "source_sha256": "4a8b227ddb426701fe177628af71f657358c4cd75d903b9b5d0001f1ae6b042c",
+      "entropy_offset": 402,
+      "entropy_ff_count": 235,
+      "first_eoi_offset": 18491,
+      "actual_eoi_offset": 83477,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 672,
+        "height": 752,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x17",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 672,
+        "height": 752,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x17",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 672,
+        "height": 752,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "913ddb7c039ee42ca5b4b0611286e904364006a584440cb472ef23b625b493af"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/battle/battle_wii.thp",
+      "frame": 479,
+      "offset": 40240156,
+      "source_size": 83972,
+      "source_sha256": "5cf6196033efa9352e27c7b6c312f99e9e3653ab749fbe01961f4646bd671148",
+      "entropy_offset": 394,
+      "entropy_ff_count": 291,
+      "first_eoi_offset": 83967,
+      "actual_eoi_offset": 83967,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 672,
+        "height": 752,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x4d",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 672,
+        "height": 752,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x4d",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 672,
+        "height": 752,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "95b6fef97f22257e3f94e376cea6c5b7c5c7a833541eb418c9a2c0117adf2464"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/button/class_top.thp",
+      "frame": 0,
+      "offset": 92,
+      "source_size": 55704,
+      "source_sha256": "652ee89c079ca473ee3c948f1dfdb8734b88a39aedb45ec894168547b5992e2e",
+      "entropy_offset": 380,
+      "entropy_ff_count": 218,
+      "first_eoi_offset": 55699,
+      "actual_eoi_offset": 55699,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 496,
+        "height": 384,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0xbc",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 496,
+        "height": 384,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0xbc",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 496,
+        "height": 384,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "f3ff4dc657b68cd5c6f127a93c3d9edd02213f8514d21622023f6307e8c6d3e0"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/button/class_top.thp",
+      "frame": 200,
+      "offset": 10995644,
+      "source_size": 56564,
+      "source_sha256": "c14880eab5c375dcd6ee92a62ce8091e4df737bff06ee55e842458aad8d15048",
+      "entropy_offset": 371,
+      "entropy_ff_count": 192,
+      "first_eoi_offset": 44741,
+      "actual_eoi_offset": 56560,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 496,
+        "height": 384,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Corrupt JPEG data: premature end of data segment",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 496,
+        "height": 384,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Corrupt JPEG data: premature end of data segment",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 496,
+        "height": 384,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "7e20ab5ab5259ee1a8107e85a9e1a66fff5ddd5ffdc22a125bbfd807b65232e1"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/button/class_top.thp",
+      "frame": 399,
+      "offset": 22080828,
+      "source_size": 55620,
+      "source_sha256": "89f26fd096b1b7dca6391f130069a8f15d2ff61be75d9a9bb83949c2c2710ed8",
+      "entropy_offset": 378,
+      "entropy_ff_count": 193,
+      "first_eoi_offset": 6549,
+      "actual_eoi_offset": 55615,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 496,
+        "height": 384,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x4c",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 496,
+        "height": 384,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x4c",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 496,
+        "height": 384,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "09d31b50ef9b30e7c9c0d654e2ad09b489d44bc84ee17b87629f1453e158003c"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/button/drift_select.thp",
+      "frame": 0,
+      "offset": 92,
+      "source_size": 36548,
+      "source_sha256": "572766db7751fd244d0c1f984ef85e09cb8ae03c0af78d555a547fd63e2b5dff",
+      "entropy_offset": 381,
+      "entropy_ff_count": 123,
+      "first_eoi_offset": 36546,
+      "actual_eoi_offset": 36546,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 352,
+        "height": 256,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x51",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 352,
+        "height": 256,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x51",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 352,
+        "height": 256,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "02f31ed029f9fef843c24f40f47c98c27d5a3923376f986e1fb7c04c4de0e9f9"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/button/drift_select.thp",
+      "frame": 120,
+      "offset": 4480444,
+      "source_size": 33716,
+      "source_sha256": "9601dca82bf61f99bb81626736f29ffdf039d8b35cd5024694fd75cc9acfdc57",
+      "entropy_offset": 367,
+      "entropy_ff_count": 130,
+      "first_eoi_offset": 4468,
+      "actual_eoi_offset": 33712,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 352,
+        "height": 256,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Corrupt JPEG data: premature end of data segment",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 352,
+        "height": 256,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x6c",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 352,
+        "height": 256,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "ead75d5a439952f1f828ec33da0e54e51c145363a03455560687c59e61dc7491"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/button/drift_select.thp",
+      "frame": 239,
+      "offset": 8764028,
+      "source_size": 36256,
+      "source_sha256": "76ca963db141b99573d5c575eefd42c31086a8a530c2ec7a3824c4edbb746455",
+      "entropy_offset": 374,
+      "entropy_ff_count": 109,
+      "first_eoi_offset": 36252,
+      "actual_eoi_offset": 36252,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 352,
+        "height": 256,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0xa1",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 352,
+        "height": 256,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0xa1",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 352,
+        "height": 256,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "2cf1205a378e37dfd26fcea52abdbfe180507b11c4c0b48c9283dcbcb39aeb6f"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/button/indiv_team.thp",
+      "frame": 0,
+      "offset": 92,
+      "source_size": 55112,
+      "source_sha256": "e57600ce4426da6d02e7decc73f25482e34205f89f1bb8924589ccfa66c67711",
+      "entropy_offset": 393,
+      "entropy_ff_count": 168,
+      "first_eoi_offset": 36929,
+      "actual_eoi_offset": 55110,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 496,
+        "height": 224,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x78",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 496,
+        "height": 224,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x78",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 496,
+        "height": 224,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "5868f04112d4b4bd13ca45e6207d3710ec4d67da97d589098dd238e7535bff52"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/button/indiv_team.thp",
+      "frame": 240,
+      "offset": 13151324,
+      "source_size": 55024,
+      "source_sha256": "a204ea20296935780fdcb070103d2548fc28f17b2694e61492b86b41213f4d42",
+      "entropy_offset": 400,
+      "entropy_ff_count": 185,
+      "first_eoi_offset": 55022,
+      "actual_eoi_offset": 55022,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 496,
+        "height": 224,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x9b",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 496,
+        "height": 224,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x9b",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 496,
+        "height": 224,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "67038898760dfc3923ddc5262045605a1e67558d37fccbe7912f2c5c29e45466"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/button/indiv_team.thp",
+      "frame": 479,
+      "offset": 26242588,
+      "source_size": 55156,
+      "source_sha256": "707b32acb3f39e7330bd79fc289bc8ed55faf6cab6df24b30be6490e7aa44fa9",
+      "entropy_offset": 398,
+      "entropy_ff_count": 156,
+      "first_eoi_offset": 8567,
+      "actual_eoi_offset": 55154,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 496,
+        "height": 224,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Corrupt JPEG data: premature end of data segment",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 496,
+        "height": 224,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0xbe",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 496,
+        "height": 224,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "c410529e35dc6b4349eb8988b5c49b464945de0c9793aba99609a3568df276db"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/button/multi_top.thp",
+      "frame": 0,
+      "offset": 92,
+      "source_size": 95232,
+      "source_sha256": "2a00090a3a790357b989770070f4899721cb1b53e7f7a35102b21650e9f525e3",
+      "entropy_offset": 404,
+      "entropy_ff_count": 301,
+      "first_eoi_offset": 60978,
+      "actual_eoi_offset": 95227,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 496,
+        "height": 512,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x18",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 496,
+        "height": 512,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x18",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 496,
+        "height": 512,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "0853cbc76ee2debdf12d8d2c2cd60c3ff1baccec6c9f13ea5f7ee7c142660f43"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/button/multi_top.thp",
+      "frame": 240,
+      "offset": 22493948,
+      "source_size": 95232,
+      "source_sha256": "2a00090a3a790357b989770070f4899721cb1b53e7f7a35102b21650e9f525e3",
+      "entropy_offset": 404,
+      "entropy_ff_count": 301,
+      "first_eoi_offset": 60978,
+      "actual_eoi_offset": 95227,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 496,
+        "height": 512,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x18",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 496,
+        "height": 512,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x18",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 496,
+        "height": 512,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "0853cbc76ee2debdf12d8d2c2cd60c3ff1baccec6c9f13ea5f7ee7c142660f43"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/button/multi_top.thp",
+      "frame": 479,
+      "offset": 44891676,
+      "source_size": 96112,
+      "source_sha256": "ea448c72271e3e37526b82cbc70d155bfeaccfaef66e6fec9b2e02573645b2f8",
+      "entropy_offset": 397,
+      "entropy_ff_count": 242,
+      "first_eoi_offset": 96109,
+      "actual_eoi_offset": 96109,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 496,
+        "height": 512,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x91",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 496,
+        "height": 512,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x91",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 496,
+        "height": 512,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "ed5ebbbc7cb53edd4a68f000b8ec6baee8d4898e866e0492359ba76b41e8d113"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/button/single_top.thp",
+      "frame": 0,
+      "offset": 92,
+      "source_size": 65088,
+      "source_sha256": "a8bc0e2a38ddd77164fdaf21baea2d78a5533a834665ae98c516a1206e9499c5",
+      "entropy_offset": 373,
+      "entropy_ff_count": 209,
+      "first_eoi_offset": 65086,
+      "actual_eoi_offset": 65086,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 512,
+        "height": 512,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x4e",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 512,
+        "height": 512,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x4e",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 512,
+        "height": 512,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "d29c0f9287c09303c5a669d5805529d5217a9811f82000ac723c24326fa0d73e"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/button/single_top.thp",
+      "frame": 240,
+      "offset": 15271452,
+      "source_size": 64576,
+      "source_sha256": "c1fc847a51cec6c7fce0d8baa46f7d60c0f04c290c69db3a0157a77889f3f165",
+      "entropy_offset": 383,
+      "entropy_ff_count": 246,
+      "first_eoi_offset": 11428,
+      "actual_eoi_offset": 64574,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 512,
+        "height": 512,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Corrupt JPEG data: premature end of data segment",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 512,
+        "height": 512,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x40",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 512,
+        "height": 512,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "f953ec050550632d572706cb270f85e63ce65306d2fd96222770a899dd8e0a8e"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/button/single_top.thp",
+      "frame": 479,
+      "offset": 30445564,
+      "source_size": 64196,
+      "source_sha256": "302793cc0efdaecdfc9674c8ce5d2ae3909e28a6e5f78a5151e27b75075ea43e",
+      "entropy_offset": 366,
+      "entropy_ff_count": 271,
+      "first_eoi_offset": 35064,
+      "actual_eoi_offset": 64193,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 512,
+        "height": 512,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x9d",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 512,
+        "height": 512,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x9d",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 512,
+        "height": 512,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "f8c2f592973ccc823395f007adbbc440548229658c9a1599727a15b5ae450a94"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/banana.thp",
+      "frame": 0,
+      "offset": 92,
+      "source_size": 42604,
+      "source_sha256": "0fbfdba1ca9e5c0aac9e4a4866535a11cf2b8692b04fee974e1e7ef45356df6b",
+      "entropy_offset": 377,
+      "entropy_ff_count": 140,
+      "first_eoi_offset": 35806,
+      "actual_eoi_offset": 42601,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Corrupt JPEG data: premature end of data segment",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Corrupt JPEG data: premature end of data segment",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "5ede206a8ec14be3e1cc8383dcd97097c6176e3cbccd4e0fd4c9a81b70a5563d"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/banana.thp",
+      "frame": 240,
+      "offset": 10104252,
+      "source_size": 42472,
+      "source_sha256": "f37c8d91a29a86f4763607d54e1f43a53daadbac6533d94b42891d2171f2131e",
+      "entropy_offset": 381,
+      "entropy_ff_count": 166,
+      "first_eoi_offset": 42468,
+      "actual_eoi_offset": 42468,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x7a",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x7a",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "4dc2d4f56c6b0978abcaec9c20d19195ba90e7d390c29309ec5ee930a2ebe56e"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/banana.thp",
+      "frame": 479,
+      "offset": 20120540,
+      "source_size": 41564,
+      "source_sha256": "1a8fe0552be001b99f25468ee7d365d2af9a9ced0ffbf0da2a230de766014577",
+      "entropy_offset": 364,
+      "entropy_ff_count": 166,
+      "first_eoi_offset": 41562,
+      "actual_eoi_offset": 41562,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x08",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x08",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "20fdd24204717e1fed0cb70f0820daefae5e7b6e23142139f75801d058d9f845"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/cup_select.thp",
+      "frame": 0,
+      "offset": 92,
+      "source_size": 86904,
+      "source_sha256": "35feb7d902d3c50b79088055fb0b904464363c02c305902227dd7f2286eb7307",
+      "entropy_offset": 383,
+      "entropy_ff_count": 282,
+      "first_eoi_offset": 22864,
+      "actual_eoi_offset": 86900,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 672,
+        "height": 736,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x0d",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 672,
+        "height": 736,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x0d",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 672,
+        "height": 736,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "5372bb47ed39aa000b21cb5f9675174f6ee9aa43455d9a2e2883ff06350221fb"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/cup_select.thp",
+      "frame": 240,
+      "offset": 20716284,
+      "source_size": 87576,
+      "source_sha256": "c9aaf1af47f6685da35ebad2930644a558ad591aa12c6435b2a4570236c7e448",
+      "entropy_offset": 389,
+      "entropy_ff_count": 293,
+      "first_eoi_offset": 23301,
+      "actual_eoi_offset": 87571,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 672,
+        "height": 736,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x66",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 672,
+        "height": 736,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x66",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 672,
+        "height": 736,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "625c2ba5bc012dc8a4c882da8d5664dd6c2ad0004079279716ae94eeb1d30656"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/cup_select.thp",
+      "frame": 479,
+      "offset": 41347900,
+      "source_size": 85324,
+      "source_sha256": "75c4b66bd4d08e587f5466404eef416599de9c4eba0192d1fa379c2633960203",
+      "entropy_offset": 382,
+      "entropy_ff_count": 285,
+      "first_eoi_offset": 43179,
+      "actual_eoi_offset": 85321,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 672,
+        "height": 736,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x66",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 672,
+        "height": 736,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x66",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 672,
+        "height": 736,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "76d4f1e8f85b89c9471bd4a21f04f7435f1c3a8f44d6c909df333bb490c5c69b"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/flower.thp",
+      "frame": 0,
+      "offset": 92,
+      "source_size": 42256,
+      "source_sha256": "87d9da906b9239e7da9deaa7a48a2608006fa5c95ac395af5d49d4abcea35500",
+      "entropy_offset": 358,
+      "entropy_ff_count": 132,
+      "first_eoi_offset": 42251,
+      "actual_eoi_offset": 42251,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x46",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x46",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "6bd38dfd0b557b8532a07e9ee15f2f3f4eed47a800606d2c95d411f61df9c073"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/flower.thp",
+      "frame": 240,
+      "offset": 10111644,
+      "source_size": 41564,
+      "source_sha256": "c0da59e7af207a69159566ed0c5ed74abd849f2c6d26e24b04180cb683d41774",
+      "entropy_offset": 360,
+      "entropy_ff_count": 120,
+      "first_eoi_offset": 41560,
+      "actual_eoi_offset": 41560,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x31",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x31",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "5c06ba66de46b58056c6c5e56bdcd0966e0871fe4480c88e7db752ccfd5222ab"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/flower.thp",
+      "frame": 479,
+      "offset": 20194588,
+      "source_size": 42380,
+      "source_sha256": "84dba5a35a4d9077389a023ddbd3ec03f226d997c8c87e0f4ebc709e1a0b2759",
+      "entropy_offset": 359,
+      "entropy_ff_count": 151,
+      "first_eoi_offset": 2267,
+      "actual_eoi_offset": 42378,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Corrupt JPEG data: premature end of data segment",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Corrupt JPEG data: premature end of data segment",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "ca31842acc3d76e344acedfd094bbd863e811fafbf867ab5e12b46b5ed3fb7f1"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/kinoko.thp",
+      "frame": 0,
+      "offset": 92,
+      "source_size": 41496,
+      "source_sha256": "0034965553b24183ae1d95d3a2ff4f4c54a6aa698914cdd3187716071e01e5cb",
+      "entropy_offset": 362,
+      "entropy_ff_count": 136,
+      "first_eoi_offset": 35926,
+      "actual_eoi_offset": 41491,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0xfd",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0xfd",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "4b182bb2e6291aa8394e388365dd414a57ded11ee2a89b7ea9c06e8e82c8dac5"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/kinoko.thp",
+      "frame": 240,
+      "offset": 10136988,
+      "source_size": 42380,
+      "source_sha256": "6930b32c400e29c939294492749820bb622aaeb37db533a9600302ccfdb626ab",
+      "entropy_offset": 364,
+      "entropy_ff_count": 150,
+      "first_eoi_offset": 9704,
+      "actual_eoi_offset": 42377,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x5f",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x5f",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "8bfc9016018ca105c6118db787615bef4107a2bb2dbc30c07bf65e958a63579c"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/kinoko.thp",
+      "frame": 479,
+      "offset": 20181180,
+      "source_size": 41980,
+      "source_sha256": "6695cb7f27011cfdd6e53d3bf159c7ed24b76fd5976b6d01ea3c3391a1d2fe80",
+      "entropy_offset": 362,
+      "entropy_ff_count": 112,
+      "first_eoi_offset": 22838,
+      "actual_eoi_offset": 41976,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x06",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x06",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "11d018975f35c5fc6e950cf4c4884498b2bf0ba102f1ffdbcbc344ebd8141037"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/konoha.thp",
+      "frame": 0,
+      "offset": 92,
+      "source_size": 42436,
+      "source_sha256": "3440b9a6307ecb88dc73acf6920e01c26447139c77e50f65bdee5f165640de13",
+      "entropy_offset": 373,
+      "entropy_ff_count": 127,
+      "first_eoi_offset": 42432,
+      "actual_eoi_offset": 42432,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0xb9",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0xb9",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "cfe091de6cd3886cf52f2f6a50fe68e277790ea0d2f3e7d568fd5250b8e7dd7e"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/konoha.thp",
+      "frame": 240,
+      "offset": 10183260,
+      "source_size": 42160,
+      "source_sha256": "a9cf8d96284ce1a94e9117ac78c75f3b8d2793ca58bb75db9f2b30daf32bc026",
+      "entropy_offset": 366,
+      "entropy_ff_count": 140,
+      "first_eoi_offset": 42156,
+      "actual_eoi_offset": 42156,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x4a",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x4a",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "d1270ec91af96d8d976ae9ffbf7df9f4a4bebbe29da73198d1bea2d6cb1c1efe"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/konoha.thp",
+      "frame": 479,
+      "offset": 20242716,
+      "source_size": 42088,
+      "source_sha256": "a62333641609018e9809366f14618b320519328cb51543670ed6100ee5e3c4ca",
+      "entropy_offset": 373,
+      "entropy_ff_count": 151,
+      "first_eoi_offset": 35915,
+      "actual_eoi_offset": 42083,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x92",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x92",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "23a0c8fb967f268ea7f8a46824a8772b38142d8a9879ef9715ab2de542fc70b0"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/koura.thp",
+      "frame": 0,
+      "offset": 92,
+      "source_size": 42088,
+      "source_sha256": "d1c5d05b23158f1ea6b1a00e44b4ec79fcfa1b634b273cb6facb9bc0707fdeaa",
+      "entropy_offset": 360,
+      "entropy_ff_count": 162,
+      "first_eoi_offset": 36950,
+      "actual_eoi_offset": 42083,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x86",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x86",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "a5508194ab51255048b46c65667020bb79d32eee83e351f985518ca9daf846e7"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/koura.thp",
+      "frame": 240,
+      "offset": 10142908,
+      "source_size": 42392,
+      "source_sha256": "0bf5ee50bd6fa97ac249485f02860c577897162e31f7aa8ebb3c564aa80e8e65",
+      "entropy_offset": 365,
+      "entropy_ff_count": 111,
+      "first_eoi_offset": 42390,
+      "actual_eoi_offset": 42390,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x86",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x86",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "26b24b13fc14486acb409fdb99c65f230de952b313227c968334f546bf46a6b7"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/koura.thp",
+      "frame": 479,
+      "offset": 20165500,
+      "source_size": 41700,
+      "source_sha256": "33c7bc46b2039a724bac163e845a62dada55faa8941ae95c9726d3e16359bce9",
+      "entropy_offset": 369,
+      "entropy_ff_count": 132,
+      "first_eoi_offset": 5520,
+      "actual_eoi_offset": 41695,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x41",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x41",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "8907a235ac6540aacd8fafb69dcea8a246b591a21b1d90abcdc06790887c7b2b"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/special.thp",
+      "frame": 0,
+      "offset": 92,
+      "source_size": 41696,
+      "source_sha256": "0b083c6b8dccf98ea14af32a898f7b55ea6dc25ad31fc2afec4e3a76e887a7e2",
+      "entropy_offset": 357,
+      "entropy_ff_count": 124,
+      "first_eoi_offset": 41694,
+      "actual_eoi_offset": 41694,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x92",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x92",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "ed82e1b2d320320f7288c9c2d025fa403ea881cfa949183f1e551284efa423bb"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/special.thp",
+      "frame": 240,
+      "offset": 10084892,
+      "source_size": 42448,
+      "source_sha256": "0f3bd3c9258765429abe6c5f91fdea55d05c3491ff285dcf459e85556d60d600",
+      "entropy_offset": 357,
+      "entropy_ff_count": 103,
+      "first_eoi_offset": 36227,
+      "actual_eoi_offset": 42446,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported JPEG process: SOF type 0xcd",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported JPEG process: SOF type 0xcd",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "d5d589226c8c95a9fa257e9ba7e30fff196305d14bbfe48b8d3da84e38597ae0"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/special.thp",
+      "frame": 479,
+      "offset": 20173404,
+      "source_size": 42556,
+      "source_sha256": "3ba59cdb576c278dbfd47b3b3c4a2432fa307deb15b78ee34cd5d57854e3f8f9",
+      "entropy_offset": 358,
+      "entropy_ff_count": 160,
+      "first_eoi_offset": 42553,
+      "actual_eoi_offset": 42553,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x28",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x28",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "50a21330e2f99f4d6188e3c1878fae57c2218d50e34f94932304df560e061dc6"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/star.thp",
+      "frame": 0,
+      "offset": 92,
+      "source_size": 42604,
+      "source_sha256": "ca0e3739a697b58a103053fc4801feca2093d3223f77500d35a549ee2d9af50f",
+      "entropy_offset": 367,
+      "entropy_ff_count": 149,
+      "first_eoi_offset": 42599,
+      "actual_eoi_offset": 42599,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x27",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x27",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "65f2a921c03e607b2f367393cfead7bb3176271f2902605af6155e25a6dc01aa"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/star.thp",
+      "frame": 240,
+      "offset": 10056668,
+      "source_size": 42140,
+      "source_sha256": "edbb5e993bc74730b795fa58b41257056f6c03e3f3d84fef5b332f75431baef4",
+      "entropy_offset": 358,
+      "entropy_ff_count": 137,
+      "first_eoi_offset": 14066,
+      "actual_eoi_offset": 42138,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x98",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x98",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "4b17e556a604cf34f9e8bac0a2cc7e53ab9493a2d34ea19c94502a9f70526f96"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/star.thp",
+      "frame": 479,
+      "offset": 20145500,
+      "source_size": 42724,
+      "source_sha256": "39a7215f5044f63e121d4f57e4f0304f63c5bcddb8aecc54d4951d170bd4b7ef",
+      "entropy_offset": 358,
+      "entropy_ff_count": 135,
+      "first_eoi_offset": 42722,
+      "actual_eoi_offset": 42722,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x83",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x83",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "f78c2e072edf14322c0a5563b05817b4cb4a9ff0e91753a5ab071f730e3d7159"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/thunder.thp",
+      "frame": 0,
+      "offset": 92,
+      "source_size": 41352,
+      "source_sha256": "d73f00166273d960cf8963c9d4f31e17fa726564e016e6e3162706e424151270",
+      "entropy_offset": 358,
+      "entropy_ff_count": 139,
+      "first_eoi_offset": 41350,
+      "actual_eoi_offset": 41350,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x96",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x96",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "7facbd164c0a142b02bb0c129b0292594bccb89f875d8bc510e4e894a01c3459"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/thunder.thp",
+      "frame": 240,
+      "offset": 10047612,
+      "source_size": 41956,
+      "source_sha256": "f5243cc5371353ce509417508ca56ff8b37b5b2aa179abece62d6f52f4ebd995",
+      "entropy_offset": 361,
+      "entropy_ff_count": 126,
+      "first_eoi_offset": 41951,
+      "actual_eoi_offset": 41951,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x87",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x87",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "75ca0f9cad7a4465e957b7740b69120f5f6953db5dae5bbda943c5ff5570937f"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/course/thunder.thp",
+      "frame": 479,
+      "offset": 20142684,
+      "source_size": 42648,
+      "source_sha256": "adca78fec84867f9b84708b86c04e1be933bf86640b579643b702b87020c61b5",
+      "entropy_offset": 360,
+      "entropy_ff_count": 122,
+      "first_eoi_offset": 42645,
+      "actual_eoi_offset": 42645,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x3d",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x3d",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 400,
+        "height": 576,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "af0f493042e256baa4e29eb739c9f4ffe908022378dc3012eebd889b14272ade"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/ending/ending_normal.thp",
+      "frame": 0,
+      "offset": 112,
+      "source_size": 556,
+      "source_sha256": "39db0c2bbb42c5f2a34d67f0ae7321f9bc14dfb11493b364860f0a4445a3c51b",
+      "entropy_offset": 262,
+      "entropy_ff_count": 0,
+      "first_eoi_offset": 552,
+      "actual_eoi_offset": 552,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "140d480146eb33a7783bb072414d73bc8a031bca59691b4e1307b035a120193e"
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "140d480146eb33a7783bb072414d73bc8a031bca59691b4e1307b035a120193e"
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "140d480146eb33a7783bb072414d73bc8a031bca59691b4e1307b035a120193e"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/ending/ending_normal.thp",
+      "frame": 4150,
+      "offset": 124391952,
+      "source_size": 31784,
+      "source_sha256": "eabeba3a96b224dff114eba3cfc557fce0b3e5f160bb619bece9dc322f908cd3",
+      "entropy_offset": 376,
+      "entropy_ff_count": 106,
+      "first_eoi_offset": 23554,
+      "actual_eoi_offset": 31779,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0xbc",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0xbc",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "f65f16d86fa6910b43005e25ccd0a7df29bf3d0544a23825e505dbc5492358c2"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/ending/ending_normal.thp",
+      "frame": 8299,
+      "offset": 220489936,
+      "source_size": 556,
+      "source_sha256": "39db0c2bbb42c5f2a34d67f0ae7321f9bc14dfb11493b364860f0a4445a3c51b",
+      "entropy_offset": 262,
+      "entropy_ff_count": 0,
+      "first_eoi_offset": 552,
+      "actual_eoi_offset": 552,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "140d480146eb33a7783bb072414d73bc8a031bca59691b4e1307b035a120193e"
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "140d480146eb33a7783bb072414d73bc8a031bca59691b4e1307b035a120193e"
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "140d480146eb33a7783bb072414d73bc8a031bca59691b4e1307b035a120193e"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/ending/ending_normal_50.thp",
+      "frame": 0,
+      "offset": 112,
+      "source_size": 556,
+      "source_sha256": "39db0c2bbb42c5f2a34d67f0ae7321f9bc14dfb11493b364860f0a4445a3c51b",
+      "entropy_offset": 262,
+      "entropy_ff_count": 0,
+      "first_eoi_offset": 552,
+      "actual_eoi_offset": 552,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "140d480146eb33a7783bb072414d73bc8a031bca59691b4e1307b035a120193e"
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "140d480146eb33a7783bb072414d73bc8a031bca59691b4e1307b035a120193e"
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "140d480146eb33a7783bb072414d73bc8a031bca59691b4e1307b035a120193e"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/ending/ending_normal_50.thp",
+      "frame": 3500,
+      "offset": 105323600,
+      "source_size": 27348,
+      "source_sha256": "7423b498842ac608a941c53094bb3c8055f62502c5916693f3a89a598d50d3cd",
+      "entropy_offset": 374,
+      "entropy_ff_count": 93,
+      "first_eoi_offset": 27344,
+      "actual_eoi_offset": 27344,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Invalid JPEG file structure: two SOF markers",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Invalid JPEG file structure: two SOF markers",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "17f028798056ffbc7e2f6e4e1034d7d78eb568b211ebe0d3452ff29693aadf12"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/ending/ending_normal_50.thp",
+      "frame": 6999,
+      "offset": 184866320,
+      "source_size": 556,
+      "source_sha256": "39db0c2bbb42c5f2a34d67f0ae7321f9bc14dfb11493b364860f0a4445a3c51b",
+      "entropy_offset": 262,
+      "entropy_ff_count": 0,
+      "first_eoi_offset": 552,
+      "actual_eoi_offset": 552,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "140d480146eb33a7783bb072414d73bc8a031bca59691b4e1307b035a120193e"
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "140d480146eb33a7783bb072414d73bc8a031bca59691b4e1307b035a120193e"
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "140d480146eb33a7783bb072414d73bc8a031bca59691b4e1307b035a120193e"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/ending/ending_true.thp",
+      "frame": 0,
+      "offset": 112,
+      "source_size": 556,
+      "source_sha256": "39db0c2bbb42c5f2a34d67f0ae7321f9bc14dfb11493b364860f0a4445a3c51b",
+      "entropy_offset": 262,
+      "entropy_ff_count": 0,
+      "first_eoi_offset": 552,
+      "actual_eoi_offset": 552,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "140d480146eb33a7783bb072414d73bc8a031bca59691b4e1307b035a120193e"
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "140d480146eb33a7783bb072414d73bc8a031bca59691b4e1307b035a120193e"
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "140d480146eb33a7783bb072414d73bc8a031bca59691b4e1307b035a120193e"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/ending/ending_true.thp",
+      "frame": 4046,
+      "offset": 120908208,
+      "source_size": 32568,
+      "source_sha256": "78c1732776595257640421fe207a739a276ac5d6a02591862530494d9e613544",
+      "entropy_offset": 369,
+      "entropy_ff_count": 135,
+      "first_eoi_offset": 32565,
+      "actual_eoi_offset": 32565,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x07",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x07",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "9f392f3e874396e5ef919ffebbba0978a7c6af972a20b4dd7b0814b2e54e77e0"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/ending/ending_true.thp",
+      "frame": 8092,
+      "offset": 220288784,
+      "source_size": 556,
+      "source_sha256": "39db0c2bbb42c5f2a34d67f0ae7321f9bc14dfb11493b364860f0a4445a3c51b",
+      "entropy_offset": 262,
+      "entropy_ff_count": 0,
+      "first_eoi_offset": 552,
+      "actual_eoi_offset": 552,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "140d480146eb33a7783bb072414d73bc8a031bca59691b4e1307b035a120193e"
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "140d480146eb33a7783bb072414d73bc8a031bca59691b4e1307b035a120193e"
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "140d480146eb33a7783bb072414d73bc8a031bca59691b4e1307b035a120193e"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/ending/ending_true_50.thp",
+      "frame": 0,
+      "offset": 112,
+      "source_size": 556,
+      "source_sha256": "39db0c2bbb42c5f2a34d67f0ae7321f9bc14dfb11493b364860f0a4445a3c51b",
+      "entropy_offset": 262,
+      "entropy_ff_count": 0,
+      "first_eoi_offset": 552,
+      "actual_eoi_offset": 552,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "140d480146eb33a7783bb072414d73bc8a031bca59691b4e1307b035a120193e"
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "140d480146eb33a7783bb072414d73bc8a031bca59691b4e1307b035a120193e"
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "140d480146eb33a7783bb072414d73bc8a031bca59691b4e1307b035a120193e"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/ending/ending_true_50.thp",
+      "frame": 3500,
+      "offset": 104923280,
+      "source_size": 32244,
+      "source_sha256": "0d7d8c9a7053ccf13fb24099d45ab0ab510e98f0a0c8555eaefdc6bf7c889fda",
+      "entropy_offset": 362,
+      "entropy_ff_count": 109,
+      "first_eoi_offset": 15483,
+      "actual_eoi_offset": 32240,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x6e",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x6e",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "1704d65c7283c3450d78fca8926a7418cdade02d5be0611703010a31f22073e7"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/ending/ending_true_50.thp",
+      "frame": 6999,
+      "offset": 184919728,
+      "source_size": 556,
+      "source_sha256": "39db0c2bbb42c5f2a34d67f0ae7321f9bc14dfb11493b364860f0a4445a3c51b",
+      "entropy_offset": 262,
+      "entropy_ff_count": 0,
+      "first_eoi_offset": 552,
+      "actual_eoi_offset": 552,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "140d480146eb33a7783bb072414d73bc8a031bca59691b4e1307b035a120193e"
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "140d480146eb33a7783bb072414d73bc8a031bca59691b4e1307b035a120193e"
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 256,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "140d480146eb33a7783bb072414d73bc8a031bca59691b4e1307b035a120193e"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/title/title.thp",
+      "frame": 0,
+      "offset": 112,
+      "source_size": 4184,
+      "source_sha256": "37071a4333fbbbc4fc66f8a1623d9af587f728246fbabd45de6b0eef23ec310e",
+      "entropy_offset": 301,
+      "entropy_ff_count": 12,
+      "first_eoi_offset": 4182,
+      "actual_eoi_offset": 4182,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x7f",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x7f",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "7636f86ee1709a7a6609e76553fdae7dfabea09e28103e498aa4a8ed63044b87"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/title/title.thp",
+      "frame": 2125,
+      "offset": 71000688,
+      "source_size": 36460,
+      "source_sha256": "698e88bca2834f15af44f984678bcc3c4c1feeb4215129c82ad0727779f9ea4a",
+      "entropy_offset": 353,
+      "entropy_ff_count": 147,
+      "first_eoi_offset": 8527,
+      "actual_eoi_offset": 36456,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x9b",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x9b",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "205cdb117a02618217f409f12ad3a8dd9ef238e09c12ab6d49956562a667b497"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/title/title.thp",
+      "frame": 4249,
+      "offset": 148394512,
+      "source_size": 1920,
+      "source_sha256": "b2ff3f977d6259ef854ecd16890f5ae00446c7da4103121591fc48bd4c3538c8",
+      "entropy_offset": 262,
+      "entropy_ff_count": 0,
+      "first_eoi_offset": 1917,
+      "actual_eoi_offset": 1917,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "8fa427dec4ab22918b0a7492618437d095e112d5568803cc57b71192dd5d1717"
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "8fa427dec4ab22918b0a7492618437d095e112d5568803cc57b71192dd5d1717"
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "8fa427dec4ab22918b0a7492618437d095e112d5568803cc57b71192dd5d1717"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/title/title_50.thp",
+      "frame": 0,
+      "offset": 112,
+      "source_size": 4184,
+      "source_sha256": "37071a4333fbbbc4fc66f8a1623d9af587f728246fbabd45de6b0eef23ec310e",
+      "entropy_offset": 301,
+      "entropy_ff_count": 12,
+      "first_eoi_offset": 4182,
+      "actual_eoi_offset": 4182,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x7f",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x7f",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "7636f86ee1709a7a6609e76553fdae7dfabea09e28103e498aa4a8ed63044b87"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/title/title_50.thp",
+      "frame": 1772,
+      "offset": 51503472,
+      "source_size": 30160,
+      "source_sha256": "1ed25f3d0c4d0054546bfbd09c63a2a134ac4aba106c4c680d4a5fbc72bc677c",
+      "entropy_offset": 347,
+      "entropy_ff_count": 108,
+      "first_eoi_offset": 30157,
+      "actual_eoi_offset": 30157,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x95",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x95",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "f2c9edff926274536f5d3dac1dd24ad462412d0ae722c0b491f85cff4fe7de53"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/title/title_50.thp",
+      "frame": 3544,
+      "offset": 106567696,
+      "source_size": 1920,
+      "source_sha256": "b2ff3f977d6259ef854ecd16890f5ae00446c7da4103121591fc48bd4c3538c8",
+      "entropy_offset": 262,
+      "entropy_ff_count": 0,
+      "first_eoi_offset": 1917,
+      "actual_eoi_offset": 1917,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "8fa427dec4ab22918b0a7492618437d095e112d5568803cc57b71192dd5d1717"
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "8fa427dec4ab22918b0a7492618437d095e112d5568803cc57b71192dd5d1717"
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "8fa427dec4ab22918b0a7492618437d095e112d5568803cc57b71192dd5d1717"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/title/title_SD.thp",
+      "frame": 0,
+      "offset": 112,
+      "source_size": 3408,
+      "source_sha256": "cc7cb967f5acaaf674f548a61aa05e0ada0fa15ff7624b32956f6f6cc6a0faee",
+      "entropy_offset": 296,
+      "entropy_ff_count": 9,
+      "first_eoi_offset": 3404,
+      "actual_eoi_offset": 3404,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x31",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x31",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "1801a5818ad4db042317800a330742845b7e87ee037fc536528fa2fdf07c274a"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/title/title_SD.thp",
+      "frame": 2125,
+      "offset": 71269744,
+      "source_size": 36104,
+      "source_sha256": "3debfa567593d591ad5130e98aae60960cd40bbe3299998317e5cda3dab320f5",
+      "entropy_offset": 356,
+      "entropy_ff_count": 188,
+      "first_eoi_offset": 36102,
+      "actual_eoi_offset": 36102,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x74",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x74",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "583daaa37af3104a25d111718c2cbfeb4ad36364e2c97dd3690de03792c87c04"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/title/title_SD.thp",
+      "frame": 4249,
+      "offset": 148485872,
+      "source_size": 1920,
+      "source_sha256": "b2ff3f977d6259ef854ecd16890f5ae00446c7da4103121591fc48bd4c3538c8",
+      "entropy_offset": 262,
+      "entropy_ff_count": 0,
+      "first_eoi_offset": 1917,
+      "actual_eoi_offset": 1917,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "8fa427dec4ab22918b0a7492618437d095e112d5568803cc57b71192dd5d1717"
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "8fa427dec4ab22918b0a7492618437d095e112d5568803cc57b71192dd5d1717"
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "8fa427dec4ab22918b0a7492618437d095e112d5568803cc57b71192dd5d1717"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/title/title_SD_50.thp",
+      "frame": 0,
+      "offset": 112,
+      "source_size": 3408,
+      "source_sha256": "cc7cb967f5acaaf674f548a61aa05e0ada0fa15ff7624b32956f6f6cc6a0faee",
+      "entropy_offset": 296,
+      "entropy_ff_count": 9,
+      "first_eoi_offset": 3404,
+      "actual_eoi_offset": 3404,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x31",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x31",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "1801a5818ad4db042317800a330742845b7e87ee037fc536528fa2fdf07c274a"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/title/title_SD_50.thp",
+      "frame": 1772,
+      "offset": 59634032,
+      "source_size": 36396,
+      "source_sha256": "1c92fddef5c21215016977cffb6b7a50e6546254bea5bdfecc5f006abccc1d23",
+      "entropy_offset": 351,
+      "entropy_ff_count": 152,
+      "first_eoi_offset": 36392,
+      "actual_eoi_offset": 36392,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Corrupt JPEG data: premature end of data segment",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Corrupt JPEG data: premature end of data segment",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "36eba585a8e5f5fd0b7e42796f219a5892b0e09acacd1e277dadbaf7235e7f58"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/title/title_SD_50.thp",
+      "frame": 3544,
+      "offset": 124291024,
+      "source_size": 1920,
+      "source_sha256": "b2ff3f977d6259ef854ecd16890f5ae00446c7da4103121591fc48bd4c3538c8",
+      "entropy_offset": 262,
+      "entropy_ff_count": 0,
+      "first_eoi_offset": 1917,
+      "actual_eoi_offset": 1917,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "8fa427dec4ab22918b0a7492618437d095e112d5568803cc57b71192dd5d1717"
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "8fa427dec4ab22918b0a7492618437d095e112d5568803cc57b71192dd5d1717"
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 608,
+        "height": 464,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "8fa427dec4ab22918b0a7492618437d095e112d5568803cc57b71192dd5d1717"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/title/top_menu.thp",
+      "frame": 0,
+      "offset": 92,
+      "source_size": 38864,
+      "source_sha256": "2204a6021e2b39148539b8ac6845ebd429e283eb9c076b3fcd0a08290bc69fa5",
+      "entropy_offset": 366,
+      "entropy_ff_count": 121,
+      "first_eoi_offset": 38860,
+      "actual_eoi_offset": 38860,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 512,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x9e",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 512,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x9e",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 512,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "ca4e7c2d0ec43f081c7aa00ddf81d757ad0199b75ab1a4f153f17f914de89bb8"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/title/top_menu.thp",
+      "frame": 360,
+      "offset": 14531644,
+      "source_size": 41028,
+      "source_sha256": "c0c0444b74e6772b33f30af5d4c504be3a542c9d98d1fb04c0c9c908e08b3e3d",
+      "entropy_offset": 379,
+      "entropy_ff_count": 104,
+      "first_eoi_offset": 41025,
+      "actual_eoi_offset": 41025,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 512,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Corrupt JPEG data: premature end of data segment",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 512,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Corrupt JPEG data: premature end of data segment",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 512,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "43776dff06055eae330a4549df072e52ae6080e0ef74713f1adb8342842e50fd"
+      }
+    },
+    {
+      "path": "local/mkwii-disc/DATA/files/thp/title/top_menu.thp",
+      "frame": 719,
+      "offset": 29050364,
+      "source_size": 38908,
+      "source_sha256": "fe7bc5b62939e075c0ecb9c3a2a089c0ec0240ae0d04aca6e89119b7027d67d1",
+      "entropy_offset": 377,
+      "entropy_ff_count": 143,
+      "first_eoi_offset": 38903,
+      "actual_eoi_offset": 38903,
+      "current_scanned": {
+        "header_result": 0,
+        "width": 512,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x89",
+        "error_code": 0
+      },
+      "bounded_original": {
+        "header_result": 0,
+        "width": 512,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": -1,
+        "error": "Unsupported marker type 0x89",
+        "error_code": 0
+      },
+      "stuffed": {
+        "header_result": 0,
+        "width": 512,
+        "height": 192,
+        "subsamp": 2,
+        "pixels_result": 0,
+        "yuv_sha256": "d6ad9ecd837e873accbc1cb8d1b8859280a9786f3b951f5735b08a5d5802c8ee"
+      }
+    }
+  ]
+}

@@ -1,0 +1,3410 @@
+{
+  "log": {
+    "path": "/Users/robin994/Documents/Code/PSVita/wiicompiled-vita/build/vita/runtime.log",
+    "bytes": 608801,
+    "lines": 5784,
+    "sha256": "01c2d35560f130073b3ef6a7e96f4d9ee53f95420783b993a2958508db56a92b",
+    "last_line": "[gx] producer_frame=1691 interval_us=1498916 queue_wait_us=1 packet_copy_us=5196 prior_wait_calls=17 prior_wait_us=1135150 wait_gx=16/1135150 wait_worker=1/0 draws=6154 vertices=38672 efb_cmds=13 requested_draws=6165 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+  },
+  "sessions": [
+    {
+      "boot": 1,
+      "start_line": 1,
+      "end_line": 4450,
+      "init_line": 37,
+      "flags": {
+        "init_marker": "vglInitExtended",
+        "phase": "begin",
+        "t_us": "1868274",
+        "renderer": "aurora",
+        "vitagl": "speedhack-custom-heap",
+        "rt_scenes": "8/8",
+        "frame_draw_cap": "8192",
+        "frame_vertex_cap": "49152",
+        "efb_cap": "512",
+        "packet_bytes": "1444696",
+        "efb_gpu_blit": "0",
+        "movies_disabled": "0",
+        "native_thp": "1",
+        "lyt_direct": "0",
+        "lyt_faithful": "1",
+        "dl_indexed_raw": "1",
+        "perf_skip_efb": "0",
+        "perf_skip_billboards": "0",
+        "perf_skip_lighttexture": "0",
+        "perf_force_3d_solid": "0",
+        "perf_solid_keep_depth": "0",
+        "perf_inject_clip_triangle": "0",
+        "perf_inject_wii_triangle": "0",
+        "perf_log": "1",
+        "perf_ring": "1",
+        "perf_summary_interval": "300",
+        "compact_vertex": "1",
+        "frame_batcher": "1",
+        "direct_stream_write": "1",
+        "compact_frame_state": "1",
+        "frame_queue_depth": "2",
+        "dl_template_cache": "1",
+        "gx_state_generations": "1",
+        "raw_layout_cache": "1",
+        "raw_mesh_cache": "1",
+        "efb_readback_flip_y": "1",
+        "efb_transfer_readback": "0",
+        "efb_resident_copy": "1",
+        "efb_native_res_copy": "1",
+        "stream_safe_reuse": "1",
+        "ui_quad_runs": "1",
+        "texture_shared_headroom": "1",
+        "texture_safe_retry": "1"
+      }
+    },
+    {
+      "boot": 2,
+      "start_line": 4451,
+      "end_line": 5091,
+      "init_line": 4487,
+      "flags": {
+        "init_marker": "vglInitExtended",
+        "phase": "begin",
+        "t_us": "1516342",
+        "renderer": "aurora",
+        "vitagl": "speedhack-custom-heap",
+        "rt_scenes": "8/8",
+        "frame_draw_cap": "8192",
+        "frame_vertex_cap": "49152",
+        "efb_cap": "512",
+        "packet_bytes": "1444696",
+        "efb_gpu_blit": "0",
+        "movies_disabled": "0",
+        "native_thp": "1",
+        "lyt_direct": "0",
+        "lyt_faithful": "1",
+        "dl_indexed_raw": "1",
+        "perf_skip_efb": "0",
+        "perf_skip_billboards": "0",
+        "perf_skip_lighttexture": "0",
+        "perf_force_3d_solid": "0",
+        "perf_solid_keep_depth": "0",
+        "perf_inject_clip_triangle": "0",
+        "perf_inject_wii_triangle": "0",
+        "perf_log": "0",
+        "perf_ring": "1",
+        "perf_summary_interval": "300",
+        "compact_vertex": "1",
+        "frame_batcher": "1",
+        "direct_stream_write": "1",
+        "compact_frame_state": "1",
+        "frame_queue_depth": "2",
+        "dl_template_cache": "1",
+        "gx_state_generations": "1",
+        "raw_layout_cache": "1",
+        "raw_mesh_cache": "1",
+        "efb_readback_flip_y": "1",
+        "efb_transfer_readback": "0",
+        "efb_resident_copy": "1",
+        "efb_native_res_copy": "1",
+        "stream_safe_reuse": "1",
+        "ui_quad_runs": "1",
+        "texture_shared_headroom": "1",
+        "texture_safe_retry": "1"
+      }
+    },
+    {
+      "boot": 3,
+      "start_line": 5092,
+      "end_line": 5784,
+      "init_line": 5128,
+      "flags": {
+        "init_marker": "vglInitExtended",
+        "phase": "begin",
+        "t_us": "1898538",
+        "renderer": "aurora",
+        "vitagl": "speedhack-custom-heap",
+        "rt_scenes": "8/8",
+        "frame_draw_cap": "8192",
+        "frame_vertex_cap": "49152",
+        "efb_cap": "512",
+        "packet_bytes": "1641304",
+        "efb_gpu_blit": "0",
+        "movies_disabled": "0",
+        "native_thp": "1",
+        "lyt_direct": "0",
+        "lyt_faithful": "1",
+        "dl_indexed_raw": "1",
+        "perf_skip_efb": "0",
+        "perf_skip_billboards": "0",
+        "perf_skip_lighttexture": "0",
+        "perf_force_3d_solid": "0",
+        "perf_solid_keep_depth": "0",
+        "perf_inject_clip_triangle": "0",
+        "perf_inject_wii_triangle": "0",
+        "perf_log": "0",
+        "perf_ring": "1",
+        "perf_summary_interval": "300",
+        "compact_vertex": "1",
+        "frame_batcher": "1",
+        "direct_stream_write": "1",
+        "compact_frame_state": "1",
+        "frame_queue_depth": "2",
+        "dl_template_cache": "1",
+        "gx_state_generations": "1",
+        "raw_layout_cache": "1",
+        "raw_mesh_cache": "1",
+        "efb_readback_flip_y": "1",
+        "efb_transfer_readback": "0",
+        "efb_resident_copy": "1",
+        "efb_native_res_copy": "1",
+        "stream_safe_reuse": "1",
+        "ui_quad_runs": "1",
+        "texture_shared_headroom": "1",
+        "texture_safe_retry": "1",
+        "clip_w": "1"
+      }
+    }
+  ],
+  "latest_events": [
+    {
+      "line": 5128,
+      "kind": "perf_summary",
+      "fields": {
+        "perf_summary_interval": "300",
+        "compact_vertex": "1",
+        "frame_batcher": "1",
+        "direct_stream_write": "1",
+        "compact_frame_state": "1",
+        "frame_queue_depth": "2",
+        "dl_template_cache": "1",
+        "gx_state_generations": "1",
+        "raw_layout_cache": "1",
+        "raw_mesh_cache": "1",
+        "efb_readback_flip_y": "1",
+        "efb_transfer_readback": "0",
+        "efb_resident_copy": "1",
+        "efb_native_res_copy": "1",
+        "stream_safe_reuse": "1",
+        "ui_quad_runs": "1",
+        "texture_shared_headroom": "1",
+        "texture_safe_retry": "1",
+        "clip_w": "1"
+      },
+      "text": "[gx] init_marker=vglInitExtended phase=begin t_us=1898538 renderer=aurora vitagl=speedhack-custom-heap rt_scenes=8/8 frame_draw_cap=8192 frame_vertex_cap=49152 efb_cap=512 packet_bytes=1641304 efb_gpu_blit=0 movies_disabled=0 native_thp=1 lyt_direct=0 lyt_faithful=1 dl_indexed_raw=1 perf_skip_efb=0 perf_skip_billboards=0 perf_skip_lighttexture=0 perf_force_3d_solid=0 perf_solid_keep_depth=0 perf_inject_clip_triangle=0 perf_inject_wii_triangle=0 perf_log=0 perf_ring=1 perf_summary_interval=300 compact_vertex=1 frame_batcher=1 direct_stream_write=1 compact_frame_state=1 frame_queue_depth=2 dl_template_cache=1 gx_state_generations=1 raw_layout_cache=1 raw_mesh_cache=1 efb_readback_flip_y=1 efb_transfer_readback=0 efb_resident_copy=1 efb_native_res_copy=1 stream_safe_reuse=1 ui_quad_runs=1 texture_shared_headroom=1 texture_safe_retry=1 clip_w=1"
+    },
+    {
+      "line": 5272,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1",
+        "interval_us": "0",
+        "queue_wait_us": "1",
+        "packet_copy_us": "8",
+        "prior_wait_calls": "0",
+        "prior_wait_us": "0",
+        "wait_gx": "0/0",
+        "wait_worker": "0/0",
+        "draws": "0",
+        "vertices": "0",
+        "efb_cmds": "0",
+        "requested_draws": "0",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "0",
+        "efb_recorded": "0",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1 interval_us=0 queue_wait_us=1 packet_copy_us=8 prior_wait_calls=0 prior_wait_us=0 wait_gx=0/0 wait_worker=0/0 draws=0 vertices=0 efb_cmds=0 requested_draws=0 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5273,
+      "kind": "vi_perf",
+      "fields": {
+        "present": "1",
+        "pace_requested": "0",
+        "pace": "0",
+        "retraces_elapsed": "0",
+        "submit_us": "7747",
+        "pace_us": "8",
+        "total_us": "7763",
+        "presented_xfb": "0"
+      },
+      "text": "[vi] vi_perf present=1 pace_requested=0 pace=0 retraces_elapsed=0 submit_us=7747 pace_us=8 total_us=7763 presented_xfb=0"
+    },
+    {
+      "line": 5275,
+      "kind": "vi_perf",
+      "fields": {
+        "present": "1",
+        "pace_requested": "0",
+        "pace": "0",
+        "retraces_elapsed": "0",
+        "submit_us": "7747",
+        "pace_us": "8",
+        "total_us": "7763",
+        "presented_xfb": "0"
+      },
+      "text": "[vi] vi_perf present=1 pace_requested=0 pace=0 retraces_elapsed=0 submit_us=7747 pace_us=8 total_us=7763 presented_xfb=0"
+    },
+    {
+      "line": 5279,
+      "kind": "vi_perf",
+      "fields": {
+        "present": "2",
+        "pace_requested": "0",
+        "pace": "0",
+        "retraces_elapsed": "0",
+        "submit_us": "6294",
+        "pace_us": "8",
+        "total_us": "6309",
+        "presented_xfb": "0"
+      },
+      "text": "[vi] vi_perf present=2 pace_requested=0 pace=0 retraces_elapsed=0 submit_us=6294 pace_us=8 total_us=6309 presented_xfb=0"
+    },
+    {
+      "line": 5283,
+      "kind": "vi_perf",
+      "fields": {
+        "present": "3",
+        "pace_requested": "0",
+        "pace": "0",
+        "retraces_elapsed": "0",
+        "submit_us": "6205",
+        "pace_us": "8",
+        "total_us": "6219",
+        "presented_xfb": "0"
+      },
+      "text": "[vi] vi_perf present=3 pace_requested=0 pace=0 retraces_elapsed=0 submit_us=6205 pace_us=8 total_us=6219 presented_xfb=0"
+    },
+    {
+      "line": 5287,
+      "kind": "vi_perf",
+      "fields": {
+        "present": "4",
+        "pace_requested": "0",
+        "pace": "0",
+        "retraces_elapsed": "0",
+        "submit_us": "10448",
+        "pace_us": "8",
+        "total_us": "10463",
+        "presented_xfb": "0"
+      },
+      "text": "[vi] vi_perf present=4 pace_requested=0 pace=0 retraces_elapsed=0 submit_us=10448 pace_us=8 total_us=10463 presented_xfb=0"
+    },
+    {
+      "line": 5291,
+      "kind": "vi_perf",
+      "fields": {
+        "present": "5",
+        "pace_requested": "0",
+        "pace": "0",
+        "retraces_elapsed": "0",
+        "submit_us": "6283",
+        "pace_us": "7",
+        "total_us": "6296",
+        "presented_xfb": "0"
+      },
+      "text": "[vi] vi_perf present=5 pace_requested=0 pace=0 retraces_elapsed=0 submit_us=6283 pace_us=7 total_us=6296 presented_xfb=0"
+    },
+    {
+      "line": 5294,
+      "kind": "vi_perf",
+      "fields": {
+        "present": "6",
+        "pace_requested": "0",
+        "pace": "0",
+        "retraces_elapsed": "0",
+        "submit_us": "6306",
+        "pace_us": "8",
+        "total_us": "6320",
+        "presented_xfb": "0"
+      },
+      "text": "[vi] vi_perf present=6 pace_requested=0 pace=0 retraces_elapsed=0 submit_us=6306 pace_us=8 total_us=6320 presented_xfb=0"
+    },
+    {
+      "line": 5298,
+      "kind": "vi_perf",
+      "fields": {
+        "present": "7",
+        "pace_requested": "0",
+        "pace": "0",
+        "retraces_elapsed": "0",
+        "submit_us": "6188",
+        "pace_us": "8",
+        "total_us": "6202",
+        "presented_xfb": "0"
+      },
+      "text": "[vi] vi_perf present=7 pace_requested=0 pace=0 retraces_elapsed=0 submit_us=6188 pace_us=8 total_us=6202 presented_xfb=0"
+    },
+    {
+      "line": 5303,
+      "kind": "vi_perf",
+      "fields": {
+        "present": "8",
+        "pace_requested": "0",
+        "pace": "0",
+        "retraces_elapsed": "0",
+        "submit_us": "6262",
+        "pace_us": "8",
+        "total_us": "6277",
+        "presented_xfb": "0"
+      },
+      "text": "[vi] vi_perf present=8 pace_requested=0 pace=0 retraces_elapsed=0 submit_us=6262 pace_us=8 total_us=6277 presented_xfb=0"
+    },
+    {
+      "line": 5404,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "300",
+        "interval_us": "91",
+        "queue_wait_us": "1",
+        "packet_copy_us": "2",
+        "prior_wait_calls": "0",
+        "prior_wait_us": "0",
+        "wait_gx": "0/0",
+        "wait_worker": "0/0",
+        "draws": "0",
+        "vertices": "0",
+        "efb_cmds": "0",
+        "requested_draws": "0",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "0",
+        "efb_recorded": "0",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=300 interval_us=91 queue_wait_us=1 packet_copy_us=2 prior_wait_calls=0 prior_wait_us=0 wait_gx=0/0 wait_worker=0/0 draws=0 vertices=0 efb_cmds=0 requested_draws=0 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5436,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "311",
+        "interval_us": "1473140",
+        "queue_wait_us": "1",
+        "packet_copy_us": "7",
+        "prior_wait_calls": "1",
+        "prior_wait_us": "1",
+        "wait_gx": "1/1",
+        "wait_worker": "0/0",
+        "draws": "0",
+        "vertices": "0",
+        "efb_cmds": "0",
+        "requested_draws": "0",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "0",
+        "efb_recorded": "0",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=311 interval_us=1473140 queue_wait_us=1 packet_copy_us=7 prior_wait_calls=1 prior_wait_us=1 wait_gx=1/1 wait_worker=0/0 draws=0 vertices=0 efb_cmds=0 requested_draws=0 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5470,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "467",
+        "interval_us": "2498842",
+        "queue_wait_us": "1",
+        "packet_copy_us": "10",
+        "prior_wait_calls": "4",
+        "prior_wait_us": "216",
+        "wait_gx": "3/215",
+        "wait_worker": "1/1",
+        "draws": "1",
+        "vertices": "4",
+        "efb_cmds": "0",
+        "requested_draws": "1",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "0",
+        "efb_recorded": "0",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=467 interval_us=2498842 queue_wait_us=1 packet_copy_us=10 prior_wait_calls=4 prior_wait_us=216 wait_gx=3/215 wait_worker=1/1 draws=1 vertices=4 efb_cmds=0 requested_draws=1 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5497,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "468",
+        "interval_us": "1327000",
+        "queue_wait_us": "2",
+        "packet_copy_us": "658",
+        "prior_wait_calls": "33",
+        "prior_wait_us": "44",
+        "wait_gx": "32/43",
+        "wait_worker": "1/1",
+        "draws": "485",
+        "vertices": "3432",
+        "efb_cmds": "34",
+        "requested_draws": "487",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "21",
+        "efb_recorded": "21",
+        "efb_cap_fail": "0",
+        "efb_destroy": "13"
+      },
+      "text": "[gx] producer_frame=468 interval_us=1327000 queue_wait_us=2 packet_copy_us=658 prior_wait_calls=33 prior_wait_us=44 wait_gx=32/43 wait_worker=1/1 draws=485 vertices=3432 efb_cmds=34 requested_draws=487 begin_cap=0 raw_cap=0 dropped=0 efb_calls=21 efb_recorded=21 efb_cap_fail=0 efb_destroy=13"
+    },
+    {
+      "line": 5499,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "469",
+        "interval_us": "6499836",
+        "queue_wait_us": "1",
+        "packet_copy_us": "10",
+        "prior_wait_calls": "4",
+        "prior_wait_us": "6411365",
+        "wait_gx": "3/6411364",
+        "wait_worker": "1/1",
+        "draws": "1",
+        "vertices": "4",
+        "efb_cmds": "0",
+        "requested_draws": "1",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "0",
+        "efb_recorded": "0",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=469 interval_us=6499836 queue_wait_us=1 packet_copy_us=10 prior_wait_calls=4 prior_wait_us=6411365 wait_gx=3/6411364 wait_worker=1/1 draws=1 vertices=4 efb_cmds=0 requested_draws=1 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5500,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "471",
+        "interval_us": "1567985",
+        "queue_wait_us": "1",
+        "packet_copy_us": "45",
+        "prior_wait_calls": "4",
+        "prior_wait_us": "1541383",
+        "wait_gx": "3/1541382",
+        "wait_worker": "1/1",
+        "draws": "16",
+        "vertices": "200",
+        "efb_cmds": "0",
+        "requested_draws": "50",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "0",
+        "efb_recorded": "0",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=471 interval_us=1567985 queue_wait_us=1 packet_copy_us=45 prior_wait_calls=4 prior_wait_us=1541383 wait_gx=3/1541382 wait_worker=1/1 draws=16 vertices=200 efb_cmds=0 requested_draws=50 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5501,
+      "kind": "vi_perf",
+      "fields": {
+        "present": "480",
+        "pace_requested": "1",
+        "pace": "0",
+        "retraces_elapsed": "8",
+        "submit_us": "63",
+        "pace_us": "7",
+        "total_us": "78",
+        "presented_xfb": "1"
+      },
+      "text": "[vi] vi_perf present=480 pace_requested=1 pace=0 retraces_elapsed=8 submit_us=63 pace_us=7 total_us=78 presented_xfb=1"
+    },
+    {
+      "line": 5506,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "600",
+        "interval_us": "62373",
+        "queue_wait_us": "2",
+        "packet_copy_us": "135",
+        "prior_wait_calls": "4",
+        "prior_wait_us": "6",
+        "wait_gx": "3/5",
+        "wait_worker": "1/1",
+        "draws": "96",
+        "vertices": "716",
+        "efb_cmds": "0",
+        "requested_draws": "179",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "0",
+        "efb_recorded": "0",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=600 interval_us=62373 queue_wait_us=2 packet_copy_us=135 prior_wait_calls=4 prior_wait_us=6 wait_gx=3/5 wait_worker=1/1 draws=96 vertices=716 efb_cmds=0 requested_draws=179 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5507,
+      "kind": "vi_perf",
+      "fields": {
+        "present": "600",
+        "pace_requested": "1",
+        "pace": "0",
+        "retraces_elapsed": "8",
+        "submit_us": "9374",
+        "pace_us": "9",
+        "total_us": "9390",
+        "presented_xfb": "1"
+      },
+      "text": "[vi] vi_perf present=600 pace_requested=1 pace=0 retraces_elapsed=8 submit_us=9374 pace_us=9 total_us=9390 presented_xfb=1"
+    },
+    {
+      "line": 5508,
+      "kind": "orphan_render_fragment",
+      "fields": {
+        "orm_fail": "0",
+        "persp": "0",
+        "clip_xy": "0/0",
+        "clip_xyz": "0",
+        "z": "0.000..0.000",
+        "render_us": "4345",
+        "submit_us": "3250",
+        "endframe_us": "894",
+        "swap_us": "137",
+        "pipeline": "17/0",
+        "stream": "20048/2148",
+        "overflow": "0/0",
+        "tex_fail": "0",
+        "compact": "96",
+        "fallback": "0",
+        "merged": "31",
+        "runs": "91/5",
+        "state": "5/91",
+        "p4_state": "89/90,93/86,111/68",
+        "p4_layout": "74/15",
+        "p4_mesh": "0/89/0/0",
+        "profile_us": "96/0/317/609/1162/889",
+        "efb": "0/0",
+        "efb_transfer": "0",
+        "efb_exec": "0/0",
+        "sampled": "1",
+        "efb_us": "0/0/0/0",
+        "resident": "0/0",
+        "reuse_wait_us": "0",
+        "producer_merge": "83",
+        "efb_coalesced": "0",
+        "efb_cap": "0",
+        "ring_write": "0"
+      },
+      "text": "orm_fail=0 persp=0 clip_xy=0/0 clip_xyz=0 z=0.000..0.000 render_us=4345 submit_us=3250 endframe_us=894 swap_us=137 pipeline=17/0 stream=20048/2148 overflow=0/0 tex_fail=0 compact=96 fallback=0 merged=31 runs=91/5 state=5/91 p4_state=89/90,93/86,111/68 p4_layout=74/15 p4_mesh=0/89/0/0 profile_us=96/0/317/609/1162/889 efb=0/0 efb_transfer=0 efb_exec=0/0 sampled=1 efb_us=0/0/0/0 resident=0/0 reuse_wait_us=0 producer_merge=83 efb_coalesced=0 efb_cap=0 ring_write=0",
+      "note": "No serial in source line: temporal association only, not a joined frame."
+    },
+    {
+      "line": 5509,
+      "kind": "resource_summary",
+      "fields": {
+        "serial": "600",
+        "tex_evict_total": "3/1984511",
+        "tex_blocked_total": "0",
+        "tex_protected": "0/0",
+        "tex_retry": "0/0/0",
+        "retry_wait_us": "0",
+        "efb_path": "0/0/0/0",
+        "native": "0",
+        "native_budget": "0",
+        "resident_fail": "0",
+        "efb_reason": "0/0/0/0/0/0/0/0",
+        "efb_mem": "547008/547008/4194304",
+        "entries": "6"
+      },
+      "text": "[gx] resource_summary serial=600 tex_evict_total=3/1984511 tex_blocked_total=0 tex_protected=0/0 tex_retry=0/0/0 retry_wait[gx] resource_summary serial=600 tex_evict_total=3/1984511 tex_blocked_total=0 tex_protected=0/0 tex_retry=0/0/0 retry_wait_us=0 efb_path=0/0/0/0 native=0 native_budget=0 resident_fail=0 efb_reason=0/0/0/0/0/0/0/0 efb_mem=547008/547008/4194304 entries=6"
+    },
+    {
+      "line": 5513,
+      "kind": "movie: open",
+      "fields": {
+        "n": "1",
+        "manager": "0x80B0F7A8",
+        "result": "1",
+        "buffer": "0x80B0F8C0"
+      },
+      "text": "[hle] movie: open n=1 manager=0x80B0F7A8 result=1 buffer=0x80B0F8C0"
+    },
+    {
+      "line": 5514,
+      "kind": "thp: decode_enter",
+      "fields": {
+        "n": "1",
+        "src": "0x80B0F8CC"
+      },
+      "text": "[hle] thp: decode_enter n=1 src=0x80B0F8CC"
+    },
+    {
+      "line": 5515,
+      "kind": "thp: decode_error",
+      "fields": {
+        "n": "1",
+        "phase": "jpeg_pixels",
+        "code": "11"
+      },
+      "text": "[hle] thp: decode_error n=1 phase=jpeg_pixels code=11"
+    },
+    {
+      "line": 5516,
+      "kind": "movie: prepare",
+      "fields": {
+        "n": "1",
+        "memory": "874944",
+        "result": "0",
+        "state": "0"
+      },
+      "text": "[hle] movie: prepare n=1 memory=874944 result=0 state=0"
+    },
+    {
+      "line": 5524,
+      "kind": "gx_cpu_perf",
+      "fields": {
+        "frame": "300",
+        "lyt_calls": "138",
+        "lyt_us": "7748",
+        "lyt_direct": "0",
+        "lyt_packet": "0",
+        "lyt_faithful": "138",
+        "dl_calls": "0",
+        "dl_us": "0",
+        "dl_bytes": "0",
+        "dl_cache": "0/0",
+        "dl_fallback": "0",
+        "dl_raw": "0/0",
+        "verts": "0",
+        "fail": "0",
+        "dl_template": "0/0",
+        "draws": "0",
+        "fallback": "0",
+        "glyph_fast": "526",
+        "setup": "101",
+        "texload": "55",
+        "glyph_raw": "526",
+        "glyph_fallback": "0",
+        "prebegin_us": "38019",
+        "tail_us": "1831",
+        "copydisp_us": "442"
+      },
+      "text": "[gx] gx_cpu_perf frame=300 lyt_calls=138 lyt_us=7748 lyt_direct=0 lyt_packet=0 lyt_faithful=138 dl_calls=0 dl_us=0 dl_bytes=0 dl_cache=0/0 dl_fallback=0 dl_raw=0/0 verts=0 fail=0 dl_template=0/0 draws=0 fallback=0 glyph_fast=526 setup=101 texload=55 glyph_raw=526 glyph_fallback=0 prebegin_us=38019 tail_us=1831 copydisp_us=442"
+    },
+    {
+      "line": 5525,
+      "kind": "vi_perf",
+      "fields": {
+        "present": "720",
+        "pace_requested": "1",
+        "pace": "0",
+        "retraces_elapsed": "7",
+        "submit_us": "391",
+        "pace_us": "8",
+        "total_us": "407",
+        "presented_xfb": "1"
+      },
+      "text": "[vi] vi_perf present=720 pace_requested=1 pace=0 retraces_elapsed=7 submit_us=391 pace_us=8 total_us=407 presented_xfb=1"
+    },
+    {
+      "line": 5535,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "789",
+        "interval_us": "1526938",
+        "queue_wait_us": "1",
+        "packet_copy_us": "9",
+        "prior_wait_calls": "4",
+        "prior_wait_us": "183",
+        "wait_gx": "3/182",
+        "wait_worker": "1/1",
+        "draws": "1",
+        "vertices": "4",
+        "efb_cmds": "0",
+        "requested_draws": "1",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "0",
+        "efb_recorded": "0",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=789 interval_us=1526938 queue_wait_us=1 packet_copy_us=9 prior_wait_calls=4 prior_wait_us=183 wait_gx=3/182 wait_worker=1/1 draws=1 vertices=4 efb_cmds=0 requested_draws=1 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5544,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "790",
+        "interval_us": "6231953",
+        "queue_wait_us": "1",
+        "packet_copy_us": "825",
+        "prior_wait_calls": "43",
+        "prior_wait_us": "53",
+        "wait_gx": "42/52",
+        "wait_worker": "1/1",
+        "draws": "533",
+        "vertices": "3624",
+        "efb_cmds": "45",
+        "requested_draws": "535",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "28",
+        "efb_recorded": "28",
+        "efb_cap_fail": "0",
+        "efb_destroy": "17"
+      },
+      "text": "[gx] producer_frame=790 interval_us=6231953 queue_wait_us=1 packet_copy_us=825 prior_wait_calls=43 prior_wait_us=53 wait_gx=42/52 wait_worker=1/1 draws=533 vertices=3624 efb_cmds=45 requested_draws=535 begin_cap=0 raw_cap=0 dropped=0 efb_calls=28 efb_recorded=28 efb_cap_fail=0 efb_destroy=17"
+    },
+    {
+      "line": 5545,
+      "kind": "vi_perf",
+      "fields": {
+        "present": "840",
+        "pace_requested": "1",
+        "pace": "0",
+        "retraces_elapsed": "8",
+        "submit_us": "42",
+        "pace_us": "7",
+        "total_us": "56",
+        "presented_xfb": "1"
+      },
+      "text": "[vi] vi_perf present=840 pace_requested=1 pace=0 retraces_elapsed=8 submit_us=42 pace_us=7 total_us=56 presented_xfb=1"
+    },
+    {
+      "line": 5546,
+      "kind": "movie: open",
+      "fields": {
+        "n": "2",
+        "manager": "0x80B1F590",
+        "result": "1",
+        "buffer": "0x80B1F6A0"
+      },
+      "text": "[hle] movie: open n=2 manager=0x80B1F590 result=1 buffer=0x80B1F6A0"
+    },
+    {
+      "line": 5547,
+      "kind": "thp: decode_enter",
+      "fields": {
+        "n": "2",
+        "src": "0x80B1F6AC"
+      },
+      "text": "[hle] thp: decode_enter n=2 src=0x80B1F6AC"
+    },
+    {
+      "line": 5548,
+      "kind": "thp: decode_error",
+      "fields": {
+        "n": "2",
+        "phase": "jpeg_pixels",
+        "code": "11"
+      },
+      "text": "[hle] thp: decode_error n=2 phase=jpeg_pixels code=11"
+    },
+    {
+      "line": 5549,
+      "kind": "movie: prepare",
+      "fields": {
+        "n": "2",
+        "memory": "1836864",
+        "result": "0",
+        "state": "0"
+      },
+      "text": "[hle] movie: prepare n=2 memory=1836864 result=0 state=0"
+    },
+    {
+      "line": 5550,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "856",
+        "interval_us": "1091501",
+        "queue_wait_us": "2",
+        "packet_copy_us": "2812",
+        "prior_wait_calls": "16",
+        "prior_wait_us": "849235",
+        "wait_gx": "15/849234",
+        "wait_worker": "1/1",
+        "draws": "3193",
+        "vertices": "23036",
+        "efb_cmds": "12",
+        "requested_draws": "3382",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "12",
+        "efb_recorded": "12",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=856 interval_us=1091501 queue_wait_us=2 packet_copy_us=2812 prior_wait_calls=16 prior_wait_us=849235 wait_gx=15/849234 wait_worker=1/1 draws=3193 vertices=23036 efb_cmds=12 requested_draws=3382 begin_cap=0 raw_cap=0 dropped=0 efb_calls=12 efb_recorded=12 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5557,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "900",
+        "interval_us": "154481",
+        "queue_wait_us": "2",
+        "packet_copy_us": "1202",
+        "prior_wait_calls": "16",
+        "prior_wait_us": "32353",
+        "wait_gx": "15/32353",
+        "wait_worker": "1/0",
+        "draws": "1431",
+        "vertices": "10452",
+        "efb_cmds": "12",
+        "requested_draws": "1619",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "12",
+        "efb_recorded": "12",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=900 interval_us=154481 queue_wait_us=2 packet_copy_us=1202 prior_wait_calls=16 prior_wait_us=32353 wait_gx=15/32353 wait_worker=1/0 draws=1431 vertices=10452 efb_cmds=12 requested_draws=1619 begin_cap=0 raw_cap=0 dropped=0 efb_calls=12 efb_recorded=12 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5558,
+      "kind": "perf_summary",
+      "fields": {
+        "serial": "900",
+        "draws": "1431",
+        "vertices": "10452",
+        "presented": "1431",
+        "physical": "93",
+        "raw_ok": "1502",
+        "raw_fail": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "transform_fail": "0",
+        "persp": "1300",
+        "clip_xy": "9176/9176",
+        "clip_xyz": "9176",
+        "z": "-0.072..-0.001",
+        "render_us": "41592",
+        "submit_us": "40510",
+        "endframe_us": "856",
+        "swap_us": "123",
+        "pipeline": "65/0",
+        "stream": "292656/41220",
+        "overflow": "0/0",
+        "tex_fail": "0",
+        "compact": "1431",
+        "fallback": "0",
+        "merged": "1338",
+        "runs": "177/1254",
+        "state": "1254/177",
+        "p4_state": "155/1464,158/1461,190/1429",
+        "p4_layout": "1457/45",
+        "p4_mesh": "1289/213/11/0",
+        "profile_us": "1368/0/551/1430/6798/1884",
+        "efb": "12/0",
+        "efb_transfer": "0",
+        "efb_exec": "12/0",
+        "sampled": "1",
+        "efb_us": "16731/0/0/0",
+        "resident": "0/4173",
+        "reuse_wait_us": "0",
+        "producer_merge": "188",
+        "efb_coalesced": "0",
+        "efb_cap": "0",
+        "ring_write": "0"
+      },
+      "text": "[gx] perf_summary serial=900 draws=1431 vertices=10452 presented=1431 physical=93 raw_ok=1502 raw_fail=0 raw_cap=0 dropped=0 transform_fail=0 persp=1300 clip_xy=9176/9176 clip_xyz=9176 z=-0.072..-0.001 render_us=41592 submit_us=40510 endframe_us=856 swap_us=123 pipeline=65/0 stream=292656/41220 overflow=0/0 tex_fail=0 compact=1431 fallback=0 merged=1338 runs=177/1254 state=1254/177 p4_state=155/1464,158/1461,190/1429 p4_layout=1457/45 p4_mesh=1289/213/11/0 profile_us=1368/0/551/1430/6798/1884 efb=12/0 efb_transfer=0 efb_exec=12/0 sampled=1 efb_us=16731/0/0/0 resident=0/4173 reuse_wait_us=0 producer_merge=188 efb_coalesced=0 efb_cap=0 ring_write=0"
+    },
+    {
+      "line": 5559,
+      "kind": "resource_summary",
+      "fields": {
+        "serial": "900",
+        "tex_evict_total": "24/4506078",
+        "tex_blocked_total": "0",
+        "tex_protected": "0/0",
+        "tex_retry": "0/0/0",
+        "retry_wait_us": "0",
+        "efb_path": "12/0/0/0",
+        "native": "12",
+        "native_budget": "0",
+        "resident_fail": "0",
+        "efb_reason": "0/0/0/0/0/0/0/0",
+        "efb_mem": "3546816/3546816/4194304",
+        "entries": "19"
+      },
+      "text": "[gx] resource_summary serial=900 tex_evict_total=24/4506078 tex_blocked_total=0 tex_protected=0/0 tex_retry=0/0/0 retry_wait_us=0 efb_path=12/0/0/0 native=12 native_budget=0 resident_fail=0 efb_reason=0/0/0/0/0/0/0/0 efb_mem=3546816/3546816/4194304 entries=19"
+    },
+    {
+      "line": 5563,
+      "kind": "vi_perf",
+      "fields": {
+        "present": "960",
+        "pace_requested": "1",
+        "pace": "0",
+        "retraces_elapsed": "8",
+        "submit_us": "1497",
+        "pace_us": "10",
+        "total_us": "1515",
+        "presented_xfb": "1"
+      },
+      "text": "[vi] vi_perf present=960 pace_requested=1 pace=0 retraces_elapsed=8 submit_us=1497 pace_us=10 total_us=1515 presented_xfb=1"
+    },
+    {
+      "line": 5564,
+      "kind": "gx_cpu_perf",
+      "fields": {
+        "frame": "600",
+        "lyt_calls": "217",
+        "lyt_us": "11935",
+        "lyt_direct": "0",
+        "lyt_packet": "0",
+        "lyt_faithful": "217",
+        "dl_calls": "132",
+        "dl_us": "14170",
+        "dl_bytes": "58432",
+        "dl_cache": "60/72",
+        "dl_fallback": "0",
+        "dl_raw": "1300/1300",
+        "verts": "9176",
+        "fail": "0",
+        "dl_template": "28/2",
+        "draws": "992",
+        "fallback": "0",
+        "glyph_fast": "44",
+        "setup": "15",
+        "texload": "12",
+        "glyph_raw": "44",
+        "glyph_fallback": "0",
+        "prebegin_us": "72418",
+        "tail_us": "3985",
+        "copydisp_us": "1561"
+      },
+      "text": "[gx] gx_cpu_perf frame=600 lyt_calls=217 lyt_us=11935 lyt_direct=0 lyt_packet=0 lyt_faithful=217 dl_calls=132 dl_us=14170 dl_bytes=58432 dl_cache=60/72 dl_fallback=0 dl_raw=1300/1300 verts=9176 fail=0 dl_template=28/2 draws=992 fallback=0 glyph_fast=44 setup=15 texload=12 glyph_raw=44 glyph_fallback=0 prebegin_us=72418 tail_us=3985 copydisp_us=1561"
+    },
+    {
+      "line": 5574,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "979",
+        "interval_us": "2025377",
+        "queue_wait_us": "1",
+        "packet_copy_us": "3423",
+        "prior_wait_calls": "31",
+        "prior_wait_us": "1740900",
+        "wait_gx": "30/1740899",
+        "wait_worker": "1/1",
+        "draws": "3722",
+        "vertices": "24738",
+        "efb_cmds": "28",
+        "requested_draws": "3766",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "27",
+        "efb_recorded": "27",
+        "efb_cap_fail": "0",
+        "efb_destroy": "1"
+      },
+      "text": "[gx] producer_frame=979 interval_us=2025377 queue_wait_us=1 packet_copy_us=3423 prior_wait_calls=31 prior_wait_us=1740900 wait_gx=30/1740899 wait_worker=1/1 draws=3722 vertices=24738 efb_cmds=28 requested_draws=3766 begin_cap=0 raw_cap=0 dropped=0 efb_calls=27 efb_recorded=27 efb_cap_fail=0 efb_destroy=1"
+    },
+    {
+      "line": 5575,
+      "kind": "m12_5_efb_budget",
+      "fields": {
+        "blocked": "1",
+        "dest": "0x87B00440",
+        "dst": "192x96",
+        "required": "73728",
+        "efb_bytes": "4174656",
+        "budget": "4194304",
+        "entries": "24"
+      },
+      "text": "[gx] m12_5_efb_budget blocked=1 dest=0x87B00440 dst=192x96 required=73728 efb_bytes=4174656 budget=4194304 entries=24"
+    },
+    {
+      "line": 5579,
+      "kind": "vi_perf",
+      "fields": {
+        "present": "1080",
+        "pace_requested": "1",
+        "pace": "0",
+        "retraces_elapsed": "8",
+        "submit_us": "1956",
+        "pace_us": "12",
+        "total_us": "1976",
+        "presented_xfb": "1"
+      },
+      "text": "[vi] vi_perf present=1080 pace_requested=1 pace=0 retraces_elapsed=8 submit_us=1956 pace_us=12 total_us=1976 presented_xfb=1"
+    },
+    {
+      "line": 5588,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1200",
+        "interval_us": "210252",
+        "queue_wait_us": "20",
+        "packet_copy_us": "1881",
+        "prior_wait_calls": "16",
+        "prior_wait_us": "36488",
+        "wait_gx": "15/36487",
+        "wait_worker": "1/1",
+        "draws": "2304",
+        "vertices": "15188",
+        "efb_cmds": "12",
+        "requested_draws": "2449",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "12",
+        "efb_recorded": "12",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1200 interval_us=210252 queue_wait_us=20 packet_copy_us=1881 prior_wait_calls=16 prior_wait_us=36488 wait_gx=15/36487 wait_worker=1/1 draws=2304 vertices=15188 efb_cmds=12 requested_draws=2449 begin_cap=0 raw_cap=0 dropped=0 efb_calls=12 efb_recorded=12 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5589,
+      "kind": "vi_perf",
+      "fields": {
+        "present": "1200",
+        "pace_requested": "1",
+        "pace": "0",
+        "retraces_elapsed": "8",
+        "submit_us": "8867",
+        "pace_us": "10",
+        "total_us": "8885",
+        "presented_xfb": "1"
+      },
+      "text": "[vi] vi_perf present=1200 pace_requested=1 pace=0 retraces_elapsed=8 submit_us=8867 pace_us=10 total_us=8885 presented_xfb=1"
+    },
+    {
+      "line": 5590,
+      "kind": "perf_summary",
+      "fields": {
+        "serial": "1200",
+        "draws": "2304",
+        "vertices": "15188",
+        "presented": "2304",
+        "physical": "151",
+        "raw_ok": "2226",
+        "raw_fail": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "transform_fail": "0",
+        "persp": "2110",
+        "clip_xy": "13832/13832",
+        "clip_xyz": "13832",
+        "z": "-0.091..-0.001",
+        "render_us": "52648",
+        "submit_us": "50772",
+        "endframe_us": "1638",
+        "swap_us": "129",
+        "pipeline": "105/0",
+        "stream": "425264/58572",
+        "overflow": "0/0",
+        "tex_fail": "0",
+        "compact": "2304",
+        "fallback": "0",
+        "merged": "2153",
+        "runs": "256/2048",
+        "state": "2048/256",
+        "p4_state": "203/2246,220/2229,244/2205",
+        "p4_layout": "2183/43",
+        "p4_mesh": "2010/216/100/0",
+        "profile_us": "2165/0/765/2077/10561/2794",
+        "efb": "12/0",
+        "efb_transfer": "0",
+        "efb_exec": "12/0",
+        "sampled": "27",
+        "efb_us": "16887/0/0/0",
+        "resident": "0/4139",
+        "reuse_wait_us": "0",
+        "producer_merge": "145",
+        "efb_coalesced": "0",
+        "efb_cap": "0",
+        "ring_write": "0"
+      },
+      "text": "[gx] perf_summary serial=1200 draws=2304 vertices=15188 presented=2304 physical=151 raw_ok=2226 raw_fail=0 raw_cap=0 dropped=0 transform_fail=0 persp=2110 clip_xy=13832/13832 clip_xyz=13832 z=-0.091..-0.001 render_us=52648 submit_us=50772 endframe_us=1638 swap_us=129 pipeline=105/0 stream=425264/58572 overflow=0/0 tex_fail=0 compact=2304 fallback=0 merged=2153 runs=256/2048 state=2048/256 p4_state=203/2246,220/2229,244/2205 p4_layout=2183/43 p4_mesh=2010/216/100/0 profile_us=2165/0/765/2077/10561/2794 efb=12/0 efb_transfer=0 efb_exec=12/0 sampled=27 efb_us=16887/0/0/0 resident=0/4139 reuse_wait_us=0 producer_merge=145 efb_coalesced=0 efb_cap=0 ring_write=0"
+    },
+    {
+      "line": 5591,
+      "kind": "resource_summary",
+      "fields": {
+        "serial": "1200",
+        "tex_evict_total": "35/6775016",
+        "tex_blocked_total": "0",
+        "tex_protected": "0/0",
+        "tex_retry": "0/0/0",
+        "retry_wait_us": "0",
+        "efb_path": "12/0/0/0",
+        "native": "12",
+        "native_budget": "0",
+        "resident_fail": "0",
+        "efb_reason": "0/0/0/0/0/0/0/0",
+        "efb_mem": "4174656/4174656/4194304",
+        "entries": "24"
+      },
+      "text": "[gx] resource_summary serial=1200 tex_evict_total=35/6775016 tex_blocked_total=0 tex_protected=0/0 tex_retry=0/0/0 retry_wait_us=0 efb_path=12/0/0/0 native=12 native_budget=0 resident_fail=0 efb_reason=0/0/0/0/0/0/0/0 efb_mem=4174656/4174656/4194304 entries=24"
+    },
+    {
+      "line": 5592,
+      "kind": "movie: open",
+      "fields": {
+        "n": "3",
+        "manager": "0x80B1F590",
+        "result": "0",
+        "buffer": "0x80B1F6A0"
+      },
+      "text": "[hle] movie: open n=3 manager=0x80B1F590 result=0 buffer=0x80B1F6A0"
+    },
+    {
+      "line": 5593,
+      "kind": "thp: decode_error",
+      "fields": {
+        "n": "3",
+        "phase": "jpeg_pixels",
+        "code": "11"
+      },
+      "text": "[hle] thp: decode_error n=3 phase=jpeg_pixels code=11"
+    },
+    {
+      "line": 5594,
+      "kind": "movie: prepare",
+      "fields": {
+        "n": "3",
+        "memory": "837440",
+        "result": "0",
+        "state": "0"
+      },
+      "text": "[hle] movie: prepare n=3 memory=837440 result=0 state=0"
+    },
+    {
+      "line": 5595,
+      "kind": "gx_cpu_perf",
+      "fields": {
+        "frame": "900",
+        "lyt_calls": "58",
+        "lyt_us": "3199",
+        "lyt_direct": "0",
+        "lyt_packet": "0",
+        "lyt_faithful": "58",
+        "dl_calls": "174",
+        "dl_us": "22278",
+        "dl_bytes": "91328",
+        "dl_cache": "72/102",
+        "dl_fallback": "0",
+        "dl_raw": "2110/2110",
+        "verts": "13832",
+        "fail": "0",
+        "dl_template": "34/2",
+        "draws": "1802",
+        "fallback": "0",
+        "glyph_fast": "140",
+        "setup": "37",
+        "texload": "23",
+        "glyph_raw": "140",
+        "glyph_fallback": "0",
+        "prebegin_us": "78716",
+        "tail_us": "3985",
+        "copydisp_us": "1732"
+      },
+      "text": "[gx] gx_cpu_perf frame=900 lyt_calls=58 lyt_us=3199 lyt_direct=0 lyt_packet=0 lyt_faithful=58 dl_calls=174 dl_us=22278 dl_bytes=91328 dl_cache=72/102 dl_fallback=0 dl_raw=2110/2110 verts=13832 fail=0 dl_template=34/2 draws=1802 fallback=0 glyph_fast=140 setup=37 texload=23 glyph_raw=140 glyph_fallback=0 prebegin_us=78716 tail_us=3985 copydisp_us=1732"
+    },
+    {
+      "line": 5614,
+      "kind": "vi_perf",
+      "fields": {
+        "present": "1320",
+        "pace_requested": "1",
+        "pace": "0",
+        "retraces_elapsed": "8",
+        "submit_us": "1695",
+        "pace_us": "11",
+        "total_us": "1714",
+        "presented_xfb": "1"
+      },
+      "text": "[vi] vi_perf present=1320 pace_requested=1 pace=0 retraces_elapsed=8 submit_us=1695 pace_us=11 total_us=1714 presented_xfb=1"
+    },
+    {
+      "line": 5619,
+      "kind": "movie: open",
+      "fields": {
+        "n": "4",
+        "manager": "0x80B1F590",
+        "result": "0",
+        "buffer": "0x80B1F6A0"
+      },
+      "text": "[hle] movie: open n=4 manager=0x80B1F590 result=0 buffer=0x80B1F6A0"
+    },
+    {
+      "line": 5620,
+      "kind": "thp: decode_error",
+      "fields": {
+        "n": "4",
+        "phase": "jpeg_pixels",
+        "code": "11"
+      },
+      "text": "[hle] thp: decode_error n=4 phase=jpeg_pixels code=11"
+    },
+    {
+      "line": 5621,
+      "kind": "movie: prepare",
+      "fields": {
+        "n": "4",
+        "memory": "3107840",
+        "result": "0",
+        "state": "0"
+      },
+      "text": "[hle] movie: prepare n=4 memory=3107840 result=0 state=0"
+    },
+    {
+      "line": 5632,
+      "kind": "m12_5_efb_budget",
+      "fields": {
+        "blocked": "2",
+        "dest": "0x633E33A0",
+        "dst": "96x96",
+        "required": "36864",
+        "efb_bytes": "4174656",
+        "budget": "4194304",
+        "entries": "24"
+      },
+      "text": "[gx] m12_5_efb_budget blocked=2 dest=0x633E33A0 dst=96x96 required=36864 efb_bytes=4174656 budget=4194304 entries=24"
+    },
+    {
+      "line": 5633,
+      "kind": "vi_perf",
+      "fields": {
+        "present": "1440",
+        "pace_requested": "1",
+        "pace": "0",
+        "retraces_elapsed": "8",
+        "submit_us": "1958",
+        "pace_us": "13",
+        "total_us": "1980",
+        "presented_xfb": "1"
+      },
+      "text": "[vi] vi_perf present=1440 pace_requested=1 pace=0 retraces_elapsed=8 submit_us=1958 pace_us=13 total_us=1980 presented_xfb=1"
+    },
+    {
+      "line": 5649,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1500",
+        "interval_us": "213089",
+        "queue_wait_us": "2",
+        "packet_copy_us": "1853",
+        "prior_wait_calls": "16",
+        "prior_wait_us": "39448",
+        "wait_gx": "15/39447",
+        "wait_worker": "1/1",
+        "draws": "2272",
+        "vertices": "15608",
+        "efb_cmds": "12",
+        "requested_draws": "2554",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "12",
+        "efb_recorded": "12",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1500 interval_us=213089 queue_wait_us=2 packet_copy_us=1853 prior_wait_calls=16 prior_wait_us=39448 wait_gx=15/39447 wait_worker=1/1 draws=2272 vertices=15608 efb_cmds=12 requested_draws=2554 begin_cap=0 raw_cap=0 dropped=0 efb_calls=12 efb_recorded=12 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5650,
+      "kind": "perf_summary",
+      "fields": {
+        "serial": "1500",
+        "draws": "2272",
+        "vertices": "15608",
+        "presented": "2272",
+        "physical": "132",
+        "raw_ok": "2421",
+        "raw_fail": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "transform_fail": "0",
+        "persp": "2110",
+        "clip_xy": "13832/13832",
+        "clip_xyz": "13832",
+        "z": "-0.099..-0.001",
+        "render_us": "52043",
+        "submit_us": "50391",
+        "endframe_us": "1410",
+        "swap_us": "129",
+        "pipeline": "85/0",
+        "stream": "437024/59832",
+        "overflow": "0/0",
+        "tex_fail": "0",
+        "compact": "2272",
+        "fallback": "0",
+        "merged": "2140",
+        "runs": "214/2058",
+        "state": "2058/214",
+        "p4_state": "185/2369,188/2366,231/2323",
+        "p4_layout": "2362/59",
+        "p4_mesh": "2010/411/100/0",
+        "profile_us": "2233/0/707/1779/10449/2548",
+        "efb": "12/0",
+        "efb_transfer": "0",
+        "efb_exec": "12/0",
+        "sampled": "1",
+        "efb_us": "16918/0/0/0",
+        "resident": "0/4218",
+        "reuse_wait_us": "0",
+        "producer_merge": "282",
+        "efb_coalesced": "0",
+        "efb_cap": "0",
+        "ring_write": "0"
+      },
+      "text": "[gx] perf_summary serial=1500 draws=2272 vertices=15608 presented=2272 physical=132 raw_ok=2421 raw_fail=0 raw_cap=0 dropped=0 transform_fail=0 persp=2110 clip_xy=13832/13832 clip_xyz=13832 z=-0.099..-0.001 render_us=52043 submit_us=50391 endframe_us=1410 swap_us=129 pipeline=85/0 stream=437024/59832 overflow=0/0 tex_fail=0 compact=2272 fallback=0 merged=2140 runs=214/2058 state=2058/214 p4_state=185/2369,188/2366,231/2323 p4_layout=2362/59 p4_mesh=2010/411/100/0 profile_us=2233/0/707/1779/10449/2548 efb=12/0 efb_transfer=0 efb_exec=12/0 sampled=1 efb_us=16918/0/0/0 resident=0/4218 reuse_wait_us=0 producer_merge=282 efb_coalesced=0 efb_cap=0 ring_write=0"
+    },
+    {
+      "line": 5651,
+      "kind": "resource_summary",
+      "fields": {
+        "serial": "1500",
+        "tex_evict_total": "92/9465411",
+        "tex_blocked_total": "0",
+        "tex_protected": "0/0",
+        "tex_retry": "0/0/0",
+        "retry_wait_us": "0",
+        "efb_path": "12/0/0/0",
+        "native": "12",
+        "native_budget": "0",
+        "resident_fail": "0",
+        "efb_reason": "0/0/0/0/0/0/0/0",
+        "efb_mem": "4174656/4174656/4194304",
+        "entries": "24"
+      },
+      "text": "[gx] resource_summary serial=1500 tex_evict_total=92/9465411 tex_blocked_total=0 tex_protected=0/0 tex_retry=0/0/0 retry_wait_us=0 efb_path=12/0/0/0 native=12 native_budget=0 resident_fail=0 efb_reason=0/0/0/0/0/0/0/0 efb_mem=4174656/4174656/4194304 entries=24"
+    },
+    {
+      "line": 5663,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1560",
+        "interval_us": "2830363",
+        "queue_wait_us": "1",
+        "packet_copy_us": "1790",
+        "prior_wait_calls": "16",
+        "prior_wait_us": "36030",
+        "wait_gx": "15/36029",
+        "wait_worker": "1/1",
+        "draws": "2240",
+        "vertices": "15408",
+        "efb_cmds": "12",
+        "requested_draws": "2504",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "12",
+        "efb_recorded": "12",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1560 interval_us=2830363 queue_wait_us=1 packet_copy_us=1790 prior_wait_calls=16 prior_wait_us=36030 wait_gx=15/36029 wait_worker=1/1 draws=2240 vertices=15408 efb_cmds=12 requested_draws=2504 begin_cap=0 raw_cap=0 dropped=0 efb_calls=12 efb_recorded=12 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5664,
+      "kind": "vi_perf",
+      "fields": {
+        "present": "1560",
+        "pace_requested": "1",
+        "pace": "0",
+        "retraces_elapsed": "8",
+        "submit_us": "8659",
+        "pace_us": "9",
+        "total_us": "8676",
+        "presented_xfb": "1"
+      },
+      "text": "[vi] vi_perf present=1560 pace_requested=1 pace=0 retraces_elapsed=8 submit_us=8659 pace_us=9 total_us=8676 presented_xfb=1"
+    },
+    {
+      "line": 5665,
+      "kind": "gx_cpu_perf",
+      "fields": {
+        "frame": "1200",
+        "lyt_calls": "89",
+        "lyt_us": "4960",
+        "lyt_direct": "0",
+        "lyt_packet": "0",
+        "lyt_faithful": "89",
+        "dl_calls": "174",
+        "dl_us": "22594",
+        "dl_bytes": "91328",
+        "dl_cache": "72/102",
+        "dl_fallback": "0",
+        "dl_raw": "2110/2110",
+        "verts": "13832",
+        "fail": "0",
+        "dl_template": "34/2",
+        "draws": "1802",
+        "fallback": "0",
+        "glyph_fast": "279",
+        "setup": "45",
+        "texload": "27",
+        "glyph_raw": "279",
+        "glyph_fallback": "0",
+        "prebegin_us": "98087",
+        "tail_us": "135",
+        "copydisp_us": "1883"
+      },
+      "text": "[gx] gx_cpu_perf frame=1200 lyt_calls=89 lyt_us=4960 lyt_direct=0 lyt_packet=0 lyt_faithful=89 dl_calls=174 dl_us=22594 dl_bytes=91328 dl_cache=72/102 dl_fallback=0 dl_raw=2110/2110 verts=13832 fail=0 dl_template=34/2 draws=1802 fallback=0 glyph_fast=279 setup=45 texload=27 glyph_raw=279 glyph_fallback=0 prebegin_us=98087 tail_us=135 copydisp_us=1883"
+    },
+    {
+      "line": 5683,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1581",
+        "interval_us": "4001717",
+        "queue_wait_us": "1",
+        "packet_copy_us": "12",
+        "prior_wait_calls": "8",
+        "prior_wait_us": "11",
+        "wait_gx": "7/10",
+        "wait_worker": "1/1",
+        "draws": "1",
+        "vertices": "4",
+        "efb_cmds": "0",
+        "requested_draws": "1",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "0",
+        "efb_recorded": "0",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1581 interval_us=4001717 queue_wait_us=1 packet_copy_us=12 prior_wait_calls=8 prior_wait_us=11 wait_gx=7/10 wait_worker=1/1 draws=1 vertices=4 efb_cmds=0 requested_draws=1 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5684,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1582",
+        "interval_us": "1044533",
+        "queue_wait_us": "1",
+        "packet_copy_us": "10",
+        "prior_wait_calls": "4",
+        "prior_wait_us": "25",
+        "wait_gx": "3/24",
+        "wait_worker": "1/1",
+        "draws": "1",
+        "vertices": "4",
+        "efb_cmds": "0",
+        "requested_draws": "1",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "0",
+        "efb_recorded": "0",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1582 interval_us=1044533 queue_wait_us=1 packet_copy_us=10 prior_wait_calls=4 prior_wait_us=25 wait_gx=3/24 wait_worker=1/1 draws=1 vertices=4 efb_cmds=0 requested_draws=1 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5685,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1584",
+        "interval_us": "1372039",
+        "queue_wait_us": "1",
+        "packet_copy_us": "10",
+        "prior_wait_calls": "4",
+        "prior_wait_us": "241",
+        "wait_gx": "3/240",
+        "wait_worker": "1/1",
+        "draws": "1",
+        "vertices": "4",
+        "efb_cmds": "0",
+        "requested_draws": "1",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "0",
+        "efb_recorded": "0",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1584 interval_us=1372039 queue_wait_us=1 packet_copy_us=10 prior_wait_calls=4 prior_wait_us=241 wait_gx=3/240 wait_worker=1/1 draws=1 vertices=4 efb_cmds=0 requested_draws=1 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5692,
+      "kind": "raw_decode_fail",
+      "fields": {
+        "n": "1",
+        "reason": "capacity(2)",
+        "prim": "0x90",
+        "fmt": "0",
+        "verts": "156",
+        "bytes": "468",
+        "vertex": "0",
+        "attr": "255",
+        "desc": "0",
+        "index": "0",
+        "elem": "0",
+        "array": "0",
+        "stride": "0",
+        "cursor": "0"
+      },
+      "text": "[gx] raw_decode_fail n=1 reason=capacity(2) prim=0x90 fmt=0 verts=156 bytes=468 vertex=0 attr=255 desc=0 index=0 elem=0 array=0 stride=0 cursor=0"
+    },
+    {
+      "line": 5693,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1585",
+        "interval_us": "4533709",
+        "queue_wait_us": "2",
+        "packet_copy_us": "12181",
+        "prior_wait_calls": "553",
+        "prior_wait_us": "618",
+        "wait_gx": "552/617",
+        "wait_worker": "1/1",
+        "draws": "6296",
+        "vertices": "49152",
+        "efb_cmds": "512",
+        "requested_draws": "6296",
+        "begin_cap": "0",
+        "raw_cap": "21",
+        "dropped": "348",
+        "efb_calls": "399",
+        "efb_recorded": "303",
+        "efb_cap_fail": "169",
+        "efb_destroy": "209"
+      },
+      "text": "[gx] producer_frame=1585 interval_us=4533709 queue_wait_us=2 packet_copy_us=12181 prior_wait_calls=553 prior_wait_us=618 wait_gx=552/617 wait_worker=1/1 draws=6296 vertices=49152 efb_cmds=512 requested_draws=6296 begin_cap=0 raw_cap=21 dropped=348 efb_calls=399 efb_recorded=303 efb_cap_fail=169 efb_destroy=209"
+    },
+    {
+      "line": 5694,
+      "kind": "m12_5_efb_budget",
+      "fields": {
+        "blocked": "4",
+        "dest": "0x633C8BE0",
+        "dst": "128x128",
+        "required": "65536",
+        "efb_bytes": "4174656",
+        "budget": "4194304",
+        "entries": "24"
+      },
+      "text": "[gx] m12_5_efb_budget blocked=4 dest=0x633C8BE0 dst=128x128 required=65536 efb_bytes=4174656 budget=4194304 entries=24"
+    },
+    {
+      "line": 5695,
+      "kind": "m12_5_efb_budget",
+      "fields": {
+        "blocked": "8",
+        "dest": "0x61D33620",
+        "dst": "440x440",
+        "required": "774400",
+        "efb_bytes": "4059456",
+        "budget": "4194304",
+        "entries": "25"
+      },
+      "text": "[gx] m12_5_efb_budget blocked=8 dest=0x61D33620 dst=440x440 required=774400 efb_bytes=4059456 budget=4194304 entries=25"
+    },
+    {
+      "line": 5696,
+      "kind": "m12_5_efb_budget",
+      "fields": {
+        "blocked": "16",
+        "dest": "0x87A43BC0",
+        "dst": "64x64",
+        "required": "16384",
+        "efb_bytes": "4180096",
+        "budget": "4194304",
+        "entries": "40"
+      },
+      "text": "[gx] m12_5_efb_budget blocked=16 dest=0x87A43BC0 dst=64x64 required=16384 efb_bytes=4180096 budget=4194304 entries=40"
+    },
+    {
+      "line": 5697,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1586",
+        "interval_us": "4176373",
+        "queue_wait_us": "2",
+        "packet_copy_us": "11",
+        "prior_wait_calls": "4",
+        "prior_wait_us": "4131186",
+        "wait_gx": "3/4131185",
+        "wait_worker": "1/1",
+        "draws": "1",
+        "vertices": "4",
+        "efb_cmds": "0",
+        "requested_draws": "1",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "0",
+        "efb_recorded": "0",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1586 interval_us=4176373 queue_wait_us=2 packet_copy_us=11 prior_wait_calls=4 prior_wait_us=4131186 wait_gx=3/4131185 wait_worker=1/1 draws=1 vertices=4 efb_cmds=0 requested_draws=1 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5698,
+      "kind": "m12_1_tex_fail",
+      "fields": {
+        "w": "256",
+        "h": "256",
+        "fmt": "0x5",
+        "mips": "1",
+        "source": "0x634251C0",
+        "est": "380108",
+        "cache_bytes": "10244484",
+        "budget": "10485760"
+      },
+      "text": "[gx] m12_1_tex_fail w=256 h=256 fmt=0x5 mips=1 source=0x634251C0 est=380108 cache_bytes=10244484 budget=10485760"
+    },
+    {
+      "line": 5704,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1652",
+        "interval_us": "6945858",
+        "queue_wait_us": "1",
+        "packet_copy_us": "5050",
+        "prior_wait_calls": "16",
+        "prior_wait_us": "6595332",
+        "wait_gx": "15/6595331",
+        "wait_worker": "1/1",
+        "draws": "5841",
+        "vertices": "36738",
+        "efb_cmds": "12",
+        "requested_draws": "5852",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "12",
+        "efb_recorded": "12",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1652 interval_us=6945858 queue_wait_us=1 packet_copy_us=5050 prior_wait_calls=16 prior_wait_us=6595332 wait_gx=15/6595331 wait_worker=1/1 draws=5841 vertices=36738 efb_cmds=12 requested_draws=5852 begin_cap=0 raw_cap=0 dropped=0 efb_calls=12 efb_recorded=12 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5705,
+      "kind": "m12_1_tex_fail",
+      "fields": {
+        "w": "256",
+        "h": "512",
+        "fmt": "0xA",
+        "mips": "1",
+        "source": "0x62227860",
+        "est": "694681",
+        "cache_bytes": "10415213",
+        "budget": "10485760"
+      },
+      "text": "[gx] m12_1_tex_fail w=256 h=512 fmt=0xA mips=1 source=0x62227860 est=694681 cache_bytes=10415213 budget=10485760"
+    },
+    {
+      "line": 5706,
+      "kind": "m12_5_efb_budget",
+      "fields": {
+        "blocked": "32",
+        "dest": "0x61DABEE0",
+        "dst": "152x75",
+        "required": "45600",
+        "efb_bytes": "4184032",
+        "budget": "4194304",
+        "entries": "43"
+      },
+      "text": "[gx] m12_5_efb_budget blocked=32 dest=0x61DABEE0 dst=152x75 required=45600 efb_bytes=4184032 budget=4194304 entries=43"
+    },
+    {
+      "line": 5707,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1653",
+        "interval_us": "2970936",
+        "queue_wait_us": "2",
+        "packet_copy_us": "5553",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "2593408",
+        "wait_gx": "16/2593407",
+        "wait_worker": "1/1",
+        "draws": "6157",
+        "vertices": "38668",
+        "efb_cmds": "13",
+        "requested_draws": "6168",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1653 interval_us=2970936 queue_wait_us=2 packet_copy_us=5553 prior_wait_calls=17 prior_wait_us=2593408 wait_gx=16/2593407 wait_worker=1/1 draws=6157 vertices=38668 efb_cmds=13 requested_draws=6168 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5708,
+      "kind": "m12_1_tex_fail",
+      "fields": {
+        "w": "256",
+        "h": "256",
+        "fmt": "0x5",
+        "mips": "1",
+        "source": "0x634251C0",
+        "est": "380108",
+        "cache_bytes": "10303469",
+        "budget": "10485760"
+      },
+      "text": "[gx] m12_1_tex_fail w=256 h=256 fmt=0x5 mips=1 source=0x634251C0 est=380108 cache_bytes=10303469 budget=10485760"
+    },
+    {
+      "line": 5709,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1654",
+        "interval_us": "2251060",
+        "queue_wait_us": "2",
+        "packet_copy_us": "5224",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1888173",
+        "wait_gx": "16/1888173",
+        "wait_worker": "1/0",
+        "draws": "6149",
+        "vertices": "38636",
+        "efb_cmds": "13",
+        "requested_draws": "6160",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1654 interval_us=2251060 queue_wait_us=2 packet_copy_us=5224 prior_wait_calls=17 prior_wait_us=1888173 wait_gx=16/1888173 wait_worker=1/0 draws=6149 vertices=38636 efb_cmds=13 requested_draws=6160 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5710,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1655",
+        "interval_us": "1506279",
+        "queue_wait_us": "2",
+        "packet_copy_us": "5797",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1143245",
+        "wait_gx": "16/1143244",
+        "wait_worker": "1/1",
+        "draws": "6149",
+        "vertices": "38636",
+        "efb_cmds": "13",
+        "requested_draws": "6160",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1655 interval_us=1506279 queue_wait_us=2 packet_copy_us=5797 prior_wait_calls=17 prior_wait_us=1143245 wait_gx=16/1143244 wait_worker=1/1 draws=6149 vertices=38636 efb_cmds=13 requested_draws=6160 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5711,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1656",
+        "interval_us": "1483543",
+        "queue_wait_us": "2",
+        "packet_copy_us": "5796",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1120392",
+        "wait_gx": "16/1120391",
+        "wait_worker": "1/1",
+        "draws": "6149",
+        "vertices": "38636",
+        "efb_cmds": "13",
+        "requested_draws": "6160",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1656 interval_us=1483543 queue_wait_us=2 packet_copy_us=5796 prior_wait_calls=17 prior_wait_us=1120392 wait_gx=16/1120391 wait_worker=1/1 draws=6149 vertices=38636 efb_cmds=13 requested_draws=6160 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5712,
+      "kind": "m12_1_tex_fail",
+      "fields": {
+        "w": "512",
+        "h": "512",
+        "fmt": "0xA",
+        "mips": "1",
+        "source": "0x6239D640",
+        "est": "1323827",
+        "cache_bytes": "9345927",
+        "budget": "10485760"
+      },
+      "text": "[gx] m12_1_tex_fail w=512 h=512 fmt=0xA mips=1 source=0x6239D640 est=1323827 cache_bytes=9345927 budget=10485760"
+    },
+    {
+      "line": 5713,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1657",
+        "interval_us": "1516786",
+        "queue_wait_us": "1",
+        "packet_copy_us": "5674",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1155269",
+        "wait_gx": "16/1155268",
+        "wait_worker": "1/1",
+        "draws": "6149",
+        "vertices": "38636",
+        "efb_cmds": "13",
+        "requested_draws": "6160",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1657 interval_us=1516786 queue_wait_us=1 packet_copy_us=5674 prior_wait_calls=17 prior_wait_us=1155269 wait_gx=16/1155268 wait_worker=1/1 draws=6149 vertices=38636 efb_cmds=13 requested_draws=6160 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5714,
+      "kind": "m12_5_efb_budget",
+      "fields": {
+        "blocked": "64",
+        "dest": "0x61D91C80",
+        "dst": "152x75",
+        "required": "45600",
+        "efb_bytes": "4184032",
+        "budget": "4194304",
+        "entries": "43"
+      },
+      "text": "[gx] m12_5_efb_budget blocked=64 dest=0x61D91C80 dst=152x75 required=45600 efb_bytes=4184032 budget=4194304 entries=43"
+    },
+    {
+      "line": 5720,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1658",
+        "interval_us": "1496332",
+        "queue_wait_us": "1",
+        "packet_copy_us": "5176",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1132575",
+        "wait_gx": "16/1132574",
+        "wait_worker": "1/1",
+        "draws": "6157",
+        "vertices": "38684",
+        "efb_cmds": "13",
+        "requested_draws": "6168",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1658 interval_us=1496332 queue_wait_us=1 packet_copy_us=5176 prior_wait_calls=17 prior_wait_us=1132575 wait_gx=16/1132574 wait_worker=1/1 draws=6157 vertices=38684 efb_cmds=13 requested_draws=6168 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5721,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1659",
+        "interval_us": "1507582",
+        "queue_wait_us": "2",
+        "packet_copy_us": "5739",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1149275",
+        "wait_gx": "16/1149274",
+        "wait_worker": "1/1",
+        "draws": "6149",
+        "vertices": "38652",
+        "efb_cmds": "13",
+        "requested_draws": "6160",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1659 interval_us=1507582 queue_wait_us=2 packet_copy_us=5739 prior_wait_calls=17 prior_wait_us=1149275 wait_gx=16/1149274 wait_worker=1/1 draws=6149 vertices=38652 efb_cmds=13 requested_draws=6160 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5722,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1660",
+        "interval_us": "1472002",
+        "queue_wait_us": "1",
+        "packet_copy_us": "5514",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1118017",
+        "wait_gx": "16/1118016",
+        "wait_worker": "1/1",
+        "draws": "6149",
+        "vertices": "38652",
+        "efb_cmds": "13",
+        "requested_draws": "6160",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1660 interval_us=1472002 queue_wait_us=1 packet_copy_us=5514 prior_wait_calls=17 prior_wait_us=1118017 wait_gx=16/1118016 wait_worker=1/1 draws=6149 vertices=38652 efb_cmds=13 requested_draws=6160 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5723,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1661",
+        "interval_us": "1489162",
+        "queue_wait_us": "1",
+        "packet_copy_us": "5232",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1132275",
+        "wait_gx": "16/1132274",
+        "wait_worker": "1/1",
+        "draws": "6151",
+        "vertices": "38660",
+        "efb_cmds": "13",
+        "requested_draws": "6162",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1661 interval_us=1489162 queue_wait_us=1 packet_copy_us=5232 prior_wait_calls=17 prior_wait_us=1132275 wait_gx=16/1132274 wait_worker=1/1 draws=6151 vertices=38660 efb_cmds=13 requested_draws=6162 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5724,
+      "kind": "m12_1_tex_fail",
+      "fields": {
+        "w": "256",
+        "h": "256",
+        "fmt": "0x5",
+        "mips": "1",
+        "source": "0x63405100",
+        "est": "380108",
+        "cache_bytes": "10308384",
+        "budget": "10485760"
+      },
+      "text": "[gx] m12_1_tex_fail w=256 h=256 fmt=0x5 mips=1 source=0x63405100 est=380108 cache_bytes=10308384 budget=10485760"
+    },
+    {
+      "line": 5725,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1662",
+        "interval_us": "1486868",
+        "queue_wait_us": "1",
+        "packet_copy_us": "5206",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1132276",
+        "wait_gx": "16/1132275",
+        "wait_worker": "1/1",
+        "draws": "6152",
+        "vertices": "38664",
+        "efb_cmds": "13",
+        "requested_draws": "6163",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1662 interval_us=1486868 queue_wait_us=1 packet_copy_us=5206 prior_wait_calls=17 prior_wait_us=1132276 wait_gx=16/1132275 wait_worker=1/1 draws=6152 vertices=38664 efb_cmds=13 requested_draws=6163 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5726,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1663",
+        "interval_us": "1503006",
+        "queue_wait_us": "2",
+        "packet_copy_us": "5210",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1144006",
+        "wait_gx": "16/1144005",
+        "wait_worker": "1/1",
+        "draws": "6161",
+        "vertices": "38716",
+        "efb_cmds": "13",
+        "requested_draws": "6172",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1663 interval_us=1503006 queue_wait_us=2 packet_copy_us=5210 prior_wait_calls=17 prior_wait_us=1144006 wait_gx=16/1144005 wait_worker=1/1 draws=6161 vertices=38716 efb_cmds=13 requested_draws=6172 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5727,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1664",
+        "interval_us": "1494850",
+        "queue_wait_us": "2",
+        "packet_copy_us": "5272",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1122794",
+        "wait_gx": "16/1122793",
+        "wait_worker": "1/1",
+        "draws": "6152",
+        "vertices": "38664",
+        "efb_cmds": "13",
+        "requested_draws": "6163",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1664 interval_us=1494850 queue_wait_us=2 packet_copy_us=5272 prior_wait_calls=17 prior_wait_us=1122794 wait_gx=16/1122793 wait_worker=1/1 draws=6152 vertices=38664 efb_cmds=13 requested_draws=6163 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5733,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1665",
+        "interval_us": "1498263",
+        "queue_wait_us": "2",
+        "packet_copy_us": "5905",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1147198",
+        "wait_gx": "16/1147198",
+        "wait_worker": "1/0",
+        "draws": "6152",
+        "vertices": "38664",
+        "efb_cmds": "13",
+        "requested_draws": "6163",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1665 interval_us=1498263 queue_wait_us=2 packet_copy_us=5905 prior_wait_calls=17 prior_wait_us=1147198 wait_gx=16/1147198 wait_worker=1/0 draws=6152 vertices=38664 efb_cmds=13 requested_draws=6163 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5734,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1666",
+        "interval_us": "1481839",
+        "queue_wait_us": "1",
+        "packet_copy_us": "5744",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1125807",
+        "wait_gx": "16/1125806",
+        "wait_worker": "1/1",
+        "draws": "6152",
+        "vertices": "38664",
+        "efb_cmds": "13",
+        "requested_draws": "6163",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1666 interval_us=1481839 queue_wait_us=1 packet_copy_us=5744 prior_wait_calls=17 prior_wait_us=1125807 wait_gx=16/1125806 wait_worker=1/1 draws=6152 vertices=38664 efb_cmds=13 requested_draws=6163 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5735,
+      "kind": "m12_5_efb_budget",
+      "fields": {
+        "blocked": "128",
+        "dest": "0x61DA3020",
+        "dst": "76x57",
+        "required": "18240",
+        "efb_bytes": "4184032",
+        "budget": "4194304",
+        "entries": "43"
+      },
+      "text": "[gx] m12_5_efb_budget blocked=128 dest=0x61DA3020 dst=76x57 required=18240 efb_bytes=4184032 budget=4194304 entries=43"
+    },
+    {
+      "line": 5736,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1667",
+        "interval_us": "1505835",
+        "queue_wait_us": "1",
+        "packet_copy_us": "5617",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1146879",
+        "wait_gx": "16/1146878",
+        "wait_worker": "1/1",
+        "draws": "6157",
+        "vertices": "38684",
+        "efb_cmds": "13",
+        "requested_draws": "6168",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1667 interval_us=1505835 queue_wait_us=1 packet_copy_us=5617 prior_wait_calls=17 prior_wait_us=1146879 wait_gx=16/1146878 wait_worker=1/1 draws=6157 vertices=38684 efb_cmds=13 requested_draws=6168 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5737,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1668",
+        "interval_us": "1481509",
+        "queue_wait_us": "1",
+        "packet_copy_us": "5642",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1124319",
+        "wait_gx": "16/1124318",
+        "wait_worker": "1/1",
+        "draws": "6161",
+        "vertices": "38716",
+        "efb_cmds": "13",
+        "requested_draws": "6172",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1668 interval_us=1481509 queue_wait_us=1 packet_copy_us=5642 prior_wait_calls=17 prior_wait_us=1124319 wait_gx=16/1124318 wait_worker=1/1 draws=6161 vertices=38716 efb_cmds=13 requested_draws=6172 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5738,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1669",
+        "interval_us": "1500773",
+        "queue_wait_us": "1",
+        "packet_copy_us": "5710",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1144019",
+        "wait_gx": "16/1144018",
+        "wait_worker": "1/1",
+        "draws": "6152",
+        "vertices": "38664",
+        "efb_cmds": "13",
+        "requested_draws": "6163",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1669 interval_us=1500773 queue_wait_us=1 packet_copy_us=5710 prior_wait_calls=17 prior_wait_us=1144019 wait_gx=16/1144018 wait_worker=1/1 draws=6152 vertices=38664 efb_cmds=13 requested_draws=6163 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5739,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1670",
+        "interval_us": "1478933",
+        "queue_wait_us": "2",
+        "packet_copy_us": "5291",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1124879",
+        "wait_gx": "16/1124878",
+        "wait_worker": "1/1",
+        "draws": "6152",
+        "vertices": "38664",
+        "efb_cmds": "13",
+        "requested_draws": "6163",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1670 interval_us=1478933 queue_wait_us=2 packet_copy_us=5291 prior_wait_calls=17 prior_wait_us=1124879 wait_gx=16/1124878 wait_worker=1/1 draws=6152 vertices=38664 efb_cmds=13 requested_draws=6163 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5740,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1671",
+        "interval_us": "1504029",
+        "queue_wait_us": "2",
+        "packet_copy_us": "5223",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1145836",
+        "wait_gx": "16/1145835",
+        "wait_worker": "1/1",
+        "draws": "6156",
+        "vertices": "38680",
+        "efb_cmds": "13",
+        "requested_draws": "6167",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1671 interval_us=1504029 queue_wait_us=2 packet_copy_us=5223 prior_wait_calls=17 prior_wait_us=1145836 wait_gx=16/1145835 wait_worker=1/1 draws=6156 vertices=38680 efb_cmds=13 requested_draws=6167 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5746,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1672",
+        "interval_us": "1480940",
+        "queue_wait_us": "2",
+        "packet_copy_us": "5349",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1125413",
+        "wait_gx": "16/1125412",
+        "wait_worker": "1/1",
+        "draws": "6153",
+        "vertices": "38668",
+        "efb_cmds": "13",
+        "requested_draws": "6164",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1672 interval_us=1480940 queue_wait_us=2 packet_copy_us=5349 prior_wait_calls=17 prior_wait_us=1125413 wait_gx=16/1125412 wait_worker=1/1 draws=6153 vertices=38668 efb_cmds=13 requested_draws=6164 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5747,
+      "kind": "m12_1_tex_fail",
+      "fields": {
+        "w": "512",
+        "h": "512",
+        "fmt": "0xA",
+        "mips": "1",
+        "source": "0x6239D640",
+        "est": "1323827",
+        "cache_bytes": "9345927",
+        "budget": "10485760"
+      },
+      "text": "[gx] m12_1_tex_fail w=512 h=512 fmt=0xA mips=1 source=0x6239D640 est=1323827 cache_bytes=9345927 budget=10485760"
+    },
+    {
+      "line": 5748,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1673",
+        "interval_us": "1508066",
+        "queue_wait_us": "2",
+        "packet_copy_us": "5504",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1149110",
+        "wait_gx": "16/1149109",
+        "wait_worker": "1/1",
+        "draws": "6160",
+        "vertices": "38712",
+        "efb_cmds": "13",
+        "requested_draws": "6171",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1673 interval_us=1508066 queue_wait_us=2 packet_copy_us=5504 prior_wait_calls=17 prior_wait_us=1149110 wait_gx=16/1149109 wait_worker=1/1 draws=6160 vertices=38712 efb_cmds=13 requested_draws=6171 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5749,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1674",
+        "interval_us": "1487047",
+        "queue_wait_us": "1",
+        "packet_copy_us": "5828",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1127965",
+        "wait_gx": "16/1127964",
+        "wait_worker": "1/1",
+        "draws": "6153",
+        "vertices": "38668",
+        "efb_cmds": "13",
+        "requested_draws": "6164",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1674 interval_us=1487047 queue_wait_us=1 packet_copy_us=5828 prior_wait_calls=17 prior_wait_us=1127965 wait_gx=16/1127964 wait_worker=1/1 draws=6153 vertices=38668 efb_cmds=13 requested_draws=6164 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5750,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1675",
+        "interval_us": "1506440",
+        "queue_wait_us": "1",
+        "packet_copy_us": "5468",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1142493",
+        "wait_gx": "16/1142492",
+        "wait_worker": "1/1",
+        "draws": "6154",
+        "vertices": "38672",
+        "efb_cmds": "13",
+        "requested_draws": "6165",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1675 interval_us=1506440 queue_wait_us=1 packet_copy_us=5468 prior_wait_calls=17 prior_wait_us=1142493 wait_gx=16/1142492 wait_worker=1/1 draws=6154 vertices=38672 efb_cmds=13 requested_draws=6165 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5751,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1676",
+        "interval_us": "1482708",
+        "queue_wait_us": "2",
+        "packet_copy_us": "5746",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1123511",
+        "wait_gx": "16/1123511",
+        "wait_worker": "1/0",
+        "draws": "6153",
+        "vertices": "38668",
+        "efb_cmds": "13",
+        "requested_draws": "6164",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1676 interval_us=1482708 queue_wait_us=2 packet_copy_us=5746 prior_wait_calls=17 prior_wait_us=1123511 wait_gx=16/1123511 wait_worker=1/0 draws=6153 vertices=38668 efb_cmds=13 requested_draws=6164 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5752,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1677",
+        "interval_us": "1502717",
+        "queue_wait_us": "1",
+        "packet_copy_us": "5682",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1146085",
+        "wait_gx": "16/1146084",
+        "wait_worker": "1/1",
+        "draws": "6151",
+        "vertices": "38660",
+        "efb_cmds": "13",
+        "requested_draws": "6162",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1677 interval_us=1502717 queue_wait_us=1 packet_copy_us=5682 prior_wait_calls=17 prior_wait_us=1146085 wait_gx=16/1146084 wait_worker=1/1 draws=6151 vertices=38660 efb_cmds=13 requested_draws=6162 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5753,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1678",
+        "interval_us": "1484091",
+        "queue_wait_us": "2",
+        "packet_copy_us": "5422",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1125467",
+        "wait_gx": "16/1125466",
+        "wait_worker": "1/1",
+        "draws": "6159",
+        "vertices": "38708",
+        "efb_cmds": "13",
+        "requested_draws": "6170",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1678 interval_us=1484091 queue_wait_us=2 packet_copy_us=5422 prior_wait_calls=17 prior_wait_us=1125467 wait_gx=16/1125466 wait_worker=1/1 draws=6159 vertices=38708 efb_cmds=13 requested_draws=6170 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5759,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1679",
+        "interval_us": "1491612",
+        "queue_wait_us": "2",
+        "packet_copy_us": "5449",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1138142",
+        "wait_gx": "16/1138141",
+        "wait_worker": "1/1",
+        "draws": "6150",
+        "vertices": "38656",
+        "efb_cmds": "13",
+        "requested_draws": "6161",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1679 interval_us=1491612 queue_wait_us=2 packet_copy_us=5449 prior_wait_calls=17 prior_wait_us=1138142 wait_gx=16/1138141 wait_worker=1/1 draws=6150 vertices=38656 efb_cmds=13 requested_draws=6161 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5761,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1680",
+        "interval_us": "1672568",
+        "queue_wait_us": "2",
+        "packet_copy_us": "5691",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1115497",
+        "wait_gx": "16/1115496",
+        "wait_worker": "1/1",
+        "draws": "6151",
+        "vertices": "38660",
+        "efb_cmds": "13",
+        "requested_draws": "6162",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1680 interval_us=1672568 queue_wait_us=2 packet_copy_us=5691 prior_wait_calls=17 prior_wait_us=1115497 wait_gx=16/1115496 wait_worker=1/1 draws=6151 vertices=38660 efb_cmds=13 requested_draws=6162 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5762,
+      "kind": "vi_perf",
+      "fields": {
+        "present": "1680",
+        "pace_requested": "1",
+        "pace": "0",
+        "retraces_elapsed": "8",
+        "submit_us": "13189",
+        "pace_us": "11",
+        "total_us": "13208",
+        "presented_xfb": "1"
+      },
+      "text": "[vi] vi_perf present=1680 pace_requested=1 pace=0 retraces_elapsed=8 submit_us=13189 pace_us=11 total_us=13208 presented_xfb=1"
+    },
+    {
+      "line": 5763,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1681",
+        "interval_us": "1500699",
+        "queue_wait_us": "2",
+        "packet_copy_us": "5424",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1137352",
+        "wait_gx": "16/1137352",
+        "wait_worker": "1/0",
+        "draws": "6149",
+        "vertices": "38652",
+        "efb_cmds": "13",
+        "requested_draws": "6160",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1681 interval_us=1500699 queue_wait_us=2 packet_copy_us=5424 prior_wait_calls=17 prior_wait_us=1137352 wait_gx=16/1137352 wait_worker=1/0 draws=6149 vertices=38652 efb_cmds=13 requested_draws=6160 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5764,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1682",
+        "interval_us": "1477584",
+        "queue_wait_us": "2",
+        "packet_copy_us": "5204",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1122736",
+        "wait_gx": "16/1122735",
+        "wait_worker": "1/1",
+        "draws": "6149",
+        "vertices": "38652",
+        "efb_cmds": "13",
+        "requested_draws": "6160",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1682 interval_us=1477584 queue_wait_us=2 packet_copy_us=5204 prior_wait_calls=17 prior_wait_us=1122736 wait_gx=16/1122735 wait_worker=1/1 draws=6149 vertices=38652 efb_cmds=13 requested_draws=6160 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5766,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1683",
+        "interval_us": "1501658",
+        "queue_wait_us": "2",
+        "packet_copy_us": "5256",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1135989",
+        "wait_gx": "16/1135988",
+        "wait_worker": "1/1",
+        "draws": "6159",
+        "vertices": "38708",
+        "efb_cmds": "13",
+        "requested_draws": "6170",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1683 interval_us=1501658 queue_wait_us=2 packet_copy_us=5256 prior_wait_calls=17 prior_wait_us=1135989 wait_gx=16/1135988 wait_worker=1/1 draws=6159 vertices=38708 efb_cmds=13 requested_draws=6170 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5767,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1684",
+        "interval_us": "1478780",
+        "queue_wait_us": "1",
+        "packet_copy_us": "5960",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1123297",
+        "wait_gx": "16/1123296",
+        "wait_worker": "1/1",
+        "draws": "6150",
+        "vertices": "38656",
+        "efb_cmds": "13",
+        "requested_draws": "6161",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1684 interval_us=1478780 queue_wait_us=1 packet_copy_us=5960 prior_wait_calls=17 prior_wait_us=1123297 wait_gx=16/1123296 wait_worker=1/1 draws=6150 vertices=38656 efb_cmds=13 requested_draws=6161 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5769,
+      "kind": "m12_5_efb_budget",
+      "fields": {
+        "blocked": "256",
+        "dest": "0x61DABEE0",
+        "dst": "152x75",
+        "required": "45600",
+        "efb_bytes": "4184032",
+        "budget": "4194304",
+        "entries": "43"
+      },
+      "text": "[gx] m12_5_efb_budget blocked=256 dest=0x61DABEE0 dst=152x75 required=45600 efb_bytes=4184032 budget=4194304 entries=43"
+    },
+    {
+      "line": 5770,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1685",
+        "interval_us": "1498453",
+        "queue_wait_us": "2",
+        "packet_copy_us": "5538",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1134894",
+        "wait_gx": "16/1134893",
+        "wait_worker": "1/1",
+        "draws": "6154",
+        "vertices": "38672",
+        "efb_cmds": "13",
+        "requested_draws": "6165",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1685 interval_us=1498453 queue_wait_us=2 packet_copy_us=5538 prior_wait_calls=17 prior_wait_us=1134894 wait_gx=16/1134893 wait_worker=1/1 draws=6154 vertices=38672 efb_cmds=13 requested_draws=6165 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5777,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1686",
+        "interval_us": "1486763",
+        "queue_wait_us": "2",
+        "packet_copy_us": "5737",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1119060",
+        "wait_gx": "16/1119059",
+        "wait_worker": "1/1",
+        "draws": "6151",
+        "vertices": "38660",
+        "efb_cmds": "13",
+        "requested_draws": "6162",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1686 interval_us=1486763 queue_wait_us=2 packet_copy_us=5737 prior_wait_calls=17 prior_wait_us=1119060 wait_gx=16/1119059 wait_worker=1/1 draws=6151 vertices=38660 efb_cmds=13 requested_draws=6162 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5778,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1687",
+        "interval_us": "1495397",
+        "queue_wait_us": "2",
+        "packet_copy_us": "5342",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1142517",
+        "wait_gx": "16/1142516",
+        "wait_worker": "1/1",
+        "draws": "6153",
+        "vertices": "38668",
+        "efb_cmds": "13",
+        "requested_draws": "6164",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1687 interval_us=1495397 queue_wait_us=2 packet_copy_us=5342 prior_wait_calls=17 prior_wait_us=1142517 wait_gx=16/1142516 wait_worker=1/1 draws=6153 vertices=38668 efb_cmds=13 requested_draws=6164 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5779,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1688",
+        "interval_us": "1478720",
+        "queue_wait_us": "2",
+        "packet_copy_us": "5363",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1121596",
+        "wait_gx": "16/1121595",
+        "wait_worker": "1/1",
+        "draws": "6160",
+        "vertices": "38712",
+        "efb_cmds": "13",
+        "requested_draws": "6171",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1688 interval_us=1478720 queue_wait_us=2 packet_copy_us=5363 prior_wait_calls=17 prior_wait_us=1121596 wait_gx=16/1121595 wait_worker=1/1 draws=6160 vertices=38712 efb_cmds=13 requested_draws=6171 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5780,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1689",
+        "interval_us": "1497503",
+        "queue_wait_us": "2",
+        "packet_copy_us": "5978",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1141471",
+        "wait_gx": "16/1141470",
+        "wait_worker": "1/1",
+        "draws": "6153",
+        "vertices": "38668",
+        "efb_cmds": "13",
+        "requested_draws": "6164",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1689 interval_us=1497503 queue_wait_us=2 packet_copy_us=5978 prior_wait_calls=17 prior_wait_us=1141471 wait_gx=16/1141470 wait_worker=1/1 draws=6153 vertices=38668 efb_cmds=13 requested_draws=6164 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5782,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1690",
+        "interval_us": "1478549",
+        "queue_wait_us": "1",
+        "packet_copy_us": "5233",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1114984",
+        "wait_gx": "16/1114983",
+        "wait_worker": "1/1",
+        "draws": "6152",
+        "vertices": "38664",
+        "efb_cmds": "13",
+        "requested_draws": "6163",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1690 interval_us=1478549 queue_wait_us=1 packet_copy_us=5233 prior_wait_calls=17 prior_wait_us=1114984 wait_gx=16/1114983 wait_worker=1/1 draws=6152 vertices=38664 efb_cmds=13 requested_draws=6163 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    },
+    {
+      "line": 5784,
+      "kind": "producer_frame",
+      "fields": {
+        "producer_frame": "1691",
+        "interval_us": "1498916",
+        "queue_wait_us": "1",
+        "packet_copy_us": "5196",
+        "prior_wait_calls": "17",
+        "prior_wait_us": "1135150",
+        "wait_gx": "16/1135150",
+        "wait_worker": "1/0",
+        "draws": "6154",
+        "vertices": "38672",
+        "efb_cmds": "13",
+        "requested_draws": "6165",
+        "begin_cap": "0",
+        "raw_cap": "0",
+        "dropped": "0",
+        "efb_calls": "13",
+        "efb_recorded": "13",
+        "efb_cap_fail": "0",
+        "efb_destroy": "0"
+      },
+      "text": "[gx] producer_frame=1691 interval_us=1498916 queue_wait_us=1 packet_copy_us=5196 prior_wait_calls=17 prior_wait_us=1135150 wait_gx=16/1135150 wait_worker=1/0 draws=6154 vertices=38672 efb_cmds=13 requested_draws=6165 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0"
+    }
+  ],
+  "heavy_tail": {
+    "serial_range": [
+      1655,
+      1691
+    ],
+    "samples": 37,
+    "interval_us": {
+      "min": 1472002,
+      "median": 1495397,
+      "max": 1672568,
+      "mean": 1497751.4054054054
+    },
+    "wait_gx_us": {
+      "min": 1114983,
+      "median": 1132574,
+      "max": 1155268,
+      "mean": 1133290.7297297297
+    },
+    "residual_interval_minus_all_waits_us": {
+      "min": 351065,
+      "median": 358624,
+      "max": 557071,
+      "mean": 364459.7837837838
+    },
+    "packet_copy_us": {
+      "min": 5176,
+      "median": 5504,
+      "max": 5978,
+      "mean": 5516.7027027027025
+    },
+    "queue_wait_us": {
+      "min": 1,
+      "median": 2,
+      "max": 2,
+      "mean": 1.5945945945945945
+    },
+    "effective_producer_hz": 0.6676675424179115
+  },
+  "artifacts_on_disk": [
+    {
+      "path": "build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-3d.vpk",
+      "bytes": 41285446,
+      "sha256": "84a5c216ad7bcbd0626c79c188a2a108e8c5233f917ec4e8b09b87449795c112"
+    },
+    {
+      "path": "build/vita/mkwii_runtime/wiicompiled-vita-mkw-firstboot-astra-full-content-3d.elf",
+      "bytes": 219266808,
+      "sha256": "b5d3a0569d5ddd8d5be7711c2e485ba8fcf6b1c3b5c2a492c307c23b740a91ed"
+    },
+    {
+      "path": "build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-3d.manifest.txt",
+      "bytes": 1605,
+      "sha256": "9c4bb44c69dc4037fe307bd7936e49713b1000167c3de87e133584607fd6f2d4"
+    }
+  ],
+  "build_source_checks": [
+    {
+      "path": "Makefile.vita",
+      "expected": "92b3bfcd32b491b8bbc4ff83ab60387fa3ff8206ea559c4002efbec71992e62f",
+      "actual": "92b3bfcd32b491b8bbc4ff83ab60387fa3ff8206ea559c4002efbec71992e62f",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_buffer_pool.cpp",
+      "expected": "97c7ab4523f855cfe0c0476f8bef45a60bb9e76a2d53603f7389d7de0c14e4a3",
+      "actual": "97c7ab4523f855cfe0c0476f8bef45a60bb9e76a2d53603f7389d7de0c14e4a3",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_buffer_pool.hpp",
+      "expected": "cf46740e26dfc1b40a8ea9a333b7b987c6c061ed8be932c62757727c40d2b866",
+      "actual": "cf46740e26dfc1b40a8ea9a333b7b987c6c061ed8be932c62757727c40d2b866",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_command_stream.hpp",
+      "expected": "d0a755a6380fde5b3d0a1fb0f402a9921877ce6f98416b826409efe357ba533a",
+      "actual": "d0a755a6380fde5b3d0a1fb0f402a9921877ce6f98416b826409efe357ba533a",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_draw_adapter.cpp",
+      "expected": "8f50d126424bba5639aa0b7aa64f85e5edf2bc342edd01842a55bbf0ecc8f0c8",
+      "actual": "8f50d126424bba5639aa0b7aa64f85e5edf2bc342edd01842a55bbf0ecc8f0c8",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_draw_adapter.hpp",
+      "expected": "ccb59b48de45f8833cb002e89dd386c5a7d7d5252d78b061b601030bf1499e04",
+      "actual": "ccb59b48de45f8833cb002e89dd386c5a7d7d5252d78b061b601030bf1499e04",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_efb.cpp",
+      "expected": "2f009484a65f60b18484912cf0e6583aa407ab7bc1e2bb09ef3a61acf0f134fd",
+      "actual": "2f009484a65f60b18484912cf0e6583aa407ab7bc1e2bb09ef3a61acf0f134fd",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_efb.hpp",
+      "expected": "786087ccd34dc9d3be472b0d873993d17b43023254a9070a97295a64638e8594",
+      "actual": "786087ccd34dc9d3be472b0d873993d17b43023254a9070a97295a64638e8594",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_efb_resample.hpp",
+      "expected": "0bac71f7705ff135b1676364a957f1ba78c0d04183cadc9d51ba266ecbf34758",
+      "actual": "0bac71f7705ff135b1676364a957f1ba78c0d04183cadc9d51ba266ecbf34758",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_gfx_types.hpp",
+      "expected": "d2f4618b6a1599d4a5fb8ab14ff0d9d8db40fb13a35ff234d51b1c3fd53937ee",
+      "actual": "d2f4618b6a1599d4a5fb8ab14ff0d9d8db40fb13a35ff234d51b1c3fd53937ee",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_gl_util.cpp",
+      "expected": "264b98a45dddcec1a2d49006601005ef3652527cbebb425df937c89d7899d4e4",
+      "actual": "264b98a45dddcec1a2d49006601005ef3652527cbebb425df937c89d7899d4e4",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_gl_util.hpp",
+      "expected": "0d5cb92220f87f0f190bff014143d87714e8c7eb70ff1604f2b7853eca01f4f1",
+      "actual": "0d5cb92220f87f0f190bff014143d87714e8c7eb70ff1604f2b7853eca01f4f1",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_hash.hpp",
+      "expected": "c4c2a371d3411348185528327eb895657a6f4cfdf37b43795cfb804341529559",
+      "actual": "c4c2a371d3411348185528327eb895657a6f4cfdf37b43795cfb804341529559",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_memory_budget.cpp",
+      "expected": "b2c609f7e708ecbe2ff51407069b3be44170309ad6e445b27ebdfc0cfbcc5640",
+      "actual": "b2c609f7e708ecbe2ff51407069b3be44170309ad6e445b27ebdfc0cfbcc5640",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_memory_budget.hpp",
+      "expected": "274cd21df2aaa16524a4bb380b1f2fa98ee4061a9f28d42daf751a28eb5f765f",
+      "actual": "274cd21df2aaa16524a4bb380b1f2fa98ee4061a9f28d42daf751a28eb5f765f",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_pipeline_cache.cpp",
+      "expected": "003b11ab1dd940e88b979a656fe909d5993889090924790dc243d719a60f10c8",
+      "actual": "003b11ab1dd940e88b979a656fe909d5993889090924790dc243d719a60f10c8",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_pipeline_cache.hpp",
+      "expected": "2bd62224a6b654a2999a93fc5c89662ffc5c5ce8cb8f1f398616fb5c8a170aac",
+      "actual": "2bd62224a6b654a2999a93fc5c89662ffc5c5ce8cb8f1f398616fb5c8a170aac",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_pipeline_key.cpp",
+      "expected": "f60d5b6ec2851808269070cd262abe61d6a46d7a03fe1155f0593b9a9da3dfeb",
+      "actual": "f60d5b6ec2851808269070cd262abe61d6a46d7a03fe1155f0593b9a9da3dfeb",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_pipeline_key.hpp",
+      "expected": "a4697f3ed0254ff0baafd69ac84bf2e9d414e1be0a7ecdfbee21c6e7828abf7c",
+      "actual": "a4697f3ed0254ff0baafd69ac84bf2e9d414e1be0a7ecdfbee21c6e7828abf7c",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_renderer.cpp",
+      "expected": "47acead790c63d171fa66baf51d1c90247a25352475add941ab02b8d269d0090",
+      "actual": "47acead790c63d171fa66baf51d1c90247a25352475add941ab02b8d269d0090",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_renderer.hpp",
+      "expected": "0c4bf335a123f68c71fa20e7b92dfa5a8859cc91fb145f201680f5b7b8678196",
+      "actual": "0c4bf335a123f68c71fa20e7b92dfa5a8859cc91fb145f201680f5b7b8678196",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_shader_gen.cpp",
+      "expected": "89998135a2ed673689a5f8a25ec9b19f9791d2e707c7e6aea078db1e7d731a87",
+      "actual": "89998135a2ed673689a5f8a25ec9b19f9791d2e707c7e6aea078db1e7d731a87",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_shader_gen.hpp",
+      "expected": "caa3148660be52f47810d0085e76fbdddd409d5693ef5a2b65f53a132112b0be",
+      "actual": "caa3148660be52f47810d0085e76fbdddd409d5693ef5a2b65f53a132112b0be",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_streaming_arena.cpp",
+      "expected": "310a5159fc211a34ed96951fde6dab4041c3d0154c5aaaf1fa35b077d2eff903",
+      "actual": "310a5159fc211a34ed96951fde6dab4041c3d0154c5aaaf1fa35b077d2eff903",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_streaming_arena.hpp",
+      "expected": "de75bc64ddd62b2fa7ef8a7eb1d59407b9753ed82049b02cf64104559856face",
+      "actual": "de75bc64ddd62b2fa7ef8a7eb1d59407b9753ed82049b02cf64104559856face",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_telemetry.cpp",
+      "expected": "7eb5d229552c562f8009216071dbc721db65ba1e7cbfdb629177d5809cc2ecb5",
+      "actual": "7eb5d229552c562f8009216071dbc721db65ba1e7cbfdb629177d5809cc2ecb5",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_telemetry.hpp",
+      "expected": "2c79b622a803aaa5785c5cc4553986e03d5d903a8337b2d29da23f8ca97be505",
+      "actual": "2c79b622a803aaa5785c5cc4553986e03d5d903a8337b2d29da23f8ca97be505",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_texture_cache.cpp",
+      "expected": "c27502f890d55e77a2a57fe42605c255cbee0a51c502df4210a12da83adc4714",
+      "actual": "c27502f890d55e77a2a57fe42605c255cbee0a51c502df4210a12da83adc4714",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_texture_cache.hpp",
+      "expected": "2ded3d30691ecc193cdc0f3ad0ab8bcaa8d717ac5f9834f161c5e8ffa1cb1d04",
+      "actual": "2ded3d30691ecc193cdc0f3ad0ab8bcaa8d717ac5f9834f161c5e8ffa1cb1d04",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_texture_decode.cpp",
+      "expected": "9a554861c04393306e95cb01d83306bdcae7511d0427287f80479b0c891353fa",
+      "actual": "9a554861c04393306e95cb01d83306bdcae7511d0427287f80479b0c891353fa",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_texture_decode.hpp",
+      "expected": "38fc2542cfcb22339fcf1d858176458c27e755b2b777edb1ba42aec3ce7eaded",
+      "actual": "38fc2542cfcb22339fcf1d858176458c27e755b2b777edb1ba42aec3ce7eaded",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_vertex_decode.cpp",
+      "expected": "8a052893a7a216b05a55b12bc9e89d0a61c6d0bfd498239efb7fb1cfcc383d49",
+      "actual": "8a052893a7a216b05a55b12bc9e89d0a61c6d0bfd498239efb7fb1cfcc383d49",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_vertex_decode.hpp",
+      "expected": "79305baf4ed7e333934cd89d05da6ff4340498ea1fa8b0d0b43394c8ff402539",
+      "actual": "79305baf4ed7e333934cd89d05da6ff4340498ea1fa8b0d0b43394c8ff402539",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_vertex_pipeline.cpp",
+      "expected": "2b7e67d9444def85332b834afba66e3e7ec378b271a642d4fc355213bcf1551e",
+      "actual": "2b7e67d9444def85332b834afba66e3e7ec378b271a642d4fc355213bcf1551e",
+      "match": true
+    },
+    {
+      "path": "aurora-main/platforms/vita/gfx/vita_vertex_pipeline.hpp",
+      "expected": "6afc8c48f99b42259028a2de4dd4b25f2d3d6c482ef0b46cf3bafe498c0673c1",
+      "actual": "6afc8c48f99b42259028a2de4dd4b25f2d3d6c482ef0b46cf3bafe498c0673c1",
+      "match": true
+    },
+    {
+      "path": "runtime/src/hle/gx/gx_copy.cpp",
+      "expected": "c57a1a45e97591b8696ac2008916aa7dc47b69a34c9bc9c2fdf5f2e507681153",
+      "actual": "c57a1a45e97591b8696ac2008916aa7dc47b69a34c9bc9c2fdf5f2e507681153",
+      "match": true
+    },
+    {
+      "path": "runtime/src/hle/gx/gx_cp_decode.h",
+      "expected": "bd2136df7761f725481ee8e72e048249ff67488e972a2bffc7c1438913457fb8",
+      "actual": "bd2136df7761f725481ee8e72e048249ff67488e972a2bffc7c1438913457fb8",
+      "match": true
+    },
+    {
+      "path": "runtime/src/hle/gx/gx_dl.cpp",
+      "expected": "7ff3ac0c98face716e3a6d1b2d06ff4e45a83ee3c6b82a607769d42e2548ad9f",
+      "actual": "7ff3ac0c98face716e3a6d1b2d06ff4e45a83ee3c6b82a607769d42e2548ad9f",
+      "match": true
+    },
+    {
+      "path": "runtime/src/hle/gx/gx_dynamic_aspect.h",
+      "expected": "b0edd4bdee8831e0c32583d364b3bcc2f04abd7c45b2faf270d5baafd0b6cc75",
+      "actual": "b0edd4bdee8831e0c32583d364b3bcc2f04abd7c45b2faf270d5baafd0b6cc75",
+      "match": true
+    },
+    {
+      "path": "runtime/src/hle/gx/gx_egg.cpp",
+      "expected": "29314cb2adc9407301156728cf8b73a1db03cbc79df666f966b2c0f25b0e3ab0",
+      "actual": "29314cb2adc9407301156728cf8b73a1db03cbc79df666f966b2c0f25b0e3ab0",
+      "match": true
+    },
+    {
+      "path": "runtime/src/hle/gx/gx_fatal_stubs.cpp",
+      "expected": "395051d9d2ddb2dfc715848286c62a283f8db94117bddffb9da96ee8294d164e",
+      "actual": "395051d9d2ddb2dfc715848286c62a283f8db94117bddffb9da96ee8294d164e",
+      "match": true
+    },
+    {
+      "path": "runtime/src/hle/gx/gx_fifo.cpp",
+      "expected": "2a9190369b79abed7310ca614d47c193902f5ec0b1bc6841063a748d64e99ffa",
+      "actual": "2a9190369b79abed7310ca614d47c193902f5ec0b1bc6841063a748d64e99ffa",
+      "match": true
+    },
+    {
+      "path": "runtime/src/hle/gx/gx_frame.cpp",
+      "expected": "cb0d8a24e787768bed2d8a182c58724b874e42c0b0642d56a71d75854ee5d1fc",
+      "actual": "cb0d8a24e787768bed2d8a182c58724b874e42c0b0642d56a71d75854ee5d1fc",
+      "match": true
+    },
+    {
+      "path": "runtime/src/hle/gx/gx_guest_write_hooks.cpp",
+      "expected": "521c5f35ed71162d633e52dc5d55b46af93c9d1547bc4c2cd1e0f7908529d41c",
+      "actual": "521c5f35ed71162d633e52dc5d55b46af93c9d1547bc4c2cd1e0f7908529d41c",
+      "match": true
+    },
+    {
+      "path": "runtime/src/hle/gx/gx_indirect.cpp",
+      "expected": "3339a8917b28b01df48ceba6d0909eabef2094b37b10fc3465a4259fc035df76",
+      "actual": "3339a8917b28b01df48ceba6d0909eabef2094b37b10fc3465a4259fc035df76",
+      "match": true
+    },
+    {
+      "path": "runtime/src/hle/gx/gx_init.cpp",
+      "expected": "1b564e577ee99580e8e3abcae518a64b9305ab548ee8ce9e5f1a2080ad6e7e1a",
+      "actual": "1b564e577ee99580e8e3abcae518a64b9305ab548ee8ce9e5f1a2080ad6e7e1a",
+      "match": true
+    },
+    {
+      "path": "runtime/src/hle/gx/gx_internal.h",
+      "expected": "019a71455a8ba15da0e6b3c834483e62cdf74f1cf66d6326ef37c8fff59bd60f",
+      "actual": "019a71455a8ba15da0e6b3c834483e62cdf74f1cf66d6326ef37c8fff59bd60f",
+      "match": true
+    },
+    {
+      "path": "runtime/src/hle/gx/gx_lighting.cpp",
+      "expected": "b87c0a6ecbb0c354bb34295ee3a53d9621566e39dc265abaf1e054ad14d812bc",
+      "actual": "b87c0a6ecbb0c354bb34295ee3a53d9621566e39dc265abaf1e054ad14d812bc",
+      "match": true
+    },
+    {
+      "path": "runtime/src/hle/gx/gx_objects.cpp",
+      "expected": "fecb1b0c0c5d00554cc4125b098ed2a11cbffd1b7ed377d56c74cba406a2e356",
+      "actual": "fecb1b0c0c5d00554cc4125b098ed2a11cbffd1b7ed377d56c74cba406a2e356",
+      "match": true
+    },
+    {
+      "path": "runtime/src/hle/gx/gx_pixel.cpp",
+      "expected": "6ca14d27c7b968b89bc519babd95cfaf12f66b3b9009164aa60f051a586c46f6",
+      "actual": "6ca14d27c7b968b89bc519babd95cfaf12f66b3b9009164aa60f051a586c46f6",
+      "match": true
+    },
+    {
+      "path": "runtime/src/hle/gx/gx_stream_common.h",
+      "expected": "dc8162b437c244c438e702f8ea302b47937af419531d054373ea09a65904d7dd",
+      "actual": "dc8162b437c244c438e702f8ea302b47937af419531d054373ea09a65904d7dd",
+      "match": true
+    },
+    {
+      "path": "runtime/src/hle/gx/gx_stubs.cpp",
+      "expected": "d8aa4af286310945f0686832be8bcd9e518a74ce1d223a2f50cf6b8c8bb98f16",
+      "actual": "d8aa4af286310945f0686832be8bcd9e518a74ce1d223a2f50cf6b8c8bb98f16",
+      "match": true
+    },
+    {
+      "path": "runtime/src/hle/gx/gx_tev.cpp",
+      "expected": "6f713137f46023fadbc145141f5cb159f1388c982cc60a6c6c77641b8245e6b1",
+      "actual": "6f713137f46023fadbc145141f5cb159f1388c982cc60a6c6c77641b8245e6b1",
+      "match": true
+    },
+    {
+      "path": "runtime/src/hle/gx/gx_text.cpp",
+      "expected": "2017465499e84c5c5eee17a55cf29e67f7e1d2621c42e8ba5c89b7f97117b00b",
+      "actual": "2017465499e84c5c5eee17a55cf29e67f7e1d2621c42e8ba5c89b7f97117b00b",
+      "match": true
+    },
+    {
+      "path": "runtime/src/hle/gx/gx_texture.cpp",
+      "expected": "fb0048cc81ae839bd07e0056a6d847d1ec45312cee8a7ee3e1ea2600ee2c1824",
+      "actual": "fb0048cc81ae839bd07e0056a6d847d1ec45312cee8a7ee3e1ea2600ee2c1824",
+      "match": true
+    },
+    {
+      "path": "runtime/src/hle/gx/gx_texture_binding_contract.h",
+      "expected": "15f6662bb3da6a0c258c499c23f9c041d011cddca1cdf6f1ebcd88fb9d48e937",
+      "actual": "15f6662bb3da6a0c258c499c23f9c041d011cddca1cdf6f1ebcd88fb9d48e937",
+      "match": true
+    },
+    {
+      "path": "runtime/src/hle/gx/gx_transform.cpp",
+      "expected": "1083eccd051ded8b591740adc2bd2b7edfcdfb05e9312a2cf8c016c9c2d26e16",
+      "actual": "1083eccd051ded8b591740adc2bd2b7edfcdfb05e9312a2cf8c016c9c2d26e16",
+      "match": true
+    },
+    {
+      "path": "runtime/src/hle/gx/gx_utils.cpp",
+      "expected": "66250f3f5d61c9443f65e3454291498c76226e50eadc880792519288386aeacc",
+      "actual": "66250f3f5d61c9443f65e3454291498c76226e50eadc880792519288386aeacc",
+      "match": true
+    },
+    {
+      "path": "runtime/src/hle/gx/gx_vertex.cpp",
+      "expected": "c41b905a78e0e3217b82679ff7d0f99fafdc1764738ee0c3282e7b9306b5261c",
+      "actual": "c41b905a78e0e3217b82679ff7d0f99fafdc1764738ee0c3282e7b9306b5261c",
+      "match": true
+    },
+    {
+      "path": "vita/audio_backend_vita.cpp",
+      "expected": "3c5486df5f58d6ec1d94f043510c84b0378ed6571cb654a13e1ed0235b9dad73",
+      "actual": "3c5486df5f58d6ec1d94f043510c84b0378ed6571cb654a13e1ed0235b9dad73",
+      "match": true
+    },
+    {
+      "path": "vita/aurora_packet_renderer.cpp",
+      "expected": "e4eb7b9cf77cc219715cb69009544f69094faea8dc472fa653167eb09f086585",
+      "actual": "e4eb7b9cf77cc219715cb69009544f69094faea8dc472fa653167eb09f086585",
+      "match": true
+    },
+    {
+      "path": "vita/aurora_packet_renderer.h",
+      "expected": "5bb12d5d44496fe2ca863e5fe6bbb44d607f1a37c12e8f91f0e8d697ce6d188b",
+      "actual": "5bb12d5d44496fe2ca863e5fe6bbb44d607f1a37c12e8f91f0e8d697ce6d188b",
+      "match": true
+    },
+    {
+      "path": "vita/controller_mapping_wizard_vita.cpp",
+      "expected": "39213de0b01d237d7250f19266019e57d117a518ec10484b36eb5338ac4b2759",
+      "actual": "39213de0b01d237d7250f19266019e57d117a518ec10484b36eb5338ac4b2759",
+      "match": true
+    },
+    {
+      "path": "vita/firstboot_platform_vita.cpp",
+      "expected": "16771ff9b7fb570e5ca45abb49a74d9057055a723e43b41c55c7c8a5f4985a48",
+      "actual": "16771ff9b7fb570e5ca45abb49a74d9057055a723e43b41c55c7c8a5f4985a48",
+      "match": true
+    },
+    {
+      "path": "vita/gx_backend.cpp",
+      "expected": "f6ee9e7a82b9655205a60dc686ce6dd103c6e9e9f5a987033faa80327bbb965c",
+      "actual": "f6ee9e7a82b9655205a60dc686ce6dd103c6e9e9f5a987033faa80327bbb965c",
+      "match": true
+    },
+    {
+      "path": "vita/host_jobs.cpp",
+      "expected": "01477d0c7a87a6040dc4ce1c7c432c16c253e4c868405aed660c7c93de385b58",
+      "actual": "01477d0c7a87a6040dc4ce1c7c432c16c253e4c868405aed660c7c93de385b58",
+      "match": true
+    },
+    {
+      "path": "vita/include/wiicompiled_vita/frame_optimization_policy.h",
+      "expected": "4baed120219b2c8c1ab220f5bb56479ca10ec93667b495df87eab827bfd09bea",
+      "actual": "4baed120219b2c8c1ab220f5bb56479ca10ec93667b495df87eab827bfd09bea",
+      "match": true
+    },
+    {
+      "path": "vita/include/wiicompiled_vita/gx_backend.h",
+      "expected": "722ceac0b317dc9dbaf5b3122681c52bc30a728b85f010a746877f3bc2dc65d4",
+      "actual": "722ceac0b317dc9dbaf5b3122681c52bc30a728b85f010a746877f3bc2dc65d4",
+      "match": true
+    },
+    {
+      "path": "vita/include/wiicompiled_vita/host_jobs.h",
+      "expected": "06a9d862546282cb4ff9fa8ed2fe8dd384a5685c1376da561b9d532b322f4518",
+      "actual": "06a9d862546282cb4ff9fa8ed2fe8dd384a5685c1376da561b9d532b322f4518",
+      "match": true
+    },
+    {
+      "path": "vita/include/wiicompiled_vita/host_thread.h",
+      "expected": "b629507d6eec12cfcf7b0d6370576d38858f1d96b4a564ad6de4ffc21a455f9b",
+      "actual": "b629507d6eec12cfcf7b0d6370576d38858f1d96b4a564ad6de4ffc21a455f9b",
+      "match": true
+    },
+    {
+      "path": "vita/main_vita.cpp",
+      "expected": "20fba538489ef4213dd92449e968ac05a66ffd31ced3e6b1c4e0c432fdc85094",
+      "actual": "20fba538489ef4213dd92449e968ac05a66ffd31ced3e6b1c4e0c432fdc85094",
+      "match": true
+    },
+    {
+      "path": "vita/porting_probe/main.cpp",
+      "expected": "40d4d76044008f5b9f3bc8e643bf436022b1136b588499b835e5c70838710666",
+      "actual": "40d4d76044008f5b9f3bc8e643bf436022b1136b588499b835e5c70838710666",
+      "match": true
+    },
+    {
+      "path": "vita/recomp_probe/main.cpp",
+      "expected": "461faef73573826b8663a04ce46ee3fb7e7d65812ebb49ed1b4fff77ed3253b4",
+      "actual": "461faef73573826b8663a04ce46ee3fb7e7d65812ebb49ed1b4fff77ed3253b4",
+      "match": true
+    },
+    {
+      "path": "vita/settings_overlay_vita.cpp",
+      "expected": "a70175b94b1c47a4f9cf3265948343801432490f17e712ef5bc98adb2a8a22e9",
+      "actual": "a70175b94b1c47a4f9cf3265948343801432490f17e712ef5bc98adb2a8a22e9",
+      "match": true
+    },
+    {
+      "path": "vita/tests/clip_position.cpp",
+      "expected": "b1498a09ba1e54586dfdf16fb13ecceabd91cb84bf2ef2011cdac99529371665",
+      "actual": "b1498a09ba1e54586dfdf16fb13ecceabd91cb84bf2ef2011cdac99529371665",
+      "match": true
+    },
+    {
+      "path": "vita/tests/performance_helpers.cpp",
+      "expected": "2661bf5e2df5139c187f871de2b2b5fc017d5f30c3c7318a339607e850e3cfaf",
+      "actual": "2661bf5e2df5139c187f871de2b2b5fc017d5f30c3c7318a339607e850e3cfaf",
+      "match": true
+    },
+    {
+      "path": "vita/tests/texture_budget.cpp",
+      "expected": "fc262774478bfe271c165ef5dbef75a70146a9bffbc478a9584d0c5aa13209f9",
+      "actual": "fc262774478bfe271c165ef5dbef75a70146a9bffbc478a9584d0c5aa13209f9",
+      "match": true
+    },
+    {
+      "path": "vita/tools/build_performance_profile.py",
+      "expected": "2f4e8ec137b5154817021291b9412613dbf12e59daef64c7f1f25b822ddc9c60",
+      "actual": "2f4e8ec137b5154817021291b9412613dbf12e59daef64c7f1f25b822ddc9c60",
+      "match": true
+    },
+    {
+      "path": "vita/tools/decode_gx_begin_hot.py",
+      "expected": "779f832de90947c26c21b3f2993855baf25cda8794fed6795a130c54c9c0d59d",
+      "actual": "779f832de90947c26c21b3f2993855baf25cda8794fed6795a130c54c9c0d59d",
+      "match": true
+    },
+    {
+      "path": "vita/tools/generate_translator_probe.py",
+      "expected": "914e0bf419ad18b2cdec4fd3223d29eb4705b30aa0de4c09443185d78e3c514e",
+      "actual": "914e0bf419ad18b2cdec4fd3223d29eb4705b30aa0de4c09443185d78e3c514e",
+      "match": true
+    },
+    {
+      "path": "vita/tools/test_performance_helpers.py",
+      "expected": "5444a5f9e6d548de9a339208ffd8b2e2064be2d0dc38cf7630c928652ad24ec9",
+      "actual": "5444a5f9e6d548de9a339208ffd8b2e2064be2d0dc38cf7630c928652ad24ec9",
+      "match": true
+    }
+  ],
+  "artifact_attribution": "Latest flags and packet size match full-content-3d; the log has no embedded build hash.",
+  "git_head": "9c2cae4da87baa0efa5950f5e736bf50cfca5ada",
+  "git_status_at_extraction": " M Makefile.vita\n M PORTING_STATUS.md\n M aurora-main/platforms/vita/gfx/vita_gl_util.cpp\n M aurora-main/platforms/vita/gfx/vita_shader_gen.cpp\n M docs/performance-60fps-2026-09-05/IMPLEMENTATION.md\n M runtime/src/hle/task_thread.cpp\n M runtime/src/hle/thp_video_decode.cpp\n M vita/aurora_packet_renderer.cpp\n M vita/aurora_packet_renderer.h\n M vita/gx_backend.cpp\n M vita/tools/build_performance_profile.py\n M vita/tools/test_performance_helpers.py\n?? CLAUDE.md\n?? aurora-vita/\n?? docs/full-content-2026-09-06/\n?? docs/performance-audit-2026-09-06/\n?? vita/tests/clip_position.cpp\n",
+  "limitations": [
+    "Sparse/threshold-selected samples, not an unbiased frame-time distribution.",
+    "gx_cpu_perf.frame is a different sequence from producer_frame/perf_summary.serial.",
+    "Producer interval and renderer time overlap; never add them as independent CPU/GPU costs.",
+    "One orphan render fragment has no serial; do not silently label it serial 600."
+  ]
+}
