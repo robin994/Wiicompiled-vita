@@ -183,11 +183,18 @@ if [ ! -f "$CPPWINRT_DIR/winrt/base.h" ]; then
     rm -rf "$tmp_extract"
 fi
 
-# Build the translator CLI once if it hasn't been built yet.
-if [ ! -f "$TRANSLATOR_DLL" ]; then
-    echo "==> building translator"
-    dotnet build translator/src/Translator.Cli/Translator.Cli.csproj -c Release
-fi
+# Rebuild the translator every run. dotnet's incremental build is a fast no-op
+# when translator/ is unchanged, but a plain "is the DLL there?" check would
+# silently keep using a stale build after a "git pull" that touched it.
+echo "==> building translator (incremental)"
+dotnet build translator/src/Translator.Cli/Translator.Cli.csproj -c Release --nologo
+
+# Fingerprint of the built translator. A change here forces a re-translate
+# below, exactly like a new Code.pul does - otherwise generated/ (and the
+# shards built from it) would keep whatever the old translator emitted.
+TRANSLATOR_ID=$(find translator/src/Translator.Cli/bin/Release/net8.0 -name '*.dll' -type f \
+    -exec sha256sum {} + | sort | sha256sum | cut -d' ' -f1)
+TRANSLATOR_STAMP="generated/.translator-build-id"
 
 PUL_SHA=""
 if [ "$RETRO" = "1" ]; then
@@ -248,6 +255,9 @@ if [ ! -f "generated/base_translation_output.json" ]; then
 elif [ "$RETRO" = "1" ] && ! grep -q "\"codePulSha256\":\"$PUL_SHA\"" generated/base_translation_output.json; then
     echo "==> base translation predates this Code.pul; retranslating"
     NEED_BASE_TRANSLATE=1
+elif [ ! -f "$TRANSLATOR_STAMP" ] || [ "$(cat "$TRANSLATOR_STAMP" 2>/dev/null)" != "$TRANSLATOR_ID" ]; then
+    echo "==> translator changed since the last translation; retranslating"
+    NEED_BASE_TRANSLATE=1
 fi
 
 if [ "$NEED_BASE_TRANSLATE" = "1" ]; then
@@ -256,6 +266,7 @@ if [ "$NEED_BASE_TRANSLATE" = "1" ]; then
     dotnet "$TRANSLATOR_DLL" translate-recursive "$entry_addr" --project "$PROJECT_MANIFEST" \
         --output-metadata generated/base_translation_output.json \
         --production-source-bundle generated/base_translation_sources.bin
+    mkdir -p generated && printf '%s\n' "$TRANSLATOR_ID" > "$TRANSLATOR_STAMP"
 fi
 
 dotnet "$TRANSLATOR_DLL" generate-data-init --project "$PROJECT_MANIFEST"
@@ -286,6 +297,15 @@ NEED_SHARDS=0
 if [ ! -f "$SHARDS_DIR/shards.cmake" ]; then
     NEED_SHARDS=1
 elif [ "$RETRO" = "1" ] && ! grep -q "MKW_HAVE_RETRO_REWIND_SHARDS ON" "$SHARDS_DIR/shards.cmake"; then
+    NEED_SHARDS=1
+elif [ "$NEED_BASE_TRANSLATE" = "1" ]; then
+    # A Retro Rewind update (new Code.pul) or a changed translator just redid
+    # the base/mod translation; the shards are generated from that output, so
+    # they are stale now even though shards.cmake still exists.
+    NEED_SHARDS=1
+elif [ "generated/base_translation_output.json" -nt "$SHARDS_DIR/shards.cmake" ]; then
+    # Safety net: a previous run translated but didn't get as far as emitting
+    # shards (interrupted, or generated/ partly cleaned by hand).
     NEED_SHARDS=1
 fi
 
