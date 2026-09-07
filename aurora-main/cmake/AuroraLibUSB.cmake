@@ -27,11 +27,18 @@ add_library(usb-1.0 STATIC
   "${_libusb_root}/os/windows_winusb.c"
 )
 target_include_directories(usb-1.0
-  PUBLIC "${_libusb_root}"
+  PUBLIC "$<BUILD_INTERFACE:${_libusb_root}>"
   PRIVATE "${CMAKE_CURRENT_LIST_DIR}/libusb" "${_libusb_root}/os"
 )
 set_target_properties(usb-1.0 PROPERTIES UNITY_BUILD OFF)
 add_library(LibUSB::LibUSB ALIAS usb-1.0)
+
+# SDL's unconditional `export(TARGETS SDL3-static ...)` is a hard error on CMake
+# >= 4.0 unless usb-1.0 (linked into SDL3-static below) is also in an export set.
+# This throwaway export just satisfies that check - nothing reads the file.
+export(TARGETS usb-1.0
+  NAMESPACE Aurora::
+  FILE "${CMAKE_CURRENT_BINARY_DIR}/AuroraLibUSBTargets.cmake")
 
 # SDL's FindLibUSB expects an installed copy. Satisfy its presence checks with this target
 # instead: the alias pre-empts the imported target it would otherwise create, and the link
