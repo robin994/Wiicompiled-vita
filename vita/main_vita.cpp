@@ -4,6 +4,7 @@
 #include "guest_flat_memory.h"
 #include "gx_guest_write.h"
 #include "hle_stubs.h"
+#include "audio_wait_profile.h"
 #include "system_bridge.h"
 #include "wiicompiled_vita/gx_backend.h"
 #include "wiicompiled_vita/host_thread.h"
@@ -87,9 +88,27 @@ void LogFreeMemory(const char* phase) noexcept {
 void ServiceGuestTimingDuringAuroraFrameWait() {
     // The Vita entrypoint bypasses runtime/src/main.cpp, so install the same
     // bounded guest timing service explicitly on USER_0 while USER_1 drains.
+#if MKW_VITA_WAIT_SERVICE_PROFILE
+    const uint64_t beginUs = sceKernelGetProcessTimeWide();
+#endif
     VI_HLE_ProcessRetracesDeferred(8);
+#if MKW_VITA_WAIT_SERVICE_PROFILE
+    const uint64_t viEndUs = sceKernelGetProcessTimeWide();
+#endif
     OS_HLE_ProcessAlarmsDeferred(8);
+#if MKW_VITA_WAIT_SERVICE_PROFILE
+    const uint64_t alarmEndUs = sceKernelGetProcessTimeWide();
+#endif
+#if MKW_VITA_AUDIO_WAIT_PROFILE
+    Audio_HLE_PollDeferredForRenderWait();
+#else
     Audio_HLE_PollDeferred();
+#endif
+#if MKW_VITA_WAIT_SERVICE_PROFILE
+    const uint64_t audioEndUs = sceKernelGetProcessTimeWide();
+    WiiCompiledVita::GxBackend::RecordWaitServiceParts(
+        viEndUs - beginUs, alarmEndUs - viEndUs, audioEndUs - alarmEndUs);
+#endif
 }
 
 void ShutdownRuntime(bool fibersReady, bool gxReady) noexcept {

@@ -402,3 +402,240 @@ Il prossimo hardware log deve raggiungere almeno la stessa zona di serial 1030 e
 idealmente, 1655-1691/2000. I criteri decisivi sono deferred, mesh_evict/clear/skip,
 dl_evict/clear/skip, producer/wait_gx/residual e VI debt. Packet ownership/swap resta
 il passo successivo solo se il packet_copy heavy (~5,5 ms storico) rimane misurabile.
+
+## M13.7 / P5.4 — per-fiber guest interrupt state (2026-09-06)
+
+Il log hardware P5.3 ha isolato il motivo per cui il timing service P5.2 non
+riesce a recuperare il VI debt: nell'ultima finestra osservata
+`deferred=21407/20838/135`. Quindi 20.838 chiamate deferred su 21.407 vengono
+skippate per interrupt guest disabilitati e soltanto 135 retrace vengono
+effettivamente avanzati. Nello stesso punto il VI e indietro di circa 12,35 s
+(`next_retrace_due_us=-12346830`).
+
+P5.3 non mostra pressione sulle due cache interessate dalla nuova eviction: al
+serial 1200 raw-mesh usa 705.628 byte su 4 MiB con `mesh_evict=0`,
+`mesh_clear=0`, `mesh_skip=0`; la DL cache ha 127 entry / 58.576 byte con
+`dl_evict=0`, `dl_clear=0`, `dl_skip=0`. L'incremental eviction resta
+abilitata per sicurezza, ma non e il blocker attuale.
+
+L'analisi del scheduler ha trovato il boundary errato: l'emulazione degli
+interrupt usa un singolo atomico globale `g_interrupts_enabled`, mentre
+message queue, mutex e sleep possono cedere la CPU ad un'altra guest fiber
+prima che la funzione chiamante esegua OSRestoreInterrupts. In quel caso la
+fiber successiva eredita erroneamente lo stato IRQ disabilitato della fiber
+bloccata.
+
+P5.4 non forza callback VI dentro sezioni critiche. Introduce invece uno stato
+interrupt-enable per `GuestFiber` e lo salva/ripristina nel context switch:
+
+- la fiber sorgente conserva il proprio IRQ state prima di cedere la CPU;
+- la fiber target ripristina il proprio IRQ state prima di eseguire codice guest;
+- quando la fiber sorgente riprende, riottiene il suo stato originale, quindi una
+  sezione critica sospesa resta correttamente IRQ-off fino al suo OSRestoreInterrupts;
+- `OS_HLE_SetInterruptsEnabledForContextSwitch` cambia solo lo stato CPU host-side
+  e non simula una chiamata guest OSDisable/RestoreInterrupts;
+- kill switch A/B: `MKW_VITA_FIBER_IRQ_STATE=1`; startup marker e manifest
+  esportano `fiber_irq_state=1`.
+
+Profilo: `full-content-p5_4-fiber-irq`. Mantiene P5.3/full-content: `clip_w=1`,
+movies/native THP, P4.1/P5.1/P6/P7/P5.2, native-res EFB, safe texture retry,
+queue depth 2, cap EFB 512, incremental cache eviction e `perf_log=0`; nessun
+hot shard.
+
+Artefatto verificato:
+
+- VPK: `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p5_4-fiber-irq.vpk`
+- VPK SHA-256: `8066d1a6cbce6ec78611d60dde20db8e3a2cfe697401e424b159e9cb7b650317`
+- VPK bytes: 41.280.970
+- ELF: `build/vita/mkwii_runtime/wiicompiled-vita-mkw-firstboot-astra-full-content-p5_4-fiber-irq.elf`
+- ELF SHA-256: `253bacb9128f2cef58c6541e6de1a45d6646d0f5abd50f03d6ded0822a48614f`
+- ELF bytes: 219.297.272
+- manifest SHA-256: `e0f8497a1150bc3e3f606863a3abec958b91df2487ce92407456e178cbf8a9ea`
+
+PASS: `git apply --check` prima del patch, `git diff --check`, compilazione
+ARM32, link, VELF/FSELF, packaging, `verify-mkw-firstboot-vpk`, `unzip -t` e
+`graphics-check`. L'ELF contiene i marker `fiber_irq_state=%u`,
+`deferred=%llu/%llu/%llu`, `mesh_mem` e `dl_cache_mem`.
+
+Criterio hardware P5.4: il nuovo log deve mostrare `fiber_irq_state=1`. Il
+rapporto deferred skipped/calls deve ridursi drasticamente rispetto a 20.838 /
+21.407 (~97,3%), `deferredRetracesAdvanced` deve continuare a crescere oltre
+135 e il VI debt non deve tornare nell'ordine di -12 s. Verificare inoltre
+assenza di deadlock/regressioni in message queue, mutex, scheduler, audio e input.
+Solo dopo questa A/B tornare a packet ownership/swap o ad altri blocker misurati.
+
+
+### P5.4 — verifica di ripresa (2026-09-06)
+
+Hash e dimensioni VPK/ELF riconfermati; verifica package PASS. Il log locale resta P5.3 (ultimo boot con incremental_cache_eviction=1, senza fiber_irq_state); manca il test hardware P5.4. Nessuna nuova patch runtime. Baseline numerica, artefatti e prossimo test in `docs/performance-analysis-2026-09-06/P5_4-HANDOFF.md`.
+
+
+## P5.4 hardware tested / P5.5 wait-service attribution (2026-09-06)
+
+Nuovo log SHA-256 `94a8579e47f83da7176cf62e199c2f0d1d4660b62f1baa9f0ab5f89ecf7df6bc`: terzo boot P5.4, marker fiber_irq_state=1. Ultimo deferred passa da 21407/20838/135 a 13874/0/3844; ultimo VI age 16,369 ms, next due +297 us. Correzione IRQ supportata nel campione, non validazione generale: rimane debt transitorio fino a 2,07 s e stall producer ~6,25 s. Serial 1200 producer 211,991 ms, renderer 52,097 ms; nessuna rivendicazione di guadagno generale.
+
+Wait service ora costa 1400,642 ms su 1642,267 ms di WaitRender nel frame heavy 1098. P5.5 `full-content-p5_5-wait-service-profile` aggiunge solo attribuzione VI/allarmi/audio (totale/max), con MKW_VITA_WAIT_SERVICE_PROFILE=1, stessa semantica e full content P5.4. main_vita.o dipende ora dalla config per garantire il kill switch.
+
+Build ARM32/link/VELF/FSELF/package/verify/unzip PASS, profiler OFF syntax PASS; P5.5 NON hardware tested. VPK `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p5_5-wait-service-profile.vpk`, 41280700 byte, SHA-256 `8a37812e68729029cb683a3395f71f16db5aeebaf63cbe99b5518b6aa69722c0`. ELF `build/vita/mkwii_runtime/wiicompiled-vita-mkw-firstboot-astra-full-content-p5_5-wait-service-profile.elf`, 219302096 byte, SHA-256 `4a62a05a9376e8d4fb364fbb25bd80a50a7adccb5fdf4423a48fa6661ab382c7`. Manifest/evidence accanto al VPK.
+
+Report completo: `docs/performance-analysis-2026-09-06/REPORT.md`. Prossimo log: marker wait_service_profile=1, wait_service_parts e producer con stesso serial; identificare fase dominante prima di una modifica funzionale. Packet swap rinviato, nessun aumento budget o hot shard.
+
+P5.5 `graphics-check` PASS con gli stessi flag del profilo (exit 0; warning enum preesistente GXVert.cpp). Nessuna build/test in corso; validazione hardware del nuovo profiler ancora pendente.
+
+
+## P5.5 hardware / P5.6 audio wait attribution (2026-09-07)
+
+Quarto boot runtime.log, marker fiber_irq_state=1 / wait_service_profile=1, SHA-256 `f1656b83b7bc2b44a0378d2c9f36e68e9347bc36cbd966360873f0562edd5d7a`. Audio domina il servizio: serial 424 2602771/2844471 us (91,5%); serial 861 606954/633078 us (95,9%). Contatori calls coerenti; residuo contabile 0,047–0,143%, non misura completa overhead. Il tempo audio può sovrapporsi al renderer: non prova che causi tutto WaitRender. Transizione producer ~6,257 s ancora aperta, IRQ skipped=0 nei campioni VI, debt transitorio presente.
+
+P5.6 `full-content-p5_6-audio-wait-profile` separa join/sink/AI/AX (calls/totale/max) e conta backlog/blocchi/cap/reentry, senza cambiare ordine, limiti o lifetime. Flag MKW_VITA_AUDIO_WAIT_PROFILE=1, default 0, solo USER_0 durante audio del wait. P5.5 e full content conservati.
+
+ARM32/link/VELF/FSELF/package/verify/unzip PASS, profiler OFF syntax PASS. P5.6 NON hardware tested. VPK `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p5_6-audio-wait-profile.vpk`, 41284109 byte, SHA-256 `ceb58bf8f76fce9046678b48ef160355cbdf7a86dd23d8a7d119f507de36f148`. ELF `build/vita/mkwii_runtime/wiicompiled-vita-mkw-firstboot-astra-full-content-p5_6-audio-wait-profile.elf`, 219325048 byte, SHA-256 `4771ed3950d2ab42048b90cd311f52db4b49223778098ad1f42b21cdc71518dd`. Manifest/evidence accanto al VPK.
+
+Report e istruzioni: `docs/performance-analysis-2026-09-07/REPORT.md`. Prossimo log richiede audio_wait_profile=1 e audio_wait_parts correlato per serial. Join dominante → misurare worker/dipendenze; AI/AX dominante → simbolizzare callback e lavoro interno; non ridurre servizi sulla sola base del costo. Packet swap e aumenti budget rinviati.
+
+P5.6 graphics-check PASS con i flag del profilo (exit 0, warning enum preesistente GXVert.cpp). Nessuna build/test in corso. Test offline conclusi senza FAIL; hardware P5.6 pendente.
+
+## P5.6 hardware / P5.7 AI callback attribution (2026-09-07)
+
+Il quinto boot del log hardware SHA-256
+`0dca5e3a9d05f0bb5257b61f8225a45e34894f90ef321ba1c542f60f8d8d3d73`
+valida P5.6 come profiler: `fiber_irq_state=1`, `wait_service_profile=1`,
+`audio_wait_profile=1`, full content, `perf_log=0`. La callback AI osservata nel
+render-wait e sempre `0x80551F00` (`THP::AudioMixCallback`). Nei frame misurati
+AI assorbe spesso ~97-98% del tempo audio, mentre `JoinMixWorker` pesa centinaia
+di ms in alcune finestre. Il backlog arriva a ~23 s nel campione serial 1000;
+questo arretrato e lavoro guest da preservare, non una coda da scartare per
+alzare artificialmente gli FPS.
+
+P5.6 serial 900 resta molto oltre il budget 16,67 ms: producer `227744 us`,
+wait_gx `55282 us`, packet copy `2753 us`, residual stimato `169707 us`, renderer
+`61914 us`; EFB native 12/12, nessun texture fail e nessuna pressione raw-mesh/DL.
+Lo stall guest multi-secondo resta quindi separato dalla sola attesa renderer.
+
+P5.7 aggiunge soltanto attribution interna al callback AI:
+
+- `AudioAiSubtimer` TLS-gated attivo solo durante il callback AI profilato;
+- `DcRangeOp` misura cache maintenance inclusiva senza rimuovere invalidazioni;
+- `AXWii::SendMail` misura mail/HandleMail inclusivo senza cambiare locking;
+- snapshot bounded THP chain/mode/open/flags quando callback=`0x80551F00`;
+- `audio_ai_parts` usa la stessa cadenza/serial di producer/audio_wait_parts;
+- flag `MKW_VITA_AUDIO_AI_PROFILE`, default 0; profilo P5.7=1.
+
+P5.7 mantiene P5.6/full-content, `clip_w=1`, faithful LYT, movies/native THP,
+P4.1/P5.1/P6/P7/P5.2-P5.6, queue2, EFB cap512/budget4MiB, `PERF_LOG=0`,
+translated NEON `-Os` e nessun hot shard.
+
+Artefatto verificato, **non ancora hardware tested**:
+
+- VPK: `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p5_7-audio-ai-profile.vpk`
+- bytes: `41282688`
+- SHA-256: `45de24a7f4304ed08a071d14dfc07ab47a0547296a933f44b1908c3920c2de6b`
+- ELF: `build/vita/mkwii_runtime/wiicompiled-vita-mkw-firstboot-astra-full-content-p5_7-audio-ai-profile.elf`
+- bytes: `219336952`
+- SHA-256: `5ded393009e97c9ec5cd87738ae8a6af19ad7b7a5f02c388c81d5b3e8ce0a2dd`
+- manifest: `1775` byte, SHA-256
+  `49f05a34be329553eb94c8a0b4fd42a3cc9f4dbbf59498d4e2d9809bcd2d7a42`.
+
+Compile/link/VELF/FSELF/package/unzip e `graphics-check` PASS. Gli hash dei
+sorgenti P5.7 correnti coincidono con l'evidence della build; `git diff --check`
+PASS. Nessuna nuova ottimizzazione funzionale e stata introdotta.
+
+Un file allegato successivamente, SHA-256
+`f0b7b8baa65ebe1caa62e71017f4a30acb314990eee8c2be016e8ca68dcbfaa9`,
+e stato preservato come `build/vita/runtime-unmatched-f0b7b8ba.log` ma contiene
+tre boot storici incompatibili con P5.6/P5.7 (EFB cap128, primo boot perf_log1 e
+queue1, altri boot movies/THP off/probe grafici). Non usarlo per confronti P5.7.
+
+Prossimo hardware: P5.7. Richiedere `audio_ai_profile=1` insieme a
+`audio_wait_profile=1`, `wait_service_profile=1`, `fiber_irq_state=1` e
+`perf_log=0`. `cache_us`/`mail_us` sono inclusivi e gia compresi in `ai_us`.
+Se uno domina, profilare quel child; se entrambi sono piccoli, scendere dentro
+`THP::MixAudio`/callback indiretta. Non rimuovere join/cache maintenance, non
+droppare backlog e non introdurre P5.8 prima di questo A/B.
+
+Dettagli: `docs/performance-analysis-2026-09-07/P5_6-P5_7.md`.
+
+## P5.8 — native SceAudioOut functional baseline (2026-09-07)
+
+Il test hardware ha chiarito un'assunzione precedente: sulla Vita non si sentiva
+alcun audio. `vita/audio_backend_vita.cpp` era ancora intenzionalmente un null
+sink di first-boot; accettava i DMA e restituiva successo, ma non apriva un port
+audio e scartava tutti i campioni. Di conseguenza i tempi P5.5/P5.6 attribuiti ad
+"audio" descrivono AI/AX/THP/callback/join HLE, non playback SceAudioOut.
+
+E stato aggiunto un percorso A/B separato, senza cambiare le build storiche:
+
+- flag `MKW_VITA_NATIVE_AUDIOOUT`, default 0;
+- profilo `full-content-p5_8-native-audioout`, identico a P5.7 salvo flag=1;
+- `SCE_AUDIO_OUT_PORT_TYPE_MAIN`, 48 kHz stereo, chunk 256 frame;
+- worker dedicato per il blocking `sceAudioOutOutput`;
+- FIFO bounded 8 chunk, drop del solo PCM nuovo su overflow, nessun drop delle
+  callback/progresso guest;
+- conversione BE16 right/left -> LE/native left/right;
+- resampling 32 -> 48 kHz sul normale percorso Wii;
+- volume Vita via `sceAudioOutSetVolume`;
+- link `-lSceAudio_stub`;
+- marker `native_audioout=1`, `vita_audioout opened`, `vita_audioout first_output`.
+
+Il file audio compila con flag off e on. Build P5.8 ARM32/link/VELF/FSELF/package,
+verify/unzip e graphics-check PASS; `git diff --check` PASS. Hardware validation
+ancora pendente.
+
+- VPK `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p5_8-native-audioout.vpk`
+- 41284474 byte
+- SHA-256 `e7b9f225c6f25816dd406c994e57b0af756553d53627a5b057fe731d5cb61658`
+- ELF `build/vita/mkwii_runtime/wiicompiled-vita-mkw-firstboot-astra-full-content-p5_8-native-audioout.elf`
+- 219541704 byte
+- SHA-256 `2e8f952790e9456bb335c05f3ceca5e960f61ff3e869cc7b57feafdeb53e76c6`.
+
+Prima validare apertura/output e udibilita reale. Se `first_output` e presente ma
+non si sente nulla, profilare contenuto PCM (min/max/RMS/checksum) prima di
+modificare il device path. La P5.7 null-sink resta la baseline corretta per
+confrontare il puro costo HLE; P5.8 e una nuova baseline funzionale e puo avere
+un piccolo costo aggiuntivo di conversione/coda. Lo stall guest multi-secondo e
+il costo THP/AI restano indipendenti.
+
+## P5.8 hardware validated / P5.9 audio pacing (2026-09-07)
+
+Il test P5.8 ha validato il backend nativo: l'utente sente realmente l'audio e il
+log mostra `native_audioout=1`, apertura MAIN 48 kHz e primo
+`sceAudioOutOutput` riuscito. Snapshot:
+`build/vita/runtime-p5_8-733ec259.log`, SHA-256
+`733ec2590f76e2d4610a5a7731e3329ba59188cb0f2a5d3bf17feba02c746274`.
+
+La qualita e pero intermittente/clippata durante i bassi FPS. Il log mostra
+`queue_full dropping_new_pcm chunks=8` insieme a stall guest/producer da ~1,3 s
+e transizioni ~6,3 s. La FIFO P5.8 contiene soltanto ~43 ms: non puo assorbire
+questi stall. Il difetto e quindi un problema di **pacing della produzione guest**
+che si manifesta come starvation/burst sull'output host, non un fallimento del
+port SceAudioOut.
+
+P5.9 aggiunge un A/B host-only tramite `MKW_VITA_AUDIO_PACING`:
+
+- il worker attende il primo PCM, poi continua a chiamare `sceAudioOutOutput` al
+  clock hardware anche se la FIFO e temporaneamente vuota;
+- durante l'underrun produce silenzio, non PCM sintetizzato o duplicato;
+- una rampa di 64 frame attenua le discontinuita verso/da silenzio;
+- in overflow elimina il chunk host piu vecchio e conserva il piu recente;
+- non modifica il limite dei servizi HLE, callback AI/AX/THP, backlog guest,
+  interrupt o scheduler;
+- statistiche ogni 512 chunk riportano real/silence/underrun/drop/high-water.
+
+Profilo: `full-content-p5_9-audio-pacing`, identico a P5.8 salvo
+`MKW_VITA_AUDIO_PACING=1`. P5.8 resta disponibile come A/B senza pacing; P5.7
+resta il null-sink per misurare il puro costo HLE.
+
+P5.9 offline PASS: compile, link, VELF/FSELF, package, verify/unzip,
+`graphics-check`, `git diff --check`.
+
+- VPK `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p5_9-audio-pacing.vpk`
+- 41286477 byte
+- SHA-256 `65bbfccbf4905279967d6b5ed9c8963ff57831e36c10c2e377a853b601ca449a`
+- ELF 219550236 byte
+- SHA-256 `94ae8a1c757c6b81a44ca20e57aa64b805b24f17675ae44d4e2a5d80e3bc4696`.
+
+Hardware acceptance: marker `native_audioout=1 audio_pacing=1`; ascoltare se i
+click diminuiscono e raccogliere `vita_audioout stats`. La P5.9 non e una fix
+FPS: se gli underrun restano alti, tornare immediatamente allo stall guest
+TaskThread/THP/scheduler invece di aumentare la FIFO o introdurre time-stretch
+speculativo.

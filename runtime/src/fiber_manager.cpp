@@ -314,6 +314,9 @@ bool GuestFiberManager::CreateGuestFiber(uint32_t guestThreadAddr, uint32_t entr
     gf.state = ThreadState::WAITING; // Starts suspended
     gf.terminated = false;
     gf.isSchedulerFiber = false;
+#if defined(MKW_TARGET_VITA) && MKW_VITA_FIBER_IRQ_STATE
+    gf.interruptsEnabled = true;
+#endif
     
     // Initialize CPU context with entry point info
     std::memset(&gf.cpuContext, 0, sizeof(CpuContext));
@@ -438,6 +441,11 @@ void GuestFiberManager::SwitchToThread(uint32_t guestThreadAddr, CpuContext* cpu
     const bool haveCallerContext = (cpu != nullptr);
     CpuContext targetContext{};
     bool haveTargetContext = false;
+#if defined(MKW_TARGET_VITA) && MKW_VITA_FIBER_IRQ_STATE
+    const bool callerInterruptsEnabled = OS_HLE_InterruptsEnabled();
+    bool targetInterruptsEnabled = true;
+    bool returnInterruptsEnabled = callerInterruptsEnabled;
+#endif
 
     if (cpu) {
         callerContext = *cpu;
@@ -473,6 +481,9 @@ void GuestFiberManager::SwitchToThread(uint32_t guestThreadAddr, CpuContext* cpu
                 if (cpu) {
                     currentIt->second.cpuContext = *cpu;
                 }
+#if defined(MKW_TARGET_VITA) && MKW_VITA_FIBER_IRQ_STATE
+                currentIt->second.interruptsEnabled = callerInterruptsEnabled;
+#endif
             }
         }
         
@@ -484,6 +495,9 @@ void GuestFiberManager::SwitchToThread(uint32_t guestThreadAddr, CpuContext* cpu
             targetContext = it->second.cpuContext;
             haveTargetContext = true;
         }
+#if defined(MKW_TARGET_VITA) && MKW_VITA_FIBER_IRQ_STATE
+        targetInterruptsEnabled = it->second.interruptsEnabled;
+#endif
     }
     
     // Store CPU context pointer for the target fiber to use
@@ -511,6 +525,12 @@ void GuestFiberManager::SwitchToThread(uint32_t guestThreadAddr, CpuContext* cpu
         // must re-mirror it.
         MkwApplyHostNiMode(cpu->fpscr);
     }
+
+#if defined(MKW_TARGET_VITA) && MKW_VITA_FIBER_IRQ_STATE
+    // A blocked source thread can legitimately be inside an IRQ-disabled critical
+    // section. The target must observe its own saved state, not inherit that one.
+    OS_HLE_SetInterruptsEnabledForContextSwitch(targetInterruptsEnabled);
+#endif
 
     // Switch to the target fiber (the target fiber will load its own context). On Vita,
     // time the cooperative slice at this boundary: this is much cheaper and more useful than
@@ -575,6 +595,9 @@ void GuestFiberManager::SwitchToThread(uint32_t guestThreadAddr, CpuContext* cpu
                     MkwApplyHostNiMode(cpu->fpscr);
                 }
                 it->second.state = ThreadState::RUNNING;
+#if defined(MKW_TARGET_VITA) && MKW_VITA_FIBER_IRQ_STATE
+                returnInterruptsEnabled = it->second.interruptsEnabled;
+#endif
             }
             s_currentGuestThread = previousThread;
         } else {
@@ -585,6 +608,9 @@ void GuestFiberManager::SwitchToThread(uint32_t guestThreadAddr, CpuContext* cpu
             s_currentGuestThread = 0;
         }
     }
+#if defined(MKW_TARGET_VITA) && MKW_VITA_FIBER_IRQ_STATE
+    OS_HLE_SetInterruptsEnabledForContextSwitch(returnInterruptsEnabled);
+#endif
 }
 
 uint32_t GuestFiberManager::GetCurrentGuestThread() {
@@ -635,6 +661,9 @@ bool GuestFiberManager::RegisterMainThreadAsFiber(uint32_t guestThreadAddr, CpuC
     gf.state = ThreadState::RUNNING;
     gf.terminated = false;
     gf.isSchedulerFiber = true;  // This is special - it's both scheduler AND main thread
+#if defined(MKW_TARGET_VITA) && MKW_VITA_FIBER_IRQ_STATE
+    gf.interruptsEnabled = OS_HLE_InterruptsEnabled();
+#endif
     
     // Copy current CPU context
     if (cpu) {

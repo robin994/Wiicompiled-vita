@@ -10,6 +10,7 @@
 #include "ppc_runtime.h"
 #include "runtime_config.h"
 #include "runtime_log.h"
+#include "audio_wait_profile.h"
 
 #include <algorithm>
 #include <array>
@@ -142,6 +143,9 @@ public:
     }
 
     void SendMail(uint32_t mail) {
+#if defined(MKW_TARGET_VITA) && MKW_VITA_AUDIO_WAIT_PROFILE && MKW_VITA_AUDIO_AI_PROFILE
+        AudioAiSubtimer timer(1);
+#endif
         std::lock_guard<std::mutex> lock(m_mutex);
         HandleMail(mail);
         m_toDspBusy = false;

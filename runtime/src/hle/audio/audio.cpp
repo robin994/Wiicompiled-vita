@@ -3,6 +3,10 @@
 #include "hle_stubs.h"
 #include "ppc_runtime.h"
 #include "audio_backend.h"
+#include "audio_wait_profile.h"
+#if defined(MKW_TARGET_VITA) && MKW_VITA_AUDIO_WAIT_PROFILE
+#include <psp2/kernel/processmgr.h>
+#endif
 #include "ax_dsp.h"
 #include "music_attenuation.h"
 #include "runtime_log.h"
@@ -47,6 +51,47 @@ struct AIDmaState {
 };
 
 AIDmaState g_ai{};
+
+#if defined(MKW_TARGET_VITA) && MKW_VITA_AUDIO_WAIT_PROFILE
+thread_local bool g_profileRenderWaitAudio = false;
+thread_local AudioWaitProfile g_audioWaitProfile{};
+#if MKW_VITA_AUDIO_AI_PROFILE
+thread_local bool g_profileAi = false;
+#endif
+
+struct AudioStageTimer {
+    AudioWaitProfile* profile;
+    size_t stage;
+    uint64_t beginUs;
+#if MKW_VITA_AUDIO_AI_PROFILE
+    bool previousAi = g_profileAi;
+#endif
+    AudioStageTimer(AudioWaitProfile* p, size_t s) noexcept
+        : profile(p), stage(s), beginUs(p ? sceKernelGetProcessTimeWide() : 0) {
+#if MKW_VITA_AUDIO_AI_PROFILE
+        if (p && s == 2) g_profileAi = true;
+#endif
+    }
+    ~AudioStageTimer() {
+#if MKW_VITA_AUDIO_AI_PROFILE
+        g_profileAi = previousAi;
+#endif
+        if (!profile) return;
+        const uint64_t elapsed = sceKernelGetProcessTimeWide() - beginUs;
+        ++profile->calls[stage];
+        profile->totalUs[stage] += elapsed;
+        profile->maxUs[stage] = std::max(profile->maxUs[stage], elapsed);
+    }
+};
+
+void RecordAudioBacklog(AudioWaitProfile* profile) noexcept {
+    // Caller owns g_ai.mutex. No changes to the emulated accumulator.
+    if (!profile) return;
+    const auto us = static_cast<uint64_t>(std::max(0.0, g_ai.accumulatorSeconds) * 1'000'000.0);
+    profile->backlogLastUs = us;
+    profile->backlogMaxUs = std::max(profile->backlogMaxUs, us);
+}
+#endif
 
 // Audio degradation is invisible to the player except as silence, so every
 // notice below reaches stderr unconditionally. The ones that sit on the
@@ -353,6 +398,10 @@ PPC_NATIVE_OVERRIDE(8015D57C, DSPAssertTask_8015d57c, uint32_t, (uint32_t taskPt
 // next block, preserving the SoundThread/DSP interleave order real hardware provides.
 void Audio_HLE_Tick(CpuContext* ctx, uint32_t deltaMicros)
 {
+#if defined(MKW_TARGET_VITA) && MKW_VITA_AUDIO_WAIT_PROFILE
+    AudioWaitProfile* profile = g_profileRenderWaitAudio ? &g_audioWaitProfile : nullptr;
+    if (profile) ++profile->ticks;
+#endif
     uint32_t startAddr = 0;
     uint32_t length = 0;
     uint32_t callback = 0;
@@ -371,7 +420,13 @@ void Audio_HLE_Tick(CpuContext* ctx, uint32_t deltaMicros)
             // SoundThread can hit the idle scheduler before the outer AXOut frame finishes;
             // retain elapsed time here rather than recursively entering the singleton AI/AX device.
             g_ai.accumulatorSeconds += static_cast<double>(deltaMicros) / 1'000'000.0;
+#if defined(MKW_TARGET_VITA) && MKW_VITA_AUDIO_WAIT_PROFILE
+            RecordAudioBacklog(profile);
+#endif
             if (g_ai.tickActive) {
+#if defined(MKW_TARGET_VITA) && MKW_VITA_AUDIO_WAIT_PROFILE
+                if (profile) ++profile->reentries;
+#endif
                 return;
             }
             g_ai.tickActive = true;
@@ -422,26 +477,37 @@ void Audio_HLE_Tick(CpuContext* ctx, uint32_t deltaMicros)
         // that reads its PB write-back and aux buffers (__AXOutNewFrame via the AI DMA
         // callback), so the mix worker must finish first; the join also publishes its
         // aux-out shadow.
-        AxDspHle::JoinMixWorker();
-
-        if (!EnsureAudioBackend(sampleRate)) {
-            std::lock_guard<std::mutex> lock(g_ai.mutex);
-            if (!g_ai.loggedBackendFailure) {
-                g_ai.loggedBackendFailure = true;
-                ReportAudioProblem("Audio", "audio backend unavailable; dropping samples");
-            }
-        } else {
-            const bool pushed = PushAudioBlock(startAddr, length);
-            if (!pushed) {
-                std::lock_guard<std::mutex> lock(g_ai.mutex);
-                if (!g_ai.loggedAccessFailure) {
-                    g_ai.loggedAccessFailure = true;
-                    ReportAudioProblem("Audio", "failed to read DMA buffer; disabling audio DMA");
-                }
-                g_ai.enabled = false;
-                return;
-            }
+        {
+#if defined(MKW_TARGET_VITA) && MKW_VITA_AUDIO_WAIT_PROFILE
+            AudioStageTimer timer(profile, 0);
+#endif
+            AxDspHle::JoinMixWorker();
         }
+
+        {
+#if defined(MKW_TARGET_VITA) && MKW_VITA_AUDIO_WAIT_PROFILE
+            AudioStageTimer timer(profile, 1);
+#endif
+            if (!EnsureAudioBackend(sampleRate)) {
+                std::lock_guard<std::mutex> lock(g_ai.mutex);
+                if (!g_ai.loggedBackendFailure) {
+                    g_ai.loggedBackendFailure = true;
+                    ReportAudioProblem("Audio", "audio backend unavailable; dropping samples");
+                }
+            } else {
+                const bool pushed = PushAudioBlock(startAddr, length);
+                if (!pushed) {
+                    std::lock_guard<std::mutex> lock(g_ai.mutex);
+                    if (!g_ai.loggedAccessFailure) {
+                        g_ai.loggedAccessFailure = true;
+                        ReportAudioProblem("Audio", "failed to read DMA buffer; disabling audio DMA");
+                    }
+                    g_ai.enabled = false;
+                    return;
+                }
+            }
+
+        } // Sink timing excludes guest callbacks.
 
         if (callback != 0) {
             // Pointer lookup avoids copying the registry record per audio block.
@@ -453,10 +519,34 @@ void Audio_HLE_Tick(CpuContext* ctx, uint32_t deltaMicros)
                     ReportAudioProblem("Audio", "AI DMA callback not registered; skipping");
                 }
             } else {
-                Memory::TryWrite32(kAICallbackBusyAddr, 1);
-                InvokeIndirectCpu(callback, cpu);
-                Memory::TryWrite32(kAICallbackBusyAddr, 0);
-                AxDspHle::ServiceDeferredCallbacks();
+                {
+#if defined(MKW_TARGET_VITA) && MKW_VITA_AUDIO_WAIT_PROFILE
+                    AudioStageTimer timer(profile, 2);
+                    if (profile) profile->callback = callback;
+#if MKW_VITA_AUDIO_AI_PROFILE
+                    if (profile && callback == 0x80551F00u) {
+                        // RMCP01 THP::AudioMixCallback/MixAudio global base,
+                        // taken from the translated code; snapshot only, no writes.
+                        constexpr uint32_t base = 0x809C0000u - 5376u;
+                        const bool chainOk = Memory::TryRead32(base + 1444u, profile->thpChain);
+                        const bool modeOk = Memory::TryRead32(base + 1456u, profile->thpMode);
+                        const bool openOk = Memory::TryRead32(base + 160u, profile->thpOpen);
+                        const bool flagsOk = Memory::TryRead32(base + 164u, profile->thpFlags);
+                        ++profile->thpSnapshots;
+                        if (!(chainOk && modeOk && openOk && flagsOk)) ++profile->thpReadFailures;
+                    }
+#endif
+#endif
+                    Memory::TryWrite32(kAICallbackBusyAddr, 1);
+                    InvokeIndirectCpu(callback, cpu);
+                    Memory::TryWrite32(kAICallbackBusyAddr, 0);
+                }
+                {
+#if defined(MKW_TARGET_VITA) && MKW_VITA_AUDIO_WAIT_PROFILE
+                    AudioStageTimer timer(profile, 3);
+#endif
+                    AxDspHle::ServiceDeferredCallbacks();
+                }
             }
         }
 
@@ -469,7 +559,13 @@ void Audio_HLE_Tick(CpuContext* ctx, uint32_t deltaMicros)
             g_ai.bytesLeft = g_ai.length;
         }
 
+#if defined(MKW_TARGET_VITA) && MKW_VITA_AUDIO_WAIT_PROFILE
+        if (profile) ++profile->blocks;
+#endif
         if (++blocksCompleted >= kMaxBlocksPerTick) {
+#if defined(MKW_TARGET_VITA) && MKW_VITA_AUDIO_WAIT_PROFILE
+            if (profile) ++profile->capped;
+#endif
             break;
         }
     }
@@ -482,6 +578,13 @@ void Audio_HLE_Tick(CpuContext* ctx, uint32_t deltaMicros)
                 g_ai.bytesLeft = g_ai.length - static_cast<uint32_t>(bytesRemaining);
             }
         }
+#if defined(MKW_TARGET_VITA) && MKW_VITA_AUDIO_WAIT_PROFILE
+        RecordAudioBacklog(profile);
+        if (profile) {
+            profile->length = g_ai.length;
+            profile->sampleRate = g_ai.sampleRate;
+        }
+#endif
         g_ai.tickActive = false;
         activeTickReset.armed = false;
     }
@@ -539,3 +642,34 @@ void Audio_HLE_PollDeferred()
     }
     OS_HLE_EndDeferredGuestCallbacks();
 }
+
+#if defined(MKW_TARGET_VITA) && MKW_VITA_AUDIO_WAIT_PROFILE
+void Audio_HLE_PollDeferredForRenderWait() {
+    struct Scope {
+        bool previous = g_profileRenderWaitAudio;
+        Scope() { g_profileRenderWaitAudio = true; }
+        ~Scope() { g_profileRenderWaitAudio = previous; }
+    } scope;
+    ++g_audioWaitProfile.polls;
+    Audio_HLE_PollDeferred();
+}
+
+AudioWaitProfile Audio_HLE_TakeWaitProfile() noexcept {
+    const auto result = g_audioWaitProfile;
+    g_audioWaitProfile = {};
+    return result;
+}
+#endif
+
+#if defined(MKW_TARGET_VITA) && MKW_VITA_AUDIO_WAIT_PROFILE && MKW_VITA_AUDIO_AI_PROFILE
+AudioAiSubtimer::AudioAiSubtimer(unsigned stage) noexcept
+    : stage_(stage), active_(g_profileAi && stage < 2),
+      beginUs_(active_ ? sceKernelGetProcessTimeWide() : 0) {}
+AudioAiSubtimer::~AudioAiSubtimer() {
+    if (!active_) return;
+    const uint64_t elapsed = sceKernelGetProcessTimeWide() - beginUs_;
+    ++g_audioWaitProfile.aiCalls[stage_];
+    g_audioWaitProfile.aiTotalUs[stage_] += elapsed;
+    g_audioWaitProfile.aiMaxUs[stage_] = std::max(g_audioWaitProfile.aiMaxUs[stage_], elapsed);
+}
+#endif

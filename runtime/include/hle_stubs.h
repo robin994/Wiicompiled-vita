@@ -28,6 +28,7 @@ void Audio_HLE_Poll(CpuContext* ctx);
 // arbitrary translated function.
 void Audio_HLE_PollDeferred();
 bool OS_HLE_InterruptsEnabled() noexcept;
+void OS_HLE_SetInterruptsEnabledForContextSwitch(bool enabled) noexcept;
 extern "C" void OS_HLE_ProcessAlarmsDeferred(int maxToProcess);
 extern "C" void OS_HLE_BeginDeferredGuestCallbacks();
 extern "C" void OS_HLE_EndDeferredGuestCallbacks();

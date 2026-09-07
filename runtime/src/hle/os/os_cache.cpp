@@ -9,6 +9,7 @@
 #include "hle_stubs.h"
 #include "ppc_runtime.h"
 #include "runtime_log.h"
+#include "audio_wait_profile.h"
 #include "hle/gx/gx_internal.h"
 
 // ============================================================================
@@ -59,6 +60,9 @@ bool ValidateCacheRange(const char* label, const CacheRange& range)
 
 void DcRangeOp(const char* label, uint32_t addr, uint32_t length)
 {
+#if defined(MKW_TARGET_VITA) && MKW_VITA_AUDIO_WAIT_PROFILE && MKW_VITA_AUDIO_AI_PROFILE
+    AudioAiSubtimer timer(0);
+#endif
     CacheRange range{};
     if (!NormalizeCacheRange(addr, length, range) || !ValidateCacheRange(label, range)) {
         return;

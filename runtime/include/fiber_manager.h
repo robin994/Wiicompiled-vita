@@ -43,6 +43,7 @@ struct GuestFiber {
     uint32_t entryPoint = 0;            // Thread entry function
     uint32_t entryArg = 0;              // Argument to entry function
     CpuContext cpuContext{};            // Saved CPU context for this fiber
+    bool interruptsEnabled = true;      // Guest interrupt-enable state follows the fiber
     ThreadState state = ThreadState::READY;
     bool isSchedulerFiber = false;      // True for the main scheduler fiber
     bool terminated = false;            // Thread has exited

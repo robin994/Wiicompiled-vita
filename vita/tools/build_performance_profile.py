@@ -27,6 +27,9 @@ BASE = dict(
     MKW_VITA_UI_QUAD_RUNS=0, MKW_VITA_TEXTURE_SHARED_HEADROOM=0,
     MKW_VITA_TEXTURE_SAFE_RETRY=0, MKW_VITA_WAIT_TIMING_SERVICE=0,
     MKW_VITA_INCREMENTAL_CACHE_EVICTION=0,
+    MKW_VITA_FIBER_IRQ_STATE=0, MKW_VITA_WAIT_SERVICE_PROFILE=0,
+    MKW_VITA_AUDIO_WAIT_PROFILE=0, MKW_VITA_AUDIO_AI_PROFILE=0,
+    MKW_VITA_NATIVE_AUDIOOUT=0, MKW_VITA_AUDIO_PACING=0,
 )
 PROFILES = {
     "full-content-3d": dict(MKW_VITA_STREAM_SAFE_REUSE=1, MKW_VITA_EFB_COMMAND_CAPACITY=512,
@@ -47,6 +50,13 @@ PROFILES = {
         MKW_VITA_EFB_NATIVE_RES_COPY=1, MKW_VITA_TEXTURE_SAFE_RETRY=1,
         MKW_VITA_PERF_LOG=0, MKW_VITA_CLIP_W=1, MKW_VITA_WAIT_TIMING_SERVICE=1,
         MKW_VITA_INCREMENTAL_CACHE_EVICTION=1),
+    "full-content-p5_4-fiber-irq": dict(
+        MKW_VITA_STREAM_SAFE_REUSE=1, MKW_VITA_EFB_COMMAND_CAPACITY=512,
+        MKW_VITA_TEXTURE_SHARED_HEADROOM=1, MKW_VITA_UI_QUAD_RUNS=1,
+        MKW_VITA_DISABLE_MOVIES=0, MKW_VITA_NATIVE_THP=1,
+        MKW_VITA_EFB_NATIVE_RES_COPY=1, MKW_VITA_TEXTURE_SAFE_RETRY=1,
+        MKW_VITA_PERF_LOG=0, MKW_VITA_CLIP_W=1, MKW_VITA_WAIT_TIMING_SERVICE=1,
+        MKW_VITA_INCREMENTAL_CACHE_EVICTION=1, MKW_VITA_FIBER_IRQ_STATE=1),
     "p5-resident": {},
     "p6-resources": dict(MKW_VITA_STREAM_SAFE_REUSE=1, MKW_VITA_EFB_COMMAND_CAPACITY=512,
                          MKW_VITA_TEXTURE_SHARED_HEADROOM=1),
@@ -68,6 +78,22 @@ PROFILES = {
                                        MKW_VITA_EFB_NATIVE_RES_COPY=1,
                                        MKW_VITA_TEXTURE_SAFE_RETRY=1),
 }
+
+# Identical to P5.4 except bounded service attribution, with no callback changes.
+PROFILES["full-content-p5_5-wait-service-profile"] = (
+    PROFILES["full-content-p5_4-fiber-irq"] | dict(MKW_VITA_WAIT_SERVICE_PROFILE=1))
+
+PROFILES["full-content-p5_6-audio-wait-profile"] = (
+    PROFILES["full-content-p5_5-wait-service-profile"] | dict(MKW_VITA_AUDIO_WAIT_PROFILE=1))
+
+PROFILES["full-content-p5_7-audio-ai-profile"] = (
+    PROFILES["full-content-p5_6-audio-wait-profile"] | dict(MKW_VITA_AUDIO_AI_PROFILE=1))
+
+PROFILES["full-content-p5_8-native-audioout"] = (
+    PROFILES["full-content-p5_7-audio-ai-profile"] | dict(MKW_VITA_NATIVE_AUDIOOUT=1))
+
+PROFILES["full-content-p5_9-audio-pacing"] = (
+    PROFILES["full-content-p5_8-native-audioout"] | dict(MKW_VITA_AUDIO_PACING=1))
 
 def sha(path):
     with path.open("rb") as stream:
@@ -108,7 +134,7 @@ def main():
     files = [ROOT / "build/vita" / (target + ext) for ext in (".vpk", ".manifest.txt")]
     files += [ROOT / "build/vita/mkwii_runtime" / (target + ".elf")]
     sources = {ROOT / "Makefile.vita", Path(__file__).resolve()}
-    for folder in ("vita", "aurora-main/platforms/vita/gfx", "runtime/src/hle/gx"):
+    for folder in ("vita", "aurora-main/platforms/vita/gfx", "runtime/src", "runtime/include"):
         sources.update(path for path in (ROOT/folder).rglob("*") if path.suffix in (".cpp", ".h", ".hpp", ".py"))
     evidence = dict(config=config, hardware_validated=False,
         artifacts={str(path.relative_to(ROOT)): dict(sha256=sha(path), bytes=path.stat().st_size) for path in files},

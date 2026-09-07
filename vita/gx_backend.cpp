@@ -4,6 +4,7 @@
 #include "guest_stall_watchdog.h"
 #include "abi_bridge.h"
 #include "runtime_log.h"
+#include "audio_wait_profile.h"
 #if defined(MKW_VITA_AURORA_RENDERER)
 #include "aurora_packet_renderer.h"
 #endif
@@ -966,6 +967,14 @@ uint64_t g_guestWaitRenderUsSinceSubmit = 0;
 uint64_t g_waitCallbackCallsSinceSubmit = 0;
 uint64_t g_waitCallbackUsSinceSubmit = 0;
 uint64_t g_waitCallbackMaxUsSinceSubmit = 0;
+#if MKW_VITA_WAIT_SERVICE_PROFILE
+struct WaitServiceParts {
+    uint64_t calls = 0;
+    std::array<uint64_t, 3> totalUs{}; // VI, alarms (including IOS completions), audio
+    std::array<uint64_t, 3> maxUs{};
+};
+WaitServiceParts g_waitServiceParts{}; // USER_0 only; reset at each submission
+#endif
 enum class RenderWaitReason : u8 { DrawDone = 0, FrameWorker = 1, Count = 2 };
 std::array<uint64_t, static_cast<size_t>(RenderWaitReason::Count)> g_renderWaitCallsByReason{};
 std::array<uint64_t, static_cast<size_t>(RenderWaitReason::Count)> g_renderWaitUsByReason{};
@@ -3609,7 +3618,7 @@ void RenderWorkerMain() {
             "efb_readback_flip_y=%u efb_transfer_readback=%u efb_resident_copy=%u "
             "efb_native_res_copy=%u stream_safe_reuse=%u ui_quad_runs=%u "
             "texture_shared_headroom=%u texture_safe_retry=%u clip_w=%u "
-            "wait_timing_service=%u incremental_cache_eviction=%u\n",
+            "wait_timing_service=%u incremental_cache_eviction=%u fiber_irq_state=%u wait_service_profile=%u audio_wait_profile=%u audio_ai_profile=%u native_audioout=%u audio_pacing=%u\n",
             static_cast<unsigned long long>(vglInitBeginUs), kRendererVariant, kVitaGlVariant,
             static_cast<unsigned>(kRenderTargetScenes), static_cast<unsigned>(kRenderTargetScenes),
             static_cast<unsigned>(kMaxFrameDraws), static_cast<unsigned>(kMaxFrameVertices),
@@ -3649,7 +3658,13 @@ void RenderWorkerMain() {
             static_cast<unsigned>(MKW_VITA_TEXTURE_SAFE_RETRY),
             static_cast<unsigned>(MKW_VITA_CLIP_W),
             static_cast<unsigned>(MKW_VITA_WAIT_TIMING_SERVICE),
-            static_cast<unsigned>(MKW_VITA_INCREMENTAL_CACHE_EVICTION));
+            static_cast<unsigned>(MKW_VITA_INCREMENTAL_CACHE_EVICTION),
+            static_cast<unsigned>(MKW_VITA_FIBER_IRQ_STATE),
+            static_cast<unsigned>(MKW_VITA_WAIT_SERVICE_PROFILE),
+            static_cast<unsigned>(MKW_VITA_AUDIO_WAIT_PROFILE),
+            static_cast<unsigned>(MKW_VITA_AUDIO_AI_PROFILE),
+            static_cast<unsigned>(MKW_VITA_NATIVE_AUDIOOUT),
+            static_cast<unsigned>(MKW_VITA_AUDIO_PACING));
     const bool resolutionFallback =
         vglInitExtended(0, kSurfaceWidth, kSurfaceHeight, kVitaGlUserRamReserve,
                         SCE_GXM_MULTISAMPLE_NONE) == GL_TRUE;
@@ -5137,6 +5152,13 @@ void SubmitFrame() {
     const uint64_t priorWaitCallbackCalls = g_waitCallbackCallsSinceSubmit;
     const uint64_t priorWaitCallbackUs = g_waitCallbackUsSinceSubmit;
     const uint64_t priorWaitCallbackMaxUs = g_waitCallbackMaxUsSinceSubmit;
+#if MKW_VITA_WAIT_SERVICE_PROFILE
+    const auto priorWaitServiceParts = g_waitServiceParts;
+    g_waitServiceParts = {};
+#endif
+#if MKW_VITA_AUDIO_WAIT_PROFILE
+    const auto priorAudio = Audio_HLE_TakeWaitProfile();
+#endif
     const auto priorWaitCallsByReason = g_renderWaitCallsByReason;
     const auto priorWaitUsByReason = g_renderWaitUsByReason;
     g_guestWaitRenderCallsSinceSubmit = 0;
@@ -5324,6 +5346,62 @@ void SubmitFrame() {
                 static_cast<unsigned long long>(pendingFrame.counters.efbCopyRecorded),
                 static_cast<unsigned long long>(pendingFrame.counters.efbCopyCapacityFailures),
                 static_cast<unsigned long long>(pendingFrame.counters.efbDestroyRecorded));
+#if MKW_VITA_WAIT_SERVICE_PROFILE
+        RT_LOGF(RT_TAG_GX,
+                "wait_service_parts serial=%llu calls=%llu vi_us=%llu/%llu "
+                "alarm_us=%llu/%llu audio_us=%llu/%llu\n",
+                static_cast<unsigned long long>(submittedSerial),
+                static_cast<unsigned long long>(priorWaitServiceParts.calls),
+                static_cast<unsigned long long>(priorWaitServiceParts.totalUs[0]),
+                static_cast<unsigned long long>(priorWaitServiceParts.maxUs[0]),
+                static_cast<unsigned long long>(priorWaitServiceParts.totalUs[1]),
+                static_cast<unsigned long long>(priorWaitServiceParts.maxUs[1]),
+                static_cast<unsigned long long>(priorWaitServiceParts.totalUs[2]),
+                static_cast<unsigned long long>(priorWaitServiceParts.maxUs[2]));
+#endif
+#if MKW_VITA_AUDIO_WAIT_PROFILE
+        RT_LOGF(RT_TAG_GX,
+                "audio_wait_parts serial=%llu polls=%llu ticks=%llu reentries=%llu blocks=%llu capped=%llu "
+                "join_us=%llu/%llu/%llu sink_us=%llu/%llu/%llu "
+                "ai_us=%llu/%llu/%llu ax_us=%llu/%llu/%llu "
+                "backlog_us=%llu/%llu callback=0x%08X dma=%u/%u\n",
+                static_cast<unsigned long long>(submittedSerial),
+                static_cast<unsigned long long>(priorAudio.polls),
+                static_cast<unsigned long long>(priorAudio.ticks),
+                static_cast<unsigned long long>(priorAudio.reentries),
+                static_cast<unsigned long long>(priorAudio.blocks),
+                static_cast<unsigned long long>(priorAudio.capped),
+                static_cast<unsigned long long>(priorAudio.calls[0]),
+                static_cast<unsigned long long>(priorAudio.totalUs[0]),
+                static_cast<unsigned long long>(priorAudio.maxUs[0]),
+                static_cast<unsigned long long>(priorAudio.calls[1]),
+                static_cast<unsigned long long>(priorAudio.totalUs[1]),
+                static_cast<unsigned long long>(priorAudio.maxUs[1]),
+                static_cast<unsigned long long>(priorAudio.calls[2]),
+                static_cast<unsigned long long>(priorAudio.totalUs[2]),
+                static_cast<unsigned long long>(priorAudio.maxUs[2]),
+                static_cast<unsigned long long>(priorAudio.calls[3]),
+                static_cast<unsigned long long>(priorAudio.totalUs[3]),
+                static_cast<unsigned long long>(priorAudio.maxUs[3]),
+                static_cast<unsigned long long>(priorAudio.backlogMaxUs),
+                static_cast<unsigned long long>(priorAudio.backlogLastUs),
+                priorAudio.callback, priorAudio.length, priorAudio.sampleRate);
+#if MKW_VITA_AUDIO_AI_PROFILE
+        RT_LOGF(RT_TAG_GX,
+                "audio_ai_parts serial=%llu cache_us=%llu/%llu/%llu mail_us=%llu/%llu/%llu "
+                "thp_chain=0x%08X thp_mode=%u thp_open=%u thp_flags=0x%08X snapshots=%llu/%llu\n",
+                static_cast<unsigned long long>(submittedSerial),
+                static_cast<unsigned long long>(priorAudio.aiCalls[0]),
+                static_cast<unsigned long long>(priorAudio.aiTotalUs[0]),
+                static_cast<unsigned long long>(priorAudio.aiMaxUs[0]),
+                static_cast<unsigned long long>(priorAudio.aiCalls[1]),
+                static_cast<unsigned long long>(priorAudio.aiTotalUs[1]),
+                static_cast<unsigned long long>(priorAudio.aiMaxUs[1]),
+                priorAudio.thpChain, priorAudio.thpMode, priorAudio.thpOpen, priorAudio.thpFlags,
+                static_cast<unsigned long long>(priorAudio.thpSnapshots),
+                static_cast<unsigned long long>(priorAudio.thpReadFailures));
+#endif
+#endif
     }
 #endif
 }
@@ -5407,6 +5485,17 @@ uint32_t TextureLevelSize(u16 width, u16 height, u32 fmt) {
 } // namespace
 
 namespace WiiCompiledVita::GxBackend {
+
+#if MKW_VITA_WAIT_SERVICE_PROFILE
+void RecordWaitServiceParts(uint64_t viUs, uint64_t alarmUs, uint64_t audioUs) noexcept {
+    const std::array<uint64_t, 3> parts{viUs, alarmUs, audioUs};
+    ++g_waitServiceParts.calls;
+    for (size_t i = 0; i < parts.size(); ++i) {
+        g_waitServiceParts.totalUs[i] += parts[i];
+        g_waitServiceParts.maxUs[i] = std::max(g_waitServiceParts.maxUs[i], parts[i]);
+    }
+}
+#endif
 
 void SetGuestBeginLr(uint32_t lr) noexcept {
     if (lr != 0u) {

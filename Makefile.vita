@@ -171,6 +171,23 @@ MKW_VITA_WAIT_TIMING_SERVICE ?= 1
 # P5.3: preserve the existing bounded cache budgets but retire old records
 # incrementally instead of dropping the entire raw-mesh / DL-scan working set.
 MKW_VITA_INCREMENTAL_CACHE_EVICTION ?= 0
+# P5.4: the Wii interrupt-enable bit is CPU execution state. Guest fibers are
+# cooperative host stacks, so preserve that state per fiber instead of letting
+# a sleeping critical section leak its disabled state into the next guest thread.
+MKW_VITA_FIBER_IRQ_STATE ?= 0
+# P5.5: attribute the now-active wait service without changing callback cadence.
+MKW_VITA_WAIT_SERVICE_PROFILE ?= 0
+# P5.6: separate wait-audio join, sink, AI and AX costs; no behavior change.
+MKW_VITA_AUDIO_WAIT_PROFILE ?= 0
+# P5.7: identify native children and THP chain within the measured AI callback.
+MKW_VITA_AUDIO_AI_PROFILE ?= 0
+# P5.8: replace the first-boot null sink with a bounded native SceAudioOut
+# worker. Disabled by default so all historical performance profiles remain A/B
+# comparable until this functional audio path is explicitly selected.
+MKW_VITA_NATIVE_AUDIOOUT ?= 0
+# P5.9: once the first real PCM arrives, keep SceAudioOut continuously clocked,
+# smooth host-side underrun/overflow boundaries, and prefer fresh PCM on overflow.
+MKW_VITA_AUDIO_PACING ?= 0
 AURORA_VITAGL_LIB ?= ../aurora-vita-max-prehardware/third_party/vitaGL-speedhack-src/libvitaGL-m12_5-custom-heap.a
 AURORA_VITA_GFX_DIR := aurora-main/platforms/vita/gfx
 AURORA_VITA_GFX_SRCS := $(addprefix $(AURORA_VITA_GFX_DIR)/,\
@@ -224,7 +241,7 @@ MKW_VITA_RUNTIME_CONFIG_TEXT := lyt_direct=$(MKW_VITA_LYT_DIRECT) lyt_faithful=$
 # Objects compiled with renderer/vitaGL-specific flags live under this variant tag.
 MKW_VITA_RUNTIME_CONFIG_TEXT += clip_w=$(MKW_VITA_CLIP_W)
 MKW_VITA_RUNTIME_CONFIG_TEXT += efb_resident_copy=$(MKW_VITA_EFB_RESIDENT_COPY) efb_native_res_copy=$(MKW_VITA_EFB_NATIVE_RES_COPY) stream_safe_reuse=$(MKW_VITA_STREAM_SAFE_REUSE) efb_command_capacity=$(MKW_VITA_EFB_COMMAND_CAPACITY) ui_quad_runs=$(MKW_VITA_UI_QUAD_RUNS) texture_shared_headroom=$(MKW_VITA_TEXTURE_SHARED_HEADROOM) texture_safe_retry=$(MKW_VITA_TEXTURE_SAFE_RETRY)
-MKW_VITA_RUNTIME_CONFIG_TEXT += wait_timing_service=$(MKW_VITA_WAIT_TIMING_SERVICE) incremental_cache_eviction=$(MKW_VITA_INCREMENTAL_CACHE_EVICTION)
+MKW_VITA_RUNTIME_CONFIG_TEXT += wait_timing_service=$(MKW_VITA_WAIT_TIMING_SERVICE) incremental_cache_eviction=$(MKW_VITA_INCREMENTAL_CACHE_EVICTION) fiber_irq_state=$(MKW_VITA_FIBER_IRQ_STATE) wait_service_profile=$(MKW_VITA_WAIT_SERVICE_PROFILE) audio_wait_profile=$(MKW_VITA_AUDIO_WAIT_PROFILE) audio_ai_profile=$(MKW_VITA_AUDIO_AI_PROFILE) native_audioout=$(MKW_VITA_NATIVE_AUDIOOUT) audio_pacing=$(MKW_VITA_AUDIO_PACING)
 # Common runtime/third-party objects remain shared because their compile flags are identical.
 MKW_VITA_VARIANT_OBJ_DIR := $(MKW_RUNTIME_BUILD_DIR)/variants/$(MKW_VITA_BUILD_VARIANT)
 AURORA_VITA_GFX_OBJS := $(patsubst $(AURORA_VITA_GFX_DIR)/%.cpp,\
@@ -278,6 +295,12 @@ COMMON_FLAGS := -O2 -g -ffunction-sections -fdata-sections -D__vita__ -DMKW_TARG
 	-DMKW_VITA_TEXTURE_SAFE_RETRY=$(MKW_VITA_TEXTURE_SAFE_RETRY) \
 	-DMKW_VITA_WAIT_TIMING_SERVICE=$(MKW_VITA_WAIT_TIMING_SERVICE) \
 	-DMKW_VITA_INCREMENTAL_CACHE_EVICTION=$(MKW_VITA_INCREMENTAL_CACHE_EVICTION) \
+	-DMKW_VITA_FIBER_IRQ_STATE=$(MKW_VITA_FIBER_IRQ_STATE) \
+	-DMKW_VITA_WAIT_SERVICE_PROFILE=$(MKW_VITA_WAIT_SERVICE_PROFILE) \
+		-DMKW_VITA_AUDIO_WAIT_PROFILE=$(MKW_VITA_AUDIO_WAIT_PROFILE) \
+		-DMKW_VITA_AUDIO_AI_PROFILE=$(MKW_VITA_AUDIO_AI_PROFILE) \
+		-DMKW_VITA_NATIVE_AUDIOOUT=$(MKW_VITA_NATIVE_AUDIOOUT) \
+		-DMKW_VITA_AUDIO_PACING=$(MKW_VITA_AUDIO_PACING) \
 	-DCRYPTOPP_DISABLE_ASM -DCRYPTOPP_NO_GLOBAL_BYTE \
 	-Iruntime/third_party -Iruntime/third_party/libco -Iruntime/third_party/toml11 \
 	-Iruntime/third_party/pugixml -Iruntime/include -Iruntime/src -Iaurora-main/include -Ivita/include
@@ -312,7 +335,7 @@ LDFLAGS := -Wl,-q -Wl,--gc-sections
 LIBS := -lSceFiber_stub -lSceSysmodule_stub -lSceIofilemgr_stub -lSceKernelThreadMgr_stub \
 	-lSceProcessmgr_stub -Wl,--whole-archive -lpthread -Wl,--no-whole-archive \
 	$(VITAGL_LINK) -lvitashark -lSceShaccCgExt -lSceShaccCg_stub -lSceGxm_stub -lSceDisplay_stub \
-	-lSceKernelDmacMgr_stub -lScePower_stub -lSceAppMgr_stub -lSceCommonDialog_stub -lSceCtrl_stub \
+	-lSceKernelDmacMgr_stub -lScePower_stub -lSceAppMgr_stub -lSceCommonDialog_stub -lSceCtrl_stub -lSceAudio_stub \
 	-lmathneon -ltaihen_stub -lturbojpeg
 
 .PHONY: all probe recomp-probe recomp-probe-package vita-runtime-main-check generate translated-check \
@@ -580,12 +603,12 @@ $(MKW_RUNTIME_BUILD_DIR)/runtime/%.o: runtime/src/%.cpp $(MKW_VITA_RUNTIME_CONFI
 	$(CXX) $(CXXFLAGS) -I. -I$(MKW_GENERATED_DIR) -I$(MKW_BUILD_SHARDS_DIR)/base_common \
 		-MMD -MP -c $< -o $@
 
-$(MKW_VITA_MAIN_OBJ): vita/main_vita.cpp | check-vitasdk
+$(MKW_VITA_MAIN_OBJ): vita/main_vita.cpp $(MKW_VITA_RUNTIME_CONFIG_STAMP) | check-vitasdk
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -I. -I$(MKW_GENERATED_DIR) -I$(MKW_BUILD_SHARDS_DIR)/base_common \
 		-MMD -MP -c $< -o $@
 
-$(MKW_VITA_AUDIO_OBJ): vita/audio_backend_vita.cpp | check-vitasdk
+$(MKW_VITA_AUDIO_OBJ): vita/audio_backend_vita.cpp $(MKW_VITA_RUNTIME_CONFIG_STAMP) | check-vitasdk
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -I. -MMD -MP -c $< -o $@
 

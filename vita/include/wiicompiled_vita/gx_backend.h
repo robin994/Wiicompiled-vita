@@ -82,4 +82,9 @@ bool ApplyIndexedXfPacket(uint32_t value, const uint8_t* source,
 // M12 trace: guest return address of the current GXBegin, threaded into GeometryDraw.
 void SetGuestBeginLr(uint32_t lr) noexcept;
 
+#if MKW_VITA_WAIT_SERVICE_PROFILE
+// USER_0 only, matching WaitRender/SubmitFrame ownership. No log or allocation.
+void RecordWaitServiceParts(uint64_t viUs, uint64_t alarmUs, uint64_t audioUs) noexcept;
+#endif
+
 } // namespace WiiCompiledVita::GxBackend
