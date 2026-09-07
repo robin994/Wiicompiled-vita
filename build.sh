@@ -367,6 +367,15 @@ muted = false
 attenuate_music_when_media_plays = false
 mix_worker = true
 
+[controller]
+rumble = true
+wii_remotes = true
+wii_continuous_scan = false
+# wii_accel_offset_x = 0.0
+# wii_accel_offset_y = 0.0
+# wii_accel_offset_z = 0.0
+# wii_accel_trace = false
+
 [network]
 enabled = true
 
