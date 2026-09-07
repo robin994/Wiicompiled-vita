@@ -274,15 +274,13 @@ if ! dotnet --list-sdks 2>/dev/null | grep -qE '^([8-9]|[1-9][0-9])\.'; then
     exit 1
 fi
 
-# Rebuild the translator every run. dotnet's incremental build is a fast no-op
-# when translator/ is unchanged, but a plain "is the DLL there?" check would
-# silently keep using a stale build after a "git pull" that touched it.
+# Always rebuild the translator; dotnet's incremental build is a no-op when
+# translator/ is unchanged, and this avoids using a stale DLL after a git pull.
 echo "==> building translator (incremental)"
 dotnet build translator/src/Translator.Cli/Translator.Cli.csproj -c Release --nologo
 
-# Fingerprint of the built translator. A change here forces a re-translate
-# below, exactly like a new Code.pul does - otherwise generated/ (and the
-# shards built from it) would keep whatever the old translator emitted.
+# Fingerprint the build so a changed translator forces a re-translate below,
+# the same way a new Code.pul does.
 TRANSLATOR_ID=$(find translator/src/Translator.Cli/bin/Release/net8.0 -name '*.dll' -type f \
     -exec sha256sum {} + | sort | sha256sum | cut -d' ' -f1)
 TRANSLATOR_STAMP="generated/.translator-build-id"
@@ -387,13 +385,11 @@ if [ ! -f "$SHARDS_DIR/shards.cmake" ]; then
 elif [ "$RETRO" = "1" ] && ! grep -q "MKW_HAVE_RETRO_REWIND_SHARDS ON" "$SHARDS_DIR/shards.cmake"; then
     NEED_SHARDS=1
 elif [ "$NEED_BASE_TRANSLATE" = "1" ]; then
-    # A Retro Rewind update (new Code.pul) or a changed translator just redid
-    # the base/mod translation; the shards are generated from that output, so
-    # they are stale now even though shards.cmake still exists.
+    # base/mod translation was just redone (new Code.pul or translator), so the
+    # shards generated from it are stale even though shards.cmake still exists.
     NEED_SHARDS=1
 elif [ "generated/base_translation_output.json" -nt "$SHARDS_DIR/shards.cmake" ]; then
-    # Safety net: a previous run translated but didn't get as far as emitting
-    # shards (interrupted, or generated/ partly cleaned by hand).
+    # or a previous run translated but never got to emitting shards.
     NEED_SHARDS=1
 fi
 
