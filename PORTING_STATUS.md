@@ -2923,3 +2923,69 @@ sta soltanto rendendo meno aggressiva una forte oscillazione guest. Il blocker
 performance primario resta quindi l'attribution degli stall ~1-6 s
 TaskThread/THP/scheduler; non aumentare la FIFO e non ridurre i servizi audio
 guest per migliorare artificialmente il benchmark.
+
+## GX -> vitaGL default — direct EFB and clip coordinates (2026-09-07)
+
+User requested removal of Aurora from the active Vita renderer. The working tree
+already contained P6.0/P6.1 direct submission, batching and increased packet capacity;
+those changes were retained. `Makefile.vita` now defaults to the direct renderer,
+compact frame state and direct batching. Resident direct EFB is enabled by default
+with the patched vitaGL archive. Historical Aurora profiles remain explicit A/B
+builds; shared Dolphin/GX declarations and HLE compatibility entry points remain
+because they define the guest graphics interface, not a second renderer.
+
+Implemented in this continuation:
+
+- Execute EFB copy/destroy commands on USER_1 at their recorded draw boundaries,
+  including frames without geometry and trailing commands. Existing batching stops
+  at EFB boundaries. No Aurora packet bridge, renderer objects or transient FBOs.
+- Bounded resident EFB texture table (128 destinations / 8 MiB), explicit retirement
+  after GPU completion, same-size GXM transfer, nearest CPU resize fallback and GX
+  color-channel conversion. Unsupported depth copies fail explicitly. No guest RAM
+  EFB writeback is implemented. Native-size copies are budget-dependent; this is
+  still a candidate path requiring hardware validation.
+- Resolve copied EFB textures before ordinary guest texture decoding; record copies,
+  failures, sampled copies and aggregate EFB time in direct `perf_summary`.
+- Preserve homogeneous position w in the direct GPU stream when clip_w=1. CPU
+  profiling stays in NDC; submission restores clip coordinates with four-component
+  glVertexPointer, preserving perspective interpolation and clipping information.
+- Move THP tiled YUV420 conversion into a portable GX-owned helper; direct texture
+  cache identity includes both chroma planes and revisions/generations. Existing
+  source-generation checks cover all three planes in the packaged profile.
+- Performance package evidence includes .inc sources and rejects a direct ELF with
+  AuroraPacketRenderer or aurora::vita::gfx implementation symbols.
+
+Validation performed (not a real-Vita run):
+
+- ARM32 compile/link, VELF/FSELF and VPK generation: exit 0.
+- verify-mkw-firstboot-vpk and unzip integrity: PASS.
+- Defined-symbol audit: zero Aurora renderer symbols in the ELF.
+- ARM32 syntax check with batching=0, compact state=0, clip_w=0: PASS.
+- Native THP test with AddressSanitizer/UndefinedBehaviorSanitizer: PASS for black,
+  red, tiled boundary addressing, odd dimensions, invalid dimensions and capacity.
+- git diff --check: PASS.
+
+Reproduce:
+
+```
+python3 vita/tools/build_performance_profile.py full-content-p6_2-direct-efb --jobs 8
+c++ -std=c++17 -fsanitize=address,undefined -Ivita/include vita/tests/direct_texture_decode.cpp -o /tmp/wiicompiled-direct-texture-test
+/tmp/wiicompiled-direct-texture-test
+```
+
+Artifacts:
+
+- VPK: build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_2-direct-efb.vpk
+- VPK bytes: 41214863
+- VPK SHA-256: c084cc9c2c2697e28680657fe2455a10587c3ad996ec721d08e0a891c67e86a8
+- ELF SHA-256: 6c23771033dd7dcaface4e88434df060971773a1f63b0d46e99c7633c779ca34
+- Evidence: build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_2-direct-efb.evidence.json
+
+Hardware status: NOT TESTED for this artifact. No FPS improvement or complete
+visual parity is claimed. Direct fixed-function TEV/alpha/texgen fallback limits
+remain; this change is not a full GX shader implementation. Verify menu, Single
+Player, race geometry/materials, EFB orientation/effects, THP color and audio on a
+fresh log (archive the old append-mode runtime.log first). Compare the same scene
+and configuration with Aurora: producer/wait time, physical/merged draws, upload,
+EFB time/failures, dropped vertices and visual output. In particular, the extra
+EFB synchronizations and CPU format conversion must be measured, not assumed free.

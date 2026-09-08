@@ -29,7 +29,10 @@ BASE = dict(
     MKW_VITA_INCREMENTAL_CACHE_EVICTION=0,
     MKW_VITA_FIBER_IRQ_STATE=0, MKW_VITA_WAIT_SERVICE_PROFILE=0,
     MKW_VITA_AUDIO_WAIT_PROFILE=0, MKW_VITA_AUDIO_AI_PROFILE=0,
-    MKW_VITA_NATIVE_AUDIOOUT=0, MKW_VITA_AUDIO_PACING=0,
+    MKW_VITA_NATIVE_AUDIOOUT=0, MKW_VITA_AUDIO_PACING=0, MKW_VITA_DIRECT_BATCHER=0,
+    MKW_VITA_DIRECT_EFB=0, MKW_VITA_DIRECT_STATE_CACHE=0,
+    MKW_VITA_DIRECT_TEV_SPECIALIZE=0,
+    MKW_VITA_AURORA_RENDERER=1,
 )
 PROFILES = {
     "full-content-3d": dict(MKW_VITA_STREAM_SAFE_REUSE=1, MKW_VITA_EFB_COMMAND_CAPACITY=512,
@@ -95,6 +98,28 @@ PROFILES["full-content-p5_8-native-audioout"] = (
 PROFILES["full-content-p5_9-audio-pacing"] = (
     PROFILES["full-content-p5_8-native-audioout"] | dict(MKW_VITA_AUDIO_PACING=1))
 
+# P6.0 architectural bring-up: same full-content/P5.9 correctness and timing
+# stack, but the GX HLE frame packet is consumed directly by vitaGL.  With
+# MKW_VITA_AURORA_RENDERER=0 the Makefile does not compile/link
+# vita/aurora_packet_renderer.cpp nor aurora-main/platforms/vita/gfx/*.cpp.
+PROFILES["full-content-p6_0-direct-vitagl"] = (
+    PROFILES["full-content-p5_9-audio-pacing"] | dict(MKW_VITA_AURORA_RENDERER=0))
+
+PROFILES["full-content-p6_1-direct-batcher"] = (
+    PROFILES["full-content-p6_0-direct-vitagl"] | dict(MKW_VITA_DIRECT_BATCHER=1))
+
+PROFILES["full-content-p6_1b-direct-capacity"] = (
+    PROFILES["full-content-p6_1-direct-batcher"] | {})
+
+PROFILES["full-content-p6_2-direct-efb"] = (
+    PROFILES["full-content-p6_1b-direct-capacity"] | dict(MKW_VITA_DIRECT_EFB=1))
+
+PROFILES["full-content-p6_3-direct-state-cache"] = (
+    PROFILES["full-content-p6_2-direct-efb"] | dict(MKW_VITA_DIRECT_STATE_CACHE=1))
+
+PROFILES["full-content-p6_4-direct-tev-specialize"] = (
+    PROFILES["full-content-p6_3-direct-state-cache"] | dict(MKW_VITA_DIRECT_TEV_SPECIALIZE=1))
+
 def sha(path):
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
@@ -135,8 +160,18 @@ def main():
     files += [ROOT / "build/vita/mkwii_runtime" / (target + ".elf")]
     sources = {ROOT / "Makefile.vita", Path(__file__).resolve()}
     for folder in ("vita", "aurora-main/platforms/vita/gfx", "runtime/src", "runtime/include"):
-        sources.update(path for path in (ROOT/folder).rglob("*") if path.suffix in (".cpp", ".h", ".hpp", ".py"))
-    evidence = dict(config=config, hardware_validated=False,
+        sources.update(path for path in (ROOT/folder).rglob("*") if path.suffix in (".cpp", ".h", ".hpp", ".inc", ".py"))
+    renderer_audit = {}
+    if config["MKW_VITA_AURORA_RENDERER"] == 0:
+        symbols = subprocess.check_output(
+            [env["VITASDK"] + "/bin/arm-vita-eabi-nm", "-C", "--defined-only", str(files[-1])],
+            text=True)
+        forbidden = [line for line in symbols.splitlines()
+                     if "AuroraPacketRenderer" in line or "aurora::vita::gfx::" in line]
+        if forbidden:
+            raise RuntimeError("Direct VitaGL ELF contains Aurora renderer symbols: " + "\n".join(forbidden[:10]))
+        renderer_audit = dict(backend="gx-direct-vitagl", aurora_renderer_symbols=0)
+    evidence = dict(config=config, hardware_validated=False, renderer_audit=renderer_audit,
         artifacts={str(path.relative_to(ROOT)): dict(sha256=sha(path), bytes=path.stat().st_size) for path in files},
         source_sha256={str(path.relative_to(ROOT)): sha(path) for path in sorted(sources)},
         git_status=subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True))

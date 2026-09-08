@@ -1,4 +1,5 @@
 #include "wiicompiled_vita/gx_backend.h"
+#include "wiicompiled_vita/direct_texture_decode.h"
 #include "wiicompiled_vita/host_thread.h"
 #include "wiicompiled_vita/frame_optimization_policy.h"
 #include "guest_stall_watchdog.h"
@@ -31,6 +32,7 @@
 #include <vitaGL.h>
 
 #include <psp2/io/fcntl.h>
+#include <psp2/gxm.h>
 #include <psp2/kernel/processmgr.h>
 
 #include <algorithm>
@@ -86,9 +88,31 @@ static_assert(MKW_VITA_FRAME_QUEUE_DEPTH >= 1 && MKW_VITA_FRAME_QUEUE_DEPTH <= 2
 #ifndef MKW_VITA_RAW_MESH_CACHE
 #define MKW_VITA_RAW_MESH_CACHE 0
 #endif
+#ifndef MKW_VITA_DIRECT_BATCHER
+#define MKW_VITA_DIRECT_BATCHER 0
+#endif
+#ifndef MKW_VITA_DIRECT_EFB
+#define MKW_VITA_DIRECT_EFB 0
+#endif
+#ifndef MKW_VITA_DIRECT_STATE_CACHE
+#define MKW_VITA_DIRECT_STATE_CACHE 0
+#endif
+#ifndef MKW_VITA_DIRECT_TEV_SPECIALIZE
+#define MKW_VITA_DIRECT_TEV_SPECIALIZE 0
+#endif
 
 #if defined(MKW_VITA_VITAGL_SPEEDHACK)
 extern "C" void vglSetupRenderTargetScenesNum(uint8_t displaySize, uint8_t fboSize);
+#endif
+
+#if !defined(MKW_VITA_AURORA_RENDERER) && MKW_VITA_DIRECT_EFB
+extern "C" {
+extern SceGxmColorSurface gxm_color_surfaces[];
+extern unsigned int gxm_back_buffer_index;
+extern int DISPLAY_WIDTH;
+extern int DISPLAY_HEIGHT;
+extern GLboolean has_cached_mem;
+}
 #endif
 
 extern "C" {
@@ -118,8 +142,19 @@ constexpr int kVitaGlUserRamReserve = 8 * 1024 * 1024;
 // bounded full-frame packet with enough headroom to distinguish real renderer
 // failures from producer truncation. This raises FramePacket from ~3.78 MiB to
 // ~7.18 MiB and all static frame buffers by ~7.16 MiB.
+#if !defined(MKW_VITA_AURORA_RENDERER) && MKW_VITA_DIRECT_BATCHER
+// P6.1b: the first no-Aurora hardware run reached a legitimate ~10.6k draw /
+// ~67.8k vertex scene. Keep bounded headroom above that observed workload only
+// on the direct renderer so historical Aurora packet capacity/layout stays put.
+constexpr size_t kMaxFrameVertices = 73728;
+constexpr size_t kMaxFrameDraws = 12288;
+using FrameVertexIndex = u32;
+#else
 constexpr size_t kMaxFrameVertices = 49152;
 constexpr size_t kMaxFrameDraws = 8192;
+using FrameVertexIndex = u16;
+#endif
+constexpr size_t kDirectVboUploadChunkVertices = 8192;
 #ifndef MKW_VITA_EFB_COMMAND_CAPACITY
 #define MKW_VITA_EFB_COMMAND_CAPACITY 128
 #endif
@@ -170,7 +205,7 @@ inline void RecordPerfCriticalEvent(uint64_t serial, uint32_t code, uint32_t a, 
 #if defined(MKW_VITA_AURORA_RENDERER)
 constexpr const char* kRendererVariant = "aurora";
 #else
-constexpr const char* kRendererVariant = "legacy";
+constexpr const char* kRendererVariant = "direct-vitagl";
 #endif
 #if defined(MKW_VITA_VITAGL_SPEEDHACK)
 constexpr const char* kVitaGlVariant = "speedhack-custom-heap";
@@ -283,6 +318,9 @@ struct FrameCounters {
     uint64_t textureStateCustomPresetPassClr = 0;
     uint64_t textureStateCustomPresetUnknown = 0;
     uint64_t textureStateCustomSignatureOverflow = 0;
+    uint64_t textureStateTevChainCollapsed = 0;
+    uint64_t textureStateTevChainUnsupported = 0;
+    uint64_t textureStateTevChainMultiTexture = 0;
     uint64_t textureInvalidateAllCalls = 0;
     uint64_t efbCopyCalls = 0;
     uint64_t efbCopyRecorded = 0;
@@ -330,13 +368,16 @@ struct RenderVertex {
     f32 x = 0.0f;
     f32 y = 0.0f;
     f32 z = 0.0f;
+#if MKW_VITA_CLIP_W && !defined(MKW_VITA_AURORA_RENDERER)
+    f32 clipW = 1.0f;
+#endif
     u8 r = 255;
     u8 g = 255;
     u8 b = 255;
     u8 a = 255;
     f32 s = 0.0f;
     f32 t = 0.0f;
-#if MKW_VITA_CLIP_W
+#if MKW_VITA_CLIP_W && defined(MKW_VITA_AURORA_RENDERER)
     f32 clipW = 1.0f;
 #endif
 };
@@ -700,6 +741,9 @@ struct DrawTextureState {
     u8 magFilter = static_cast<u8>(GX_NEAR);
     u8 tevMode = static_cast<u8>(GX_MODULATE);
     u8 tevSimple = 1;
+    u8 tevStageCount = 1;
+    u8 tevSelectedStage = 0;
+    u8 tevCollapsedChain = 0;
     u8 mipmap = 0;
     u8 enabled = 0;
     u8 texGenMode = 0; // 0=raw/identity, 1=matrix, 2=unsupported fallback
@@ -721,7 +765,7 @@ struct DrawTextureState {
 
 struct GeometryDraw {
     GXPrimitive primitive = GX_TRIANGLES;
-    u16 firstVertex = 0;
+    FrameVertexIndex firstVertex = 0;
     u16 vertexCount = 0;
     u32 guestLr = 0;
     u32 pnMtxIndex = 0;
@@ -779,7 +823,7 @@ struct FrameGeometry {
     u32 lastTextureGeneration = 0;
 #endif
 #endif
-    u16 vertexCount = 0;
+    FrameVertexIndex vertexCount = 0;
     u16 drawCount = 0;
     u16 efbCommandCount = 0;
     uint32_t droppedVertices = 0;
@@ -792,8 +836,13 @@ struct FramePacket {
     std::array<u32, 4> scissor{0, 0, 640, 480};
 };
 #if MKW_VITA_COMPACT_FRAME_STATE
+#if !defined(MKW_VITA_AURORA_RENDERER) && MKW_VITA_DIRECT_BATCHER
+static_assert(sizeof(FramePacket) < 3 * 1024 * 1024,
+              "compact Vita GX frame packet storage must stay below 3 MiB");
+#else
 static_assert(sizeof(FramePacket) < 2 * 1024 * 1024,
               "compact Vita GX frame packet storage must stay below 2 MiB");
+#endif
 #else
 static_assert(sizeof(FramePacket) < 8 * 1024 * 1024,
               "Vita GX frame packet must stay bounded below 8 MiB");
@@ -1032,6 +1081,7 @@ GLuint g_legacyVertexBuffer = 0;
 #endif
 
 struct TextureCacheEntry {
+    DrawTextureState source{};
     bool valid = false;
     uintptr_t data = 0;
     u32 dataRevision = 0;
@@ -1392,6 +1442,48 @@ bool TryClassifyCustomTevPreset(size_t stage, GXTevMode& outMode) {
     return false;
 }
 
+bool TryClassifyTevStageMode(size_t stage, GXTevMode& outMode) {
+    if (stage >= GX_MAX_TEVSTAGE) return false;
+    if (g_gx.tevPresetValid[stage] != 0u) {
+        outMode = g_gx.tevModes[stage];
+        return true;
+    }
+    return TryClassifyCustomTevPreset(stage, outMode);
+}
+
+struct TevChainAnalysis {
+    bool allClassified = true;
+    bool collapsible = false;
+    bool multiTexture = false;
+    size_t sampledStage = GX_MAX_TEVSTAGE;
+    size_t sampledStages = 0;
+};
+
+TevChainAnalysis AnalyzeTevChain(size_t stageCount) {
+    TevChainAnalysis result{};
+    bool sampledStageRepresentable = true;
+    for (size_t stage = 0; stage < stageCount; ++stage) {
+        GXTevMode mode = GX_MODULATE;
+        if (!TryClassifyTevStageMode(stage, mode)) {
+            result.allClassified = false;
+            continue;
+        }
+        if (mode == GX_PASSCLR) continue;
+
+        ++result.sampledStages;
+        result.sampledStage = stage;
+        const GXTexMapID map = g_gx.tevTexMaps[stage];
+        if (g_gx.tevTexCoords[stage] != GX_TEXCOORD0 || map < 0 || map >= GX_MAX_TEXMAP ||
+            !g_gx.textures[static_cast<size_t>(map)]) {
+            sampledStageRepresentable = false;
+        }
+    }
+    result.multiTexture = result.sampledStages > 1u;
+    result.collapsible = result.allClassified && result.sampledStages == 1u &&
+                         sampledStageRepresentable;
+    return result;
+}
+
 void CountCustomTevPreset(GXTevMode mode) {
     switch (mode) {
     case GX_MODULATE: ++g_gx.frame.textureStateCustomPresetModulate; break;
@@ -1471,18 +1563,36 @@ void CaptureDrawTextureState(DrawTextureState& textureState) {
     // while stage 0 passes raster colour. Pick the first stage we can represent
     // instead of requiring stage 0 to be TEXCOORD0/TEXMAPn.
     const size_t stageCount = std::min<size_t>(g_gx.numTevStages, g_gx.tevTexMaps.size());
+    draw.texture.tevStageCount = static_cast<u8>(stageCount);
     size_t selectedStage = stageCount;
     GXTexObj* obj = nullptr;
     bool sawUnsupportedTexCoord = false;
     bool sawUnboundTexMap = false;
-    for (size_t stage = 0; stage < stageCount; ++stage) {
+#if MKW_VITA_DIRECT_TEV_SPECIALIZE && !defined(MKW_VITA_AURORA_RENDERER)
+    const TevChainAnalysis tevChain = AnalyzeTevChain(stageCount);
+    if (tevChain.collapsible) {
+        selectedStage = tevChain.sampledStage;
+        const GXTexMapID map = g_gx.tevTexMaps[selectedStage];
+        obj = g_gx.textures[static_cast<size_t>(map)];
+        if (stageCount > 1u) {
+            draw.texture.tevCollapsedChain = 1u;
+            ++g_gx.frame.textureStateTevChainCollapsed;
+        }
+    } else if (stageCount > 1u) {
+        ++g_gx.frame.textureStateTevChainUnsupported;
+        if (tevChain.multiTexture) ++g_gx.frame.textureStateTevChainMultiTexture;
+    }
+#endif
+    for (size_t stage = 0; selectedStage == stageCount && stage < stageCount; ++stage) {
         const GXTexMapID map = g_gx.tevTexMaps[stage];
         // tevModes[] is authoritative only while the stage still represents a
         // GXSetTevOp preset. NW4R commonly switches a stage to custom color/
         // alpha combiners afterwards; tevPresetValid is then cleared but the
         // old preset enum (often GX_PASSCLR) remains cached. In that case TREF
         // decides whether the stage samples a texture, not the stale preset.
-        if ((g_gx.tevPresetValid[stage] != 0 && g_gx.tevModes[stage] == GX_PASSCLR) ||
+        GXTevMode classifiedStageMode = GX_MODULATE;
+        const bool classifiedStage = TryClassifyTevStageMode(stage, classifiedStageMode);
+        if ((classifiedStage && classifiedStageMode == GX_PASSCLR) ||
             map < 0 || map >= GX_MAX_TEXMAP) {
             continue;
         }
@@ -1512,6 +1622,7 @@ void CaptureDrawTextureState(DrawTextureState& textureState) {
     if (selectedStage != 0) {
         ++g_gx.frame.textureStateRecoveredLaterStage;
     }
+    draw.texture.tevSelectedStage = static_cast<u8>(selectedStage);
 
     const bool simplePreset = g_gx.tevPresetValid[selectedStage] != 0;
     GXTevMode selectedMode = simplePreset ? g_gx.tevModes[selectedStage] : GX_MODULATE;
@@ -1530,9 +1641,11 @@ void CaptureDrawTextureState(DrawTextureState& textureState) {
     // texture environment directly. Truly custom combiners still fall back to
     // MODULATE until the pixel combiner path grows a shader implementation.
     draw.texture.tevMode = static_cast<u8>(selectedMode);
-    draw.texture.tevSimple =
+    const bool nativeSimpleTev =
         (g_gx.numTevStages == 1 && selectedStage == 0 &&
-         (simplePreset || classifiedCustomPreset)) ? 1u : 0u;
+         (simplePreset || classifiedCustomPreset)) ||
+        (draw.texture.tevCollapsedChain != 0 && (simplePreset || classifiedCustomPreset));
+    draw.texture.tevSimple = nativeSimpleTev ? 1u : 0u;
 
     const TexGenState& texGen = g_gx.texGen[0];
     draw.texture.texGenType = static_cast<u8>(texGen.type);
@@ -1672,6 +1785,8 @@ bool SameDrawTexture(const DrawTextureState& a, const DrawTextureState& b) {
            a.wrapS == b.wrapS && a.wrapT == b.wrapT &&
            a.minFilter == b.minFilter && a.magFilter == b.magFilter &&
            a.tevMode == b.tevMode && a.tevSimple == b.tevSimple &&
+           a.tevStageCount == b.tevStageCount && a.tevSelectedStage == b.tevSelectedStage &&
+           a.tevCollapsedChain == b.tevCollapsedChain &&
            a.mipmap == b.mipmap && a.enabled == b.enabled &&
            a.texGenMode == b.texGenMode && a.texGenType == b.texGenType &&
            a.texGenSrc == b.texGenSrc && a.texGenNormalize == b.texGenNormalize &&
@@ -1962,7 +2077,7 @@ void AppendPosition(f32 x, f32 y, f32 z) {
         return;
     }
 
-    const u16 vertexIndex = g_gx.geometry.vertexCount++;
+    const u32 vertexIndex = g_gx.geometry.vertexCount++;
     RenderVertex& vertex = g_gx.geometry.vertices[vertexIndex];
     vertex = {x, y, z, 255, 255, 255, 255};
     g_gx.geometry.pnMtxRefs[vertexIndex] = g_gx.pendingPnMtxRef;
@@ -2711,7 +2826,7 @@ bool DecodeRawVertexPlanned(const RawLayoutPlan& plan, const uint8_t* vertices,
 #endif
 
 
-void CommitRawDraw(GXPrimitive primitive, GXVtxFmt fmt, u16 firstVertex,
+void CommitRawDraw(GXPrimitive primitive, GXVtxFmt fmt, u32 firstVertex,
                    u16 vtxCount, uint32_t vertexBytes,
                    uint64_t directAttrs, uint64_t indexedAttrs) {
     GeometryDraw& draw = g_gx.geometry.draws[g_gx.geometry.drawCount++];
@@ -2720,7 +2835,7 @@ void CommitRawDraw(GXPrimitive primitive, GXVtxFmt fmt, u16 firstVertex,
     draw.firstVertex = firstVertex;
     draw.vertexCount = vtxCount;
     CaptureDrawState(draw);
-    g_gx.geometry.vertexCount = static_cast<u16>(firstVertex + vtxCount);
+    g_gx.geometry.vertexCount = firstVertex + vtxCount;
     ++g_gx.frame.drawCalls;
     g_gx.frame.vertices += vtxCount;
     g_gx.frame.rawDrawBytes += vertexBytes;
@@ -2915,7 +3030,7 @@ bool RawMeshDependenciesCurrent(const RawMeshCacheEntry& entry) {
 
 bool TryReplayRawMeshCache(const RawLayoutPlan& plan, GXPrimitive primitive, GXVtxFmt fmt,
                            const uint8_t* payload, u16 vtxCount, uint32_t vertexBytes,
-                           u16 firstVertex) {
+                           u32 firstVertex) {
     const u8 defaultPnMtxRef = DefaultPnMtxRef();
     RawMeshCacheEntry* entry = FindRawMeshCacheEntry(
         payload, vertexBytes, primitive, fmt, vtxCount, plan.signature, defaultPnMtxRef);
@@ -2942,7 +3057,7 @@ bool TryReplayRawMeshCache(const RawLayoutPlan& plan, GXPrimitive primitive, GXV
 
 bool StoreRawMeshCache(const RawLayoutPlan& plan, GXPrimitive primitive, GXVtxFmt fmt,
                        const uint8_t* payload, u16 vtxCount, uint32_t vertexBytes,
-                       u16 firstVertex, uint64_t directAttrs, uint64_t indexedAttrs) {
+                       u32 firstVertex, uint64_t directAttrs, uint64_t indexedAttrs) {
     if (!g_guestWriteGeneration || plan.signature == 0) return false;
     const uint64_t payloadGeneration = g_guestWriteGeneration(payload, vertexBytes);
     if (payloadGeneration == AURORA_GUEST_WRITE_UNTRACKED) return false;
@@ -3027,7 +3142,7 @@ bool DecodeRawDraw(GXPrimitive primitive, GXVtxFmt fmt, const uint8_t* vertices,
         return RawDecodeFail(RawDecodeFailReason::Capacity);
     }
 
-    const u16 firstVertex = g_gx.geometry.vertexCount;
+    const u32 firstVertex = g_gx.geometry.vertexCount;
 #if MKW_VITA_RAW_LAYOUT_CACHE
     RawLayoutPlan& resolvedPlan = ResolveRawLayoutPlan(fmt);
     const bool plannedBytesMatch = resolvedPlan.valid && resolvedPlan.bytesPerVertex != 0u &&
@@ -3202,6 +3317,11 @@ bool ConvertTextureLevel0(const DrawTextureState& texture, u8* rgba, size_t rgba
     const size_t required = static_cast<size_t>(texture.width) * texture.height * 4u;
     if (required > rgbaBytes) {
         return false;
+    }
+
+    if (texture.thpYuv420) {
+        return WiiCompiledVita::DecodeDirectThp(texture.data, texture.thpUData, texture.thpVData,
+            texture.width, texture.height, texture.thpChromaWidth, texture.thpChromaHeight, rgba, rgbaBytes);
     }
 
     const auto* src = static_cast<const u8*>(texture.data);
@@ -3433,13 +3553,22 @@ GLint TextureBaseFilter(u8 filter) {
 }
 
 bool TextureCacheMatches(const TextureCacheEntry& entry, const DrawTextureState& texture) {
-    return entry.valid && entry.data == reinterpret_cast<uintptr_t>(texture.data) &&
+    return entry.valid && entry.source.thpYuv420 == texture.thpYuv420 &&
+           (!texture.thpYuv420 ||
+            (entry.source.thpUData == texture.thpUData && entry.source.thpVData == texture.thpVData &&
+             entry.source.thpURevision == texture.thpURevision && entry.source.thpVRevision == texture.thpVRevision &&
+             entry.source.thpUGeneration == texture.thpUGeneration && entry.source.thpVGeneration == texture.thpVGeneration &&
+             entry.source.thpChromaWidth == texture.thpChromaWidth && entry.source.thpChromaHeight == texture.thpChromaHeight)) &&
+           entry.data == reinterpret_cast<uintptr_t>(texture.data) &&
            entry.dataRevision == texture.dataRevision && entry.globalEpoch == texture.globalEpoch &&
            entry.sourceGeneration == texture.sourceGeneration &&
            entry.format == texture.format && entry.width == texture.width && entry.height == texture.height;
 }
 
 bool TextureSourceStillMatches(const DrawTextureState& texture) {
+#if MKW_VITA_GX_STATE_GENERATIONS
+    if (!CapturedTextureSourcesStillCurrent(texture)) return false;
+#endif
     if (!g_guestWriteGeneration || texture.sourceGeneration == AURORA_GUEST_WRITE_UNTRACKED) {
         return true;
     }
@@ -3473,10 +3602,20 @@ TextureCacheEntry* OldestTextureEntry() {
     return oldest;
 }
 
+#if !defined(MKW_VITA_AURORA_RENDERER) && MKW_VITA_DIRECT_EFB
+#include "direct_efb.inc"
+#endif
+
 GLuint ResolveTexture(const DrawTextureState& texture, TextureRenderCounters& counters) {
     if (!texture.enabled || !texture.data || texture.width == 0 || texture.height == 0) {
         return 0;
     }
+#if !defined(MKW_VITA_AURORA_RENDERER) && MKW_VITA_DIRECT_EFB
+    if (auto* efb = FindDirectEfb(reinterpret_cast<uintptr_t>(texture.data))) {
+        ++counters.cacheHits;
+        return efb->texture;
+    }
+#endif
     if (!SupportedTextureFormat(texture.format) || texture.width > kMaxTextureDimension ||
         texture.height > kMaxTextureDimension) {
         ++counters.unsupportedDraws;
@@ -3546,6 +3685,7 @@ GLuint ResolveTexture(const DrawTextureState& texture, TextureRenderCounters& co
 
     *entry = {};
     entry->valid = true;
+    entry->source = texture;
     entry->data = reinterpret_cast<uintptr_t>(texture.data);
     entry->dataRevision = texture.dataRevision;
     entry->globalEpoch = texture.globalEpoch;
@@ -3582,6 +3722,9 @@ void ApplyTextureSampler(const DrawTextureState& texture) {
 }
 
 void DestroyTextureCache() {
+#if !defined(MKW_VITA_AURORA_RENDERER) && MKW_VITA_DIRECT_EFB
+    DestroyDirectEfbCache();
+#endif
     for (auto& entry : g_textureCache) {
         EvictTextureEntry(entry);
     }
@@ -3618,7 +3761,7 @@ void RenderWorkerMain() {
             "efb_readback_flip_y=%u efb_transfer_readback=%u efb_resident_copy=%u "
             "efb_native_res_copy=%u stream_safe_reuse=%u ui_quad_runs=%u "
             "texture_shared_headroom=%u texture_safe_retry=%u clip_w=%u "
-            "wait_timing_service=%u incremental_cache_eviction=%u fiber_irq_state=%u wait_service_profile=%u audio_wait_profile=%u audio_ai_profile=%u native_audioout=%u audio_pacing=%u\n",
+            "wait_timing_service=%u incremental_cache_eviction=%u fiber_irq_state=%u wait_service_profile=%u audio_wait_profile=%u audio_ai_profile=%u native_audioout=%u audio_pacing=%u direct_batcher=%u direct_efb=%u direct_state_cache=%u direct_tev_specialize=%u\n",
             static_cast<unsigned long long>(vglInitBeginUs), kRendererVariant, kVitaGlVariant,
             static_cast<unsigned>(kRenderTargetScenes), static_cast<unsigned>(kRenderTargetScenes),
             static_cast<unsigned>(kMaxFrameDraws), static_cast<unsigned>(kMaxFrameVertices),
@@ -3664,7 +3807,11 @@ void RenderWorkerMain() {
             static_cast<unsigned>(MKW_VITA_AUDIO_WAIT_PROFILE),
             static_cast<unsigned>(MKW_VITA_AUDIO_AI_PROFILE),
             static_cast<unsigned>(MKW_VITA_NATIVE_AUDIOOUT),
-            static_cast<unsigned>(MKW_VITA_AUDIO_PACING));
+            static_cast<unsigned>(MKW_VITA_AUDIO_PACING),
+            static_cast<unsigned>(MKW_VITA_DIRECT_BATCHER),
+            static_cast<unsigned>(MKW_VITA_DIRECT_EFB),
+            static_cast<unsigned>(MKW_VITA_DIRECT_STATE_CACHE),
+            static_cast<unsigned>(MKW_VITA_DIRECT_TEV_SPECIALIZE));
     const bool resolutionFallback =
         vglInitExtended(0, kSurfaceWidth, kSurfaceHeight, kVitaGlUserRamReserve,
                         SCE_GXM_MULTISAMPLE_NONE) == GL_TRUE;
@@ -3710,7 +3857,7 @@ void RenderWorkerMain() {
             static_cast<unsigned long long>(legacyScratchEndUs),
             static_cast<unsigned long long>(legacyScratchEndUs - legacyScratchBeginUs),
             static_cast<unsigned>(g_textureScratch != nullptr), kVitaGlVariant);
-    RT_LOGF(RT_TAG_GX, "renderer=legacy_vitagl vitagl=%s packet_bridge=0 ready=1\n",
+    RT_LOGF(RT_TAG_GX, "renderer=direct_vitagl vitagl=%s aurora_renderer=0 packet_bridge=0 ready=1\n",
             kVitaGlVariant);
 #endif
     if (!gpuReady) {
@@ -4003,6 +4150,33 @@ void RenderWorkerMain() {
         uint64_t efbCopiesExecuted = 0;
         uint64_t efbCopyFailures = 0;
         uint64_t efbTexturesSampled = 0;
+        uint64_t directEfbUs = 0;
+#if !defined(MKW_VITA_AURORA_RENDERER)
+        uint64_t directPhysicalDraws = 0;
+        uint64_t directMergedDraws = 0;
+        uint64_t directLogicalStateSkips = 0;
+        uint64_t directRasterStateSkips = 0;
+        uint64_t directTextureStateSkips = 0;
+        uint64_t directFrameUploadUs = 0;
+        uint32_t directUploadChunks = 0;
+        uint32_t directUploadRetries = 0;
+        uint64_t directUploadRetryWaitUs = 0;
+#if MKW_VITA_DIRECT_STATE_CACHE && MKW_VITA_COMPACT_FRAME_STATE
+        bool directRasterStateValid = false;
+        bool directTextureStateValid = false;
+        bool directRasterTrianglePrimitive = false;
+        u16 directRasterStateId = 0;
+        u16 directTextureStateId = 0;
+#endif
+#if MKW_VITA_DIRECT_BATCHER
+        bool directFrameUploadReady = true;
+        bool directSkipActive = false;
+        u16 directSkipDrawUntil = 0;
+        uint32_t directUploadFailureStage = 0;
+        uint32_t directUploadFailureChunk = 0;
+        GLenum directUploadFailureError = GL_NO_ERROR;
+#endif
+#endif
 #if defined(MKW_VITA_AURORA_RENDERER)
         WiiCompiledVita::AuroraPacketFrameStats auroraFrameStats{};
         size_t nextEfbCommand = 0;
@@ -4042,6 +4216,46 @@ void RenderWorkerMain() {
             }
         };
 #endif
+#if !defined(MKW_VITA_AURORA_RENDERER) && MKW_VITA_DIRECT_EFB
+        size_t nextDirectEfb = 0;
+        const auto ExecuteDirectEfbAt = [&](u16 boundary) {
+            while (nextDirectEfb < packet.geometry.efbCommandCount &&
+                   packet.geometry.efbCommands[nextDirectEfb].afterDrawCount <= boundary) {
+                const auto& command = packet.geometry.efbCommands[nextDirectEfb++];
+#if MKW_VITA_DIRECT_STATE_CACHE && MKW_VITA_COMPACT_FRAME_STATE
+                // EFB capture/clear helpers bind textures and may alter color/depth
+                // write state. Force the next native draw to republish both state
+                // groups rather than trusting the pre-EFB VitaGL bindings.
+                directRasterStateValid = false;
+                directTextureStateValid = false;
+#endif
+                if (command.type == EfbFrameCommandType::Destroy) {
+                    DestroyDirectEfb(command.destination);
+                    continue;
+                }
+                const uint64_t copyStart = sceKernelGetProcessTimeWide();
+                if (CopyDirectEfb(command, scaleX, scaleY)) ++efbCopiesExecuted;
+                else {
+                    DestroyDirectEfb(command.destination); // never sample a stale capture
+                    ++efbCopyFailures;
+                    RecordPerfCriticalEvent(serial, kPerfEventTextureFailure, command.format, boundary);
+                }
+                directEfbUs += sceKernelGetProcessTimeWide() - copyStart;
+                if (command.clear) {
+                    glColorMask(command.clearColorEnable, command.clearColorEnable,
+                                command.clearColorEnable, command.clearAlphaEnable);
+                    glDepthMask(command.clearDepthEnable);
+                    glClearColor(command.clearColor.r / 255.f, command.clearColor.g / 255.f,
+                                 command.clearColor.b / 255.f, command.clearColor.a / 255.f);
+                    glClearDepth(double(command.clearDepth & 0xffffffu) / 16777215.0);
+                    GLbitfield mask = (command.clearColorEnable || command.clearAlphaEnable)
+                        ? GL_COLOR_BUFFER_BIT : 0;
+                    if (command.clearDepthEnable) mask |= GL_DEPTH_BUFFER_BIT;
+                    if (mask) glClear(mask);
+                }
+            }
+        };
+#endif
         if (packet.geometry.vertexCount != 0) {
 #if !defined(MKW_VITA_AURORA_RENDERER)
             glDisable(GL_TEXTURE_2D);
@@ -4058,7 +4272,7 @@ void RenderWorkerMain() {
             glEnableClientState(GL_TEXTURE_COORD_ARRAY);
 #if defined(MKW_VITA_VITAGL_SPEEDHACK)
             glBindBuffer(GL_ARRAY_BUFFER, g_legacyVertexBuffer);
-            glVertexPointer(3, GL_FLOAT, sizeof(RenderVertex),
+            glVertexPointer(MKW_VITA_CLIP_W ? 4 : 3, GL_FLOAT, sizeof(RenderVertex),
                             reinterpret_cast<const GLvoid*>(offsetof(RenderVertex, x)));
             glColorPointer(4, GL_UNSIGNED_BYTE, sizeof(RenderVertex),
                            reinterpret_cast<const GLvoid*>(offsetof(RenderVertex, r)));
@@ -4066,7 +4280,7 @@ void RenderWorkerMain() {
                               reinterpret_cast<const GLvoid*>(offsetof(RenderVertex, s)));
 #else
             glBindBuffer(GL_ARRAY_BUFFER, 0);
-            glVertexPointer(3, GL_FLOAT, sizeof(RenderVertex), &g_renderVertices[0].x);
+            glVertexPointer(MKW_VITA_CLIP_W ? 4 : 3, GL_FLOAT, sizeof(RenderVertex), &g_renderVertices[0].x);
             glColorPointer(4, GL_UNSIGNED_BYTE, sizeof(RenderVertex), &g_renderVertices[0].r);
             glTexCoordPointer(2, GL_FLOAT, sizeof(RenderVertex), &g_renderVertices[0].s);
 #endif
@@ -4081,6 +4295,182 @@ void RenderWorkerMain() {
 #endif
                         static_cast<unsigned>(sizeof(RenderVertex)));
             }
+#if MKW_VITA_DIRECT_BATCHER
+            // The old direct path transformed and mapped the VBO once per GX draw.
+            // P6.1 performs all CPU transforms up front and uploads the contiguous
+            // frame vertex range once, leaving the draw loop to submit state/runs.
+            const uint64_t directPrepareBeginUs = sceKernelGetProcessTimeWide();
+            for (u16 directIndex = 0; directIndex < packet.geometry.drawCount; ++directIndex) {
+                const GeometryDraw& directDraw = packet.geometry.draws[directIndex];
+#if MKW_VITA_COMPACT_FRAME_STATE
+                if (directDraw.transformId >= packet.geometry.transforms.size() ||
+                    directDraw.textureId >= packet.geometry.textures.size()) {
+                    RecordPerfCriticalEvent(serial, kPerfEventSubmitFailure, 0xD0u, directIndex);
+                    continue;
+                }
+                const DrawTransform& directTransform =
+                    packet.geometry.transforms[directDraw.transformId];
+                const DrawTextureState& directTexture =
+                    packet.geometry.textures[directDraw.textureId];
+#else
+                const DrawTransform& directTransform = directDraw.transform;
+                const DrawTextureState& directTexture = directDraw.texture;
+#endif
+                const uint32_t directEndVertex =
+                    static_cast<uint32_t>(directDraw.firstVertex) + directDraw.vertexCount;
+                if (directDraw.vertexCount == 0 || directEndVertex > packet.geometry.vertexCount) {
+                    RecordPerfCriticalEvent(serial, kPerfEventSubmitFailure, 0xD1u, directIndex);
+                    continue;
+                }
+
+                bool directTexGenFailed = false;
+                f32 directNdcMinX = std::numeric_limits<f32>::infinity();
+                f32 directNdcMinY = std::numeric_limits<f32>::infinity();
+                f32 directNdcMaxX = -std::numeric_limits<f32>::infinity();
+                f32 directNdcMaxY = -std::numeric_limits<f32>::infinity();
+                for (uint32_t vertexIndex = directDraw.firstVertex;
+                     vertexIndex < directEndVertex; ++vertexIndex) {
+                    const u8 pnMtxRef = packet.geometry.pnMtxRefs[vertexIndex];
+                    if ((pnMtxRef & kPnMtxExplicitBit) != 0) {
+                        ++geometryPnMatrixVertices;
+                    }
+                    if (TransformVertex(directTransform, pnMtxRef,
+                                        packet.geometry.vertices[vertexIndex],
+                                        g_renderVertices[vertexIndex])) {
+                        ++geometryVerticesTransformed;
+                        const RenderVertex& transformed = g_renderVertices[vertexIndex];
+                        directNdcMinX = std::min(directNdcMinX, transformed.x);
+                        directNdcMinY = std::min(directNdcMinY, transformed.y);
+                        directNdcMaxX = std::max(directNdcMaxX, transformed.x);
+                        directNdcMaxY = std::max(directNdcMaxY, transformed.y);
+                        if (directTransform.projectionType == GX_PERSPECTIVE) {
+                            ++geometryPerspectiveVertices;
+                            const bool insideXY = transformed.x >= -1.0f && transformed.x <= 1.0f &&
+                                                  transformed.y >= -1.0f && transformed.y <= 1.0f;
+                            if (insideXY) {
+                                ++geometryPerspectiveVerticesInsideXY;
+                                if (transformed.z >= -1.0f && transformed.z <= 1.0f) {
+                                    ++geometryPerspectiveVerticesInsideXYZ;
+                                }
+                            }
+                            geometryPerspectiveMinZ = std::min(geometryPerspectiveMinZ, transformed.z);
+                            geometryPerspectiveMaxZ = std::max(geometryPerspectiveMaxZ, transformed.z);
+                        }
+                    } else {
+                        g_renderVertices[vertexIndex] = packet.geometry.vertices[vertexIndex];
+                        g_renderVertices[vertexIndex].x = 2.0f;
+                        g_renderVertices[vertexIndex].y = 2.0f;
+                        g_renderVertices[vertexIndex].z = 2.0f;
+                        ++geometryTransformFailures;
+                        RecordPerfCriticalEvent(serial, kPerfEventTransformFailure,
+                                                directIndex, vertexIndex);
+                    }
+                    if (directTexture.materialMask) {
+                        auto& vertex = g_renderVertices[vertexIndex];
+                        if (directTexture.materialMask & 1u) {
+                            vertex.r = u8(directTexture.materialRgba >> 24);
+                            vertex.g = u8(directTexture.materialRgba >> 16);
+                            vertex.b = u8(directTexture.materialRgba >> 8);
+                        }
+                        if (directTexture.materialMask & 2u) {
+                            vertex.a = u8(directTexture.materialRgba);
+                        }
+                    }
+                    if (directTexture.enabled &&
+                        !TransformTexCoord(directTexture, packet.geometry.vertices[vertexIndex],
+                                           g_renderVertices[vertexIndex])) {
+                        directTexGenFailed = true;
+                    }
+                }
+                if (directTexture.enabled) {
+                    if (directTexture.texGenMode == 0u) {
+                        ++geometryTexGenIdentityDraws;
+                    } else if (directTexture.texGenMode == 1u && !directTexGenFailed) {
+                        ++geometryTexGenAppliedDraws;
+                    } else {
+                        ++geometryTexGenUnsupportedDraws;
+                    }
+                }
+                if (std::isfinite(directNdcMinX) && std::isfinite(directNdcMaxX) &&
+                    std::isfinite(directNdcMinY) && std::isfinite(directNdcMaxY)) {
+                    const f32 spanX = directNdcMaxX - directNdcMinX;
+                    const f32 spanY = directNdcMaxY - directNdcMinY;
+                    geometryMaxNdcSpanX = std::max(geometryMaxNdcSpanX, spanX);
+                    geometryMaxNdcSpanY = std::max(geometryMaxNdcSpanY, spanY);
+                    if (spanX > 2.05f || spanY > 2.05f) {
+                        ++geometryOversizeNdcDraws;
+                    }
+                }
+            }
+#if MKW_VITA_CLIP_W
+            for (uint32_t v = 0; v < packet.geometry.vertexCount; ++v) {
+                auto& vertex = g_renderVertices[v];
+                vertex.x *= vertex.clipW;
+                vertex.y *= vertex.clipW;
+                vertex.z *= vertex.clipW;
+            }
+#endif
+#if defined(MKW_VITA_VITAGL_SPEEDHACK)
+            const size_t directUploadVertices = packet.geometry.vertexCount;
+            if (directUploadVertices != 0) {
+                glBindBuffer(GL_ARRAY_BUFFER, g_legacyVertexBuffer);
+                while (glGetError() != GL_NO_ERROR) {
+                }
+                for (size_t firstUploadVertex = 0;
+                     firstUploadVertex < directUploadVertices;
+                     firstUploadVertex += kDirectVboUploadChunkVertices) {
+                    const size_t uploadVertexCount = std::min(
+                        kDirectVboUploadChunkVertices,
+                        directUploadVertices - firstUploadVertex);
+                    const size_t uploadOffset = firstUploadVertex * sizeof(RenderVertex);
+                    const size_t uploadBytes = uploadVertexCount * sizeof(RenderVertex);
+                    void* mappedVertices = glMapBufferRange(
+                        GL_ARRAY_BUFFER, static_cast<GLintptr>(uploadOffset),
+                        static_cast<GLsizeiptr>(uploadBytes), GL_MAP_WRITE_BIT);
+                    if (!mappedVertices) {
+                        // A single direct VBO is intentionally retained to keep memory bounded.
+                        // If the previous GPU scene still owns it, fence only on the observed
+                        // contention path and retry the failed range once.
+                        const uint64_t retryBeginUs = sceKernelGetProcessTimeWide();
+                        glFinish();
+                        directUploadRetryWaitUs += sceKernelGetProcessTimeWide() - retryBeginUs;
+                        ++directUploadRetries;
+                        mappedVertices = glMapBufferRange(
+                            GL_ARRAY_BUFFER, static_cast<GLintptr>(uploadOffset),
+                            static_cast<GLsizeiptr>(uploadBytes), GL_MAP_WRITE_BIT);
+                    }
+                    if (!mappedVertices) {
+                        directFrameUploadReady = false;
+                        directUploadFailureStage = 1;
+                        directUploadFailureChunk = directUploadChunks;
+                        directUploadFailureError = glGetError();
+                        break;
+                    }
+                    std::memcpy(mappedVertices, &g_renderVertices[firstUploadVertex], uploadBytes);
+                    if (glUnmapBuffer(GL_ARRAY_BUFFER) != GL_TRUE) {
+                        directFrameUploadReady = false;
+                        directUploadFailureStage = 2;
+                        directUploadFailureChunk = directUploadChunks;
+                        directUploadFailureError = glGetError();
+                        break;
+                    }
+                    ++directUploadChunks;
+                }
+            }
+#endif
+            directFrameUploadUs = sceKernelGetProcessTimeWide() - directPrepareBeginUs;
+            if (!directFrameUploadReady) {
+                RT_LOGF(RT_TAG_GX,
+                        "direct_vitagl frame_upload_failed serial=%llu vertices=%u stage=%u chunk=%u "
+                        "chunks_ok=%u retries=%u retry_wait_us=%llu gl_error=0x%X\n",
+                        static_cast<unsigned long long>(serial),
+                        static_cast<unsigned>(packet.geometry.vertexCount),
+                        directUploadFailureStage, directUploadFailureChunk,
+                        directUploadChunks, directUploadRetries,
+                        static_cast<unsigned long long>(directUploadRetryWaitUs),
+                        static_cast<unsigned>(directUploadFailureError));
+            }
+#endif
 #endif
 
             for (u16 i = 0; i < packet.geometry.drawCount; ++i) {
@@ -4094,6 +4484,26 @@ void RenderWorkerMain() {
                             static_cast<unsigned long long>(sceKernelGetProcessTimeWide() - frameRenderBeginUs));
                 }
                 ExecuteEfbCommandsAt(i);
+#endif
+#if !defined(MKW_VITA_AURORA_RENDERER) && MKW_VITA_DIRECT_EFB
+                ExecuteDirectEfbAt(i);
+#endif
+#if !defined(MKW_VITA_AURORA_RENDERER) && MKW_VITA_DIRECT_BATCHER && \
+    MKW_VITA_DIRECT_STATE_CACHE
+                // P6.3: the first draw in a native batch already submits every
+                // contiguous vertex in the run. Do not replay GX->GL state and
+                // texture resolution for the logical draws consumed by that run.
+                // EFB boundaries are excluded while the run is built below.
+                if (directSkipActive && i <= directSkipDrawUntil) {
+                    const GeometryDraw& skippedDraw = packet.geometry.draws[i];
+                    ++directLogicalStateSkips;
+                    ++geometryDrawsPresented;
+                    geometryVerticesPresented += skippedDraw.vertexCount;
+                    if (i >= directSkipDrawUntil) {
+                        directSkipActive = false;
+                    }
+                    continue;
+                }
 #endif
                 const GeometryDraw& draw = packet.geometry.draws[i];
 #if MKW_VITA_COMPACT_FRAME_STATE
@@ -4131,6 +4541,21 @@ void RenderWorkerMain() {
                     continue;
                 }
 
+#if !defined(MKW_VITA_AURORA_RENDERER)
+                bool directApplyRasterState = true;
+#if MKW_VITA_DIRECT_STATE_CACHE && MKW_VITA_COMPACT_FRAME_STATE
+                if (directRasterStateValid && directRasterStateId == draw.rasterId &&
+                    directRasterTrianglePrimitive == trianglePrimitive) {
+                    directApplyRasterState = false;
+                    ++directRasterStateSkips;
+                } else {
+                    directRasterStateValid = true;
+                    directRasterStateId = draw.rasterId;
+                    directRasterTrianglePrimitive = trianglePrimitive;
+                }
+#endif
+#endif
+
                 if (transform.projectionType == GX_ORTHOGRAPHIC) {
                     ++geometryOrthoDraws;
                 } else {
@@ -4138,27 +4563,29 @@ void RenderWorkerMain() {
                 }
 
 #if !defined(MKW_VITA_AURORA_RENDERER)
-                const GLint drawViewportX = static_cast<GLint>(raster.viewport[0] * scaleX);
-                const GLsizei drawViewportW = std::max<GLsizei>(
-                    1, static_cast<GLsizei>(raster.viewport[2] * scaleX));
-                const GLsizei drawViewportH = std::max<GLsizei>(
-                    1, static_cast<GLsizei>(raster.viewport[3] * scaleY));
-                const GLint drawViewportY = static_cast<GLint>(kSurfaceHeight -
-                    (raster.viewport[1] + raster.viewport[3]) * scaleY);
-                const GLint drawScissorX = static_cast<GLint>(raster.scissor[0] * scaleX);
-                const GLsizei drawScissorW = std::max<GLsizei>(
-                    1, static_cast<GLsizei>(raster.scissor[2] * scaleX));
-                const GLsizei drawScissorH = std::max<GLsizei>(
-                    1, static_cast<GLsizei>(raster.scissor[3] * scaleY));
-                const GLint drawScissorY = static_cast<GLint>(kSurfaceHeight -
-                    (raster.scissor[1] + raster.scissor[3]) * scaleY);
-                glViewport(drawViewportX, drawViewportY, drawViewportW, drawViewportH);
-                glDepthRangef(std::clamp(raster.viewport[4], 0.0f, 1.0f),
-                              std::clamp(raster.viewport[5], 0.0f, 1.0f));
-                glScissor(drawScissorX, drawScissorY, drawScissorW, drawScissorH);
-                glEnable(GL_DEPTH_TEST);
-                glDepthFunc(raster.depthCompare ? DepthCompareMode(raster.depthFunc) : GL_ALWAYS);
-                glDepthMask(raster.depthUpdate ? GL_TRUE : GL_FALSE);
+                if (directApplyRasterState) {
+                    const GLint drawViewportX = static_cast<GLint>(raster.viewport[0] * scaleX);
+                    const GLsizei drawViewportW = std::max<GLsizei>(
+                        1, static_cast<GLsizei>(raster.viewport[2] * scaleX));
+                    const GLsizei drawViewportH = std::max<GLsizei>(
+                        1, static_cast<GLsizei>(raster.viewport[3] * scaleY));
+                    const GLint drawViewportY = static_cast<GLint>(kSurfaceHeight -
+                        (raster.viewport[1] + raster.viewport[3]) * scaleY);
+                    const GLint drawScissorX = static_cast<GLint>(raster.scissor[0] * scaleX);
+                    const GLsizei drawScissorW = std::max<GLsizei>(
+                        1, static_cast<GLsizei>(raster.scissor[2] * scaleX));
+                    const GLsizei drawScissorH = std::max<GLsizei>(
+                        1, static_cast<GLsizei>(raster.scissor[3] * scaleY));
+                    const GLint drawScissorY = static_cast<GLint>(kSurfaceHeight -
+                        (raster.scissor[1] + raster.scissor[3]) * scaleY);
+                    glViewport(drawViewportX, drawViewportY, drawViewportW, drawViewportH);
+                    glDepthRangef(std::clamp(raster.viewport[4], 0.0f, 1.0f),
+                                  std::clamp(raster.viewport[5], 0.0f, 1.0f));
+                    glScissor(drawScissorX, drawScissorY, drawScissorW, drawScissorH);
+                    glEnable(GL_DEPTH_TEST);
+                    glDepthFunc(raster.depthCompare ? DepthCompareMode(raster.depthFunc) : GL_ALWAYS);
+                    glDepthMask(raster.depthUpdate ? GL_TRUE : GL_FALSE);
+                }
 #endif
                 if (raster.depthCompare) {
                     ++geometryDepthCompareDraws;
@@ -4169,42 +4596,46 @@ void RenderWorkerMain() {
 
                 if (!trianglePrimitive || raster.cullMode == GX_CULL_NONE) {
 #if !defined(MKW_VITA_AURORA_RENDERER)
-                    glDisable(GL_CULL_FACE);
+                    if (directApplyRasterState) glDisable(GL_CULL_FACE);
 #endif
                     ++geometryCullNoneDraws;
                 } else {
 #if !defined(MKW_VITA_AURORA_RENDERER)
-                    glEnable(GL_CULL_FACE);
+                    if (directApplyRasterState) glEnable(GL_CULL_FACE);
 #endif
                     if (raster.cullMode == GX_CULL_FRONT) {
 #if !defined(MKW_VITA_AURORA_RENDERER)
-                        glCullFace(GL_FRONT);
+                        if (directApplyRasterState) glCullFace(GL_FRONT);
 #endif
                         ++geometryCullFrontDraws;
                     } else {
 #if !defined(MKW_VITA_AURORA_RENDERER)
-                        glCullFace(GL_BACK);
+                        if (directApplyRasterState) glCullFace(GL_BACK);
 #endif
                         ++geometryCullBackDraws;
                     }
                 }
 
 #if !defined(MKW_VITA_AURORA_RENDERER)
-                glColorMask(raster.colorUpdate ? GL_TRUE : GL_FALSE,
-                            raster.colorUpdate ? GL_TRUE : GL_FALSE,
-                            raster.colorUpdate ? GL_TRUE : GL_FALSE,
-                            raster.alphaUpdate ? GL_TRUE : GL_FALSE);
+                if (directApplyRasterState) {
+                    glColorMask(raster.colorUpdate ? GL_TRUE : GL_FALSE,
+                                raster.colorUpdate ? GL_TRUE : GL_FALSE,
+                                raster.colorUpdate ? GL_TRUE : GL_FALSE,
+                                raster.alphaUpdate ? GL_TRUE : GL_FALSE);
+                }
 #endif
                 if (raster.blendMode == GX_BM_BLEND) {
 #if !defined(MKW_VITA_AURORA_RENDERER)
-                    glEnable(GL_BLEND);
-                    glBlendFunc(BlendFactorMode(raster.blendSrc, false),
-                                BlendFactorMode(raster.blendDst, true));
+                    if (directApplyRasterState) {
+                        glEnable(GL_BLEND);
+                        glBlendFunc(BlendFactorMode(raster.blendSrc, false),
+                                    BlendFactorMode(raster.blendDst, true));
+                    }
 #endif
                     ++geometryBlendDraws;
                 } else {
 #if !defined(MKW_VITA_AURORA_RENDERER)
-                    glDisable(GL_BLEND);
+                    if (directApplyRasterState) glDisable(GL_BLEND);
 #endif
                     if (raster.blendMode != GX_BM_NONE) {
                         ++geometryBlendFallbackDraws;
@@ -4214,14 +4645,16 @@ void RenderWorkerMain() {
                 const AlphaTestSelection alphaTest = SelectAlphaTest(raster);
 #if !defined(MKW_VITA_AURORA_RENDERER)
                 if (!alphaTest.exact) {
-                    glDisable(GL_ALPHA_TEST);
+                    if (directApplyRasterState) glDisable(GL_ALPHA_TEST);
                     ++geometryAlphaCompareFallbackDraws;
                 } else if (alphaTest.enabled) {
-                    glEnable(GL_ALPHA_TEST);
-                    glAlphaFunc(DepthCompareMode(alphaTest.compare),
-                                static_cast<GLclampf>(alphaTest.reference) / 255.0f);
+                    if (directApplyRasterState) {
+                        glEnable(GL_ALPHA_TEST);
+                        glAlphaFunc(DepthCompareMode(alphaTest.compare),
+                                    static_cast<GLclampf>(alphaTest.reference) / 255.0f);
+                    }
                     ++geometryAlphaTestDraws;
-                } else {
+                } else if (directApplyRasterState) {
                     glDisable(GL_ALPHA_TEST);
                 }
 #else
@@ -4232,66 +4665,114 @@ void RenderWorkerMain() {
 #endif
 
 #if !defined(MKW_VITA_AURORA_RENDERER)
+                bool directApplyTextureState = true;
+#if MKW_VITA_DIRECT_STATE_CACHE && MKW_VITA_COMPACT_FRAME_STATE
+                bool directTextureSourceReusable = true;
+#if MKW_VITA_DIRECT_EFB
+                const bool directTextureIsEfb =
+                    texture.enabled && FindDirectEfb(reinterpret_cast<uintptr_t>(texture.data));
+                if (texture.enabled && !directTextureIsEfb) {
+                    directTextureSourceReusable = TextureSourceStillMatches(texture);
+                }
+#else
                 if (texture.enabled) {
-                    if (traceGpu) {
-                        RT_LOGF(RT_TAG_GX, "gpu_trace frame=%llu draw=%u phase=texture_begin\n",
-                                static_cast<unsigned long long>(serial), static_cast<unsigned>(i));
-                    }
-                    const GLuint glTexture = ResolveTexture(texture, textureCounters);
-                    if (traceGpu) {
-                        RT_LOGF(RT_TAG_GX,
-                                "gpu_trace frame=%llu draw=%u phase=texture_end gl_texture=%u uploads=%llu failures=%llu\n",
-                                static_cast<unsigned long long>(serial), static_cast<unsigned>(i),
-                                static_cast<unsigned>(glTexture),
-                                static_cast<unsigned long long>(textureCounters.uploads),
-                                static_cast<unsigned long long>(textureCounters.uploadFailures));
-                    }
-                    if (glTexture != 0) {
-                        glEnable(GL_TEXTURE_2D);
-                        glBindTexture(GL_TEXTURE_2D, glTexture);
-                        ApplyTextureSampler(texture);
-                        switch (static_cast<GXTevMode>(texture.tevMode)) {
-                        case GX_MODULATE:
-                            glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-                            break;
-                        case GX_DECAL:
-                            glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL);
-                            break;
-                        case GX_BLEND: {
-                            GLfloat white[4] = {1.0f, 1.0f, 1.0f, 1.0f};
-                            glTexEnvfv(GL_TEXTURE_ENV, GL_TEXTURE_ENV_COLOR, white);
-                            glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_BLEND);
-                            break;
+                    directTextureSourceReusable = TextureSourceStillMatches(texture);
+                }
+#endif
+                if (directTextureStateValid && directTextureStateId == draw.textureId &&
+                    directTextureSourceReusable) {
+                    directApplyTextureState = false;
+                    ++directTextureStateSkips;
+                } else {
+                    directTextureStateValid = true;
+                    directTextureStateId = draw.textureId;
+                }
+#endif
+                if (directApplyTextureState) {
+                    if (texture.enabled) {
+                        if (traceGpu) {
+                            RT_LOGF(RT_TAG_GX, "gpu_trace frame=%llu draw=%u phase=texture_begin\n",
+                                    static_cast<unsigned long long>(serial), static_cast<unsigned>(i));
                         }
-                        case GX_REPLACE:
-                            glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
-                            break;
-                        case GX_PASSCLR:
-                            glDisable(GL_TEXTURE_2D);
-                            break;
-                        default:
-                            glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-                            break;
+                        const GLuint glTexture = ResolveTexture(texture, textureCounters);
+#if MKW_VITA_DIRECT_EFB
+                        if (glTexture && FindDirectEfb(reinterpret_cast<uintptr_t>(texture.data)))
+                            ++efbTexturesSampled;
+#endif
+                        if (traceGpu) {
+                            RT_LOGF(RT_TAG_GX,
+                                    "gpu_trace frame=%llu draw=%u phase=texture_end gl_texture=%u uploads=%llu failures=%llu\n",
+                                    static_cast<unsigned long long>(serial), static_cast<unsigned>(i),
+                                    static_cast<unsigned>(glTexture),
+                                    static_cast<unsigned long long>(textureCounters.uploads),
+                                    static_cast<unsigned long long>(textureCounters.uploadFailures));
                         }
-                        if (texture.tevSimple) {
-                            ++geometryTevSimpleDraws;
+                        if (glTexture != 0) {
+                            glEnable(GL_TEXTURE_2D);
+                            glBindTexture(GL_TEXTURE_2D, glTexture);
+                            ApplyTextureSampler(texture);
+                            switch (static_cast<GXTevMode>(texture.tevMode)) {
+                            case GX_MODULATE:
+                                glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+                                break;
+                            case GX_DECAL:
+                                glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL);
+                                break;
+                            case GX_BLEND: {
+                                GLfloat white[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+                                glTexEnvfv(GL_TEXTURE_ENV, GL_TEXTURE_ENV_COLOR, white);
+                                glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_BLEND);
+                                break;
+                            }
+                            case GX_REPLACE:
+                                glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+                                break;
+                            case GX_PASSCLR:
+                                glDisable(GL_TEXTURE_2D);
+                                break;
+                            default:
+                                glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+                                break;
+                            }
+                            if (texture.tevSimple) {
+                                ++geometryTevSimpleDraws;
+                            } else {
+                                ++geometryTevFallbackDraws;
+                            }
+                            ++textureCounters.draws;
+                            if (texture.mipmap || texture.minFilter > static_cast<u8>(GX_LINEAR)) {
+                                ++textureCounters.mipFallbackDraws;
+                            }
                         } else {
-                            ++geometryTevFallbackDraws;
-                        }
-                        ++textureCounters.draws;
-                        if (texture.mipmap || texture.minFilter > static_cast<u8>(GX_LINEAR)) {
-                            ++textureCounters.mipFallbackDraws;
+                            glBindTexture(GL_TEXTURE_2D, 0);
+                            glDisable(GL_TEXTURE_2D);
                         }
                     } else {
                         glBindTexture(GL_TEXTURE_2D, 0);
                         glDisable(GL_TEXTURE_2D);
                     }
-                } else {
-                    glBindTexture(GL_TEXTURE_2D, 0);
-                    glDisable(GL_TEXTURE_2D);
+                } else if (texture.enabled) {
+                    // The previous physical draw already published this exact
+                    // compact texture/sampler/TEV state. Preserve accounting
+                    // without touching vitaGL or re-running source generation.
+                    if (texture.tevSimple) {
+                        ++geometryTevSimpleDraws;
+                    } else {
+                        ++geometryTevFallbackDraws;
+                    }
+                    ++textureCounters.draws;
+                    if (texture.mipmap || texture.minFilter > static_cast<u8>(GX_LINEAR)) {
+                        ++textureCounters.mipFallbackDraws;
+                    }
+#if MKW_VITA_DIRECT_EFB
+                    if (FindDirectEfb(reinterpret_cast<uintptr_t>(texture.data))) {
+                        ++efbTexturesSampled;
+                    }
+#endif
                 }
 #endif
 
+                #if defined(MKW_VITA_AURORA_RENDERER) || !MKW_VITA_DIRECT_BATCHER
                 bool texGenFailed = false;
                 f32 ndcMinX = std::numeric_limits<f32>::infinity();
                 f32 ndcMinY = std::numeric_limits<f32>::infinity();
@@ -4377,7 +4858,16 @@ void RenderWorkerMain() {
                             static_cast<unsigned>(draw.vertexCount),
                             static_cast<unsigned long long>(geometryTransformFailures));
                 }
-#if !defined(MKW_VITA_AURORA_RENDERER) && defined(MKW_VITA_VITAGL_SPEEDHACK)
+                #endif
+#if !defined(MKW_VITA_AURORA_RENDERER) && !MKW_VITA_DIRECT_BATCHER && MKW_VITA_CLIP_W
+                for (uint32_t v = draw.firstVertex; v < uint32_t(draw.firstVertex) + draw.vertexCount; ++v) {
+                    auto& vertex = g_renderVertices[v];
+                    vertex.x *= vertex.clipW;
+                    vertex.y *= vertex.clipW;
+                    vertex.z *= vertex.clipW;
+                }
+#endif
+#if !defined(MKW_VITA_AURORA_RENDERER) && defined(MKW_VITA_VITAGL_SPEEDHACK) && !MKW_VITA_DIRECT_BATCHER
                 const size_t uploadOffset = static_cast<size_t>(draw.firstVertex) * sizeof(RenderVertex);
                 const size_t uploadBytes = static_cast<size_t>(draw.vertexCount) * sizeof(RenderVertex);
                 if (traceGpu) {
@@ -4637,11 +5127,77 @@ void RenderWorkerMain() {
                 }
 #endif
 #else
+#if MKW_VITA_DIRECT_BATCHER
+                bool issueDirectDraw = directFrameUploadReady;
+                uint32_t directVertexCount = draw.vertexCount;
+#if !MKW_VITA_DIRECT_STATE_CACHE
+                if (directSkipActive) {
+                    if (i <= directSkipDrawUntil) {
+                        issueDirectDraw = false;
+                    }
+                    if (i >= directSkipDrawUntil) {
+                        directSkipActive = false;
+                    }
+                }
+#endif
+
+                if (issueDirectDraw) {
+                    const bool concatPrimitive =
+                        draw.primitive == GX_QUADS || draw.primitive == GX_TRIANGLES ||
+                        draw.primitive == GX_LINES || draw.primitive == GX_POINTS;
+                    if (concatPrimitive) {
+                        u16 runEnd = i;
+                        uint32_t runEndVertex =
+                            static_cast<uint32_t>(draw.firstVertex) + draw.vertexCount;
+                        for (u16 candidateIndex = static_cast<u16>(i + 1u);
+                             candidateIndex < packet.geometry.drawCount; ++candidateIndex) {
+                            const GeometryDraw& candidate = packet.geometry.draws[candidateIndex];
+                            bool efbBoundary = false;
+                            for (u16 commandIndex = 0;
+                                 commandIndex < packet.geometry.efbCommandCount; ++commandIndex) {
+                                if (packet.geometry.efbCommands[commandIndex].afterDrawCount ==
+                                    candidateIndex) {
+                                    efbBoundary = true;
+                                    break;
+                                }
+                            }
+                            if (efbBoundary || candidate.primitive != draw.primitive ||
+                                candidate.firstVertex != runEndVertex) {
+                                break;
+                            }
+#if MKW_VITA_COMPACT_FRAME_STATE
+                            if (candidate.renderStateId != draw.renderStateId) {
+                                break;
+                            }
+#else
+                            break;
+#endif
+                            directVertexCount += candidate.vertexCount;
+                            runEndVertex += candidate.vertexCount;
+                            runEnd = candidateIndex;
+                        }
+                        if (runEnd != i) {
+                            directSkipActive = true;
+                            directSkipDrawUntil = runEnd;
+                            directMergedDraws += static_cast<uint64_t>(runEnd - i);
+                        }
+                    }
+                }
+#endif
                 if (traceGpu) {
                     RT_LOGF(RT_TAG_GX, "gpu_trace frame=%llu draw=%u phase=glDrawArrays_begin\n",
                             static_cast<unsigned long long>(serial), static_cast<unsigned>(i));
                 }
+#if MKW_VITA_DIRECT_BATCHER
+                if (issueDirectDraw) {
+                    glDrawArrays(PrimitiveMode(draw.primitive), draw.firstVertex,
+                                 static_cast<GLsizei>(directVertexCount));
+                    ++directPhysicalDraws;
+                }
+#else
                 glDrawArrays(PrimitiveMode(draw.primitive), draw.firstVertex, draw.vertexCount);
+                ++directPhysicalDraws;
+#endif
                 if (traceGpu) {
                     RT_LOGF(RT_TAG_GX, "gpu_trace frame=%llu draw=%u phase=glDrawArrays_returned\n",
                             static_cast<unsigned long long>(serial), static_cast<unsigned>(i));
@@ -4696,6 +5252,9 @@ void RenderWorkerMain() {
             auroraFrameStats = WiiCompiledVita::AuroraPacketRendererEndFrame();
             auroraEndFrameEndUs = sceKernelGetProcessTimeWide();
         }
+#endif
+#if !defined(MKW_VITA_AURORA_RENDERER) && MKW_VITA_DIRECT_EFB
+        ExecuteDirectEfbAt(packet.geometry.drawCount);
 #endif
         const uint64_t swapBeginUs = sceKernelGetProcessTimeWide();
         if (traceLargeFrame) {
@@ -4983,18 +5542,38 @@ void RenderWorkerMain() {
                     g_perfCriticalRing.write.load(std::memory_order_relaxed));
 #else
             RT_LOGF(RT_TAG_GX,
-                    "perf_summary serial=%llu draws=%u vertices=%u presented=%llu raw_ok=%llu "
-                    "raw_fail=%llu dropped=%u transform_fail=%llu render_us=%llu swap_us=%llu ring_write=%u\n",
+                    "perf_summary serial=%llu draws=%u vertices=%u presented=%llu physical=%llu merged=%llu "
+                    "raw_ok=%llu raw_fail=%llu dropped=%u transform_fail=%llu render_us=%llu swap_us=%llu "
+                    "direct_upload_us=%llu direct_upload=%u/%u/%llu state_skip=%llu/%llu/%llu "
+                    "tev_chain=%llu/%llu/%llu tev_draw=%llu/%llu "
+                    "efb=%llu/%llu sampled=%llu efb_us=%llu ring_write=%u\n",
                     static_cast<unsigned long long>(serial),
                     static_cast<unsigned>(packet.geometry.drawCount),
                     static_cast<unsigned>(packet.geometry.vertexCount),
                     static_cast<unsigned long long>(geometryDrawsPresented),
+                    static_cast<unsigned long long>(directPhysicalDraws),
+                    static_cast<unsigned long long>(directMergedDraws),
                     static_cast<unsigned long long>(packet.counters.rawDrawsDecoded),
                     static_cast<unsigned long long>(packet.counters.rawDrawDecodeFailures),
                     static_cast<unsigned>(packet.geometry.droppedVertices),
                     static_cast<unsigned long long>(geometryTransformFailures),
                     static_cast<unsigned long long>(swapEndUs - frameRenderBeginUs),
                     static_cast<unsigned long long>(swapEndUs - swapBeginUs),
+                    static_cast<unsigned long long>(directFrameUploadUs),
+                    directUploadChunks, directUploadRetries,
+                    static_cast<unsigned long long>(directUploadRetryWaitUs),
+                    static_cast<unsigned long long>(directLogicalStateSkips),
+                    static_cast<unsigned long long>(directRasterStateSkips),
+                    static_cast<unsigned long long>(directTextureStateSkips),
+                    static_cast<unsigned long long>(packet.counters.textureStateTevChainCollapsed),
+                    static_cast<unsigned long long>(packet.counters.textureStateTevChainUnsupported),
+                    static_cast<unsigned long long>(packet.counters.textureStateTevChainMultiTexture),
+                    static_cast<unsigned long long>(geometryTevSimpleDraws),
+                    static_cast<unsigned long long>(geometryTevFallbackDraws),
+                    static_cast<unsigned long long>(efbCopiesExecuted),
+                    static_cast<unsigned long long>(efbCopyFailures),
+                    static_cast<unsigned long long>(efbTexturesSampled),
+                    static_cast<unsigned long long>(directEfbUs),
                     g_perfCriticalRing.write.load(std::memory_order_relaxed));
 #endif
 #endif
