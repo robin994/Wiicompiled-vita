@@ -36,6 +36,9 @@ BASE = dict(
     MKW_VITA_DIRECT_VERTEX_PREP=0, MKW_VITA_DIRECT_TEXTURE_PREP=0,
     MKW_VITA_DIRECT_STATE_PREP=0, MKW_VITA_DIRECT_TEXTURE_CACHE_ANTITHRASH=0,
     MKW_VITA_GUEST_IO_PROFILE=0,
+    MKW_VITA_FULLSCREEN_PRESENT=0, MKW_VITA_DVD_HOST_BUFFERING=0,
+    MKW_VITA_DIRECT_EFB_BATCH_SYNC=0,
+    MKW_VITA_RENDER_DECOUPLE=0, MKW_VITA_RENDER_TARGET_HZ=60,
     MKW_VITA_DIRECT_WORKER_TIMING=0,
     MKW_VITA_THP_UNESCAPED_FIX=0, MKW_VITA_AUDIO_WAIT_BLOCK_BUDGET=4,
     MKW_VITA_AURORA_RENDERER=1,
@@ -165,6 +168,23 @@ PROFILES["full-content-p6_12-texture-antithrash"] = (
 PROFILES["full-content-p6_13-guest-io-profile"] = (
     PROFILES["full-content-p6_12-texture-antithrash"] |
     dict(MKW_VITA_GUEST_IO_PROFILE=1))
+
+# P6.14 hardware candidate: preserve the validated P6.13 stack, correct the
+# GX material/projection path in source, stretch only the display-copy source
+# rectangle to 960x544, buffer host DVD reads, and amortize redundant EFB syncs.
+PROFILES["full-content-p6_14-30fps-graphics-fullscreen"] = (
+    PROFILES["full-content-p6_13-guest-io-profile"] |
+    dict(MKW_VITA_FULLSCREEN_PRESENT=1,
+         MKW_VITA_DVD_HOST_BUFFERING=1,
+         MKW_VITA_DIRECT_EFB_BATCH_SYNC=1))
+
+# P6.15: the Wii VI/game clock stays unchanged while display submission is
+# decoupled from USER_0. USER_1 presents at 30 Hz (two Vita VBlanks) and visual
+# frames are dropped under renderer backpressure instead of stalling the guest.
+PROFILES["full-content-p6_15-decoupled-30hz"] = (
+    PROFILES["full-content-p6_14-30fps-graphics-fullscreen"] |
+    dict(MKW_VITA_RENDER_DECOUPLE=1,
+         MKW_VITA_RENDER_TARGET_HZ=30))
 
 def sha(path):
     with path.open("rb") as stream:

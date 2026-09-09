@@ -121,6 +121,21 @@ static_assert(MKW_VITA_FRAME_QUEUE_DEPTH >= 1 && MKW_VITA_FRAME_QUEUE_DEPTH <= 2
 #ifndef MKW_VITA_GUEST_IO_PROFILE
 #define MKW_VITA_GUEST_IO_PROFILE 0
 #endif
+#ifndef MKW_VITA_FULLSCREEN_PRESENT
+#define MKW_VITA_FULLSCREEN_PRESENT 0
+#endif
+#ifndef MKW_VITA_DVD_HOST_BUFFERING
+#define MKW_VITA_DVD_HOST_BUFFERING 0
+#endif
+#ifndef MKW_VITA_DIRECT_EFB_BATCH_SYNC
+#define MKW_VITA_DIRECT_EFB_BATCH_SYNC 0
+#endif
+#ifndef MKW_VITA_RENDER_DECOUPLE
+#define MKW_VITA_RENDER_DECOUPLE 0
+#endif
+#ifndef MKW_VITA_RENDER_TARGET_HZ
+#define MKW_VITA_RENDER_TARGET_HZ 60
+#endif
 #ifndef MKW_VITA_DIRECT_WORKER_TIMING
 #define MKW_VITA_DIRECT_WORKER_TIMING 0
 #endif
@@ -206,6 +221,10 @@ constexpr size_t kBootConsoleRows = 64;
 constexpr int kBootFontAtlasSize = 128;
 constexpr uint64_t kPerfSummaryInterval =
     MKW_VITA_PERF_SUMMARY_INTERVAL > 0 ? MKW_VITA_PERF_SUMMARY_INTERVAL : 300u;
+#if MKW_VITA_RENDER_DECOUPLE
+static_assert(MKW_VITA_RENDER_TARGET_HZ == 30 || MKW_VITA_RENDER_TARGET_HZ == 60,
+              "decoupled Vita renderer currently supports 30 or 60 Hz");
+#endif
 
 struct PerfCriticalEvent {
     uint64_t serial = 0;
@@ -349,6 +368,8 @@ struct FrameCounters {
     uint64_t textureStateCustomPresetReplace = 0;
     uint64_t textureStateCustomPresetPassClr = 0;
     uint64_t textureStateCustomPresetUnknown = 0;
+    uint64_t textureStateCustomRegModulate = 0;
+    uint64_t textureStateCustomRegLerp = 0;
     uint64_t textureStateCustomSignatureOverflow = 0;
     uint64_t textureStateTevChainCollapsed = 0;
     uint64_t textureStateTevChainUnsupported = 0;
@@ -780,6 +801,12 @@ struct DrawTextureState {
     u8 tevTwoTexture = 0;
     u8 tevSecondStage = 0;
     u8 tevSecondMode = static_cast<u8>(GX_MODULATE);
+    // Direct-vitaGL extensions for common MKW custom TEV equations that are
+    // exactly representable by the fixed-function texture combiner.
+    // 0: ordinary GXTevMode, 1: texture * primary constant,
+    // 2: mix(primary constant, env constant, texture).
+    u8 directTevKind = 0;
+    u32 directTevEnvRgba = 0xffffffffu;
     u8 mipmap = 0;
     u8 enabled = 0;
     const void* secondData = nullptr;
@@ -882,6 +909,14 @@ struct FramePacket {
     FrameGeometry geometry{};
     std::array<f32, 6> viewport{0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 1.0f};
     std::array<u32, 4> scissor{0, 0, 640, 480};
+    // MKW commonly renders a 608x456 EFB source and lets VI scale it to the
+    // physical output. Preserve the source rectangle per frame so Vita can
+    // stretch only at presentation time while internal GX/EFB coordinates stay
+    // at the game's native resolution.
+    u16 presentLeft = 0;
+    u16 presentTop = 0;
+    u16 presentWidth = 640;
+    u16 presentHeight = 480;
 };
 #if MKW_VITA_COMPACT_FRAME_STATE
 #if !defined(MKW_VITA_AURORA_RENDERER) && MKW_VITA_DIRECT_BATCHER
@@ -917,6 +952,7 @@ struct GxState {
     std::array<u32, 4> scissor{0, 0, 640, 480};
     std::array<u16, 4> boundingBox{1023, 0, 1023, 0};
     std::array<GXColor, 4> tevColor{};
+    std::array<std::array<s16, 4>, 4> tevColorS10{};
     std::array<GXColor, GX_MAX_KCOLOR> kColor{};
     std::array<GXColor, 4> chanAmb{};
     std::array<GXColor, 4> chanMat{};
@@ -1599,6 +1635,109 @@ bool TryClassifyTevStageMode(size_t stage, GXTevMode& outMode) {
     return TryClassifyCustomTevPreset(stage, outMode);
 }
 
+struct DirectCustomTevMatch {
+    u8 kind = 0;
+    u32 primaryRgba = 0xffffffffu;
+    u32 envRgba = 0xffffffffu;
+};
+
+int TevColorArgRegister(GXTevColorArg arg) {
+    if (arg == GX_CC_C0) return GX_TEVREG0;
+    if (arg == GX_CC_C1) return GX_TEVREG1;
+    if (arg == GX_CC_C2) return GX_TEVREG2;
+    return -1;
+}
+
+int TevAlphaArgRegister(GXTevAlphaArg arg) {
+    if (arg == GX_CA_A0) return GX_TEVREG0;
+    if (arg == GX_CA_A1) return GX_TEVREG1;
+    if (arg == GX_CA_A2) return GX_TEVREG2;
+    return -1;
+}
+
+u32 TevRegisterRgba(int reg) {
+    if (reg < GX_TEVPREV || reg >= GX_MAX_TEVREG) return 0xffffffffu;
+    const auto& c = g_gx.tevColorS10[static_cast<size_t>(reg)];
+    const auto byte = [](s16 value) {
+        return static_cast<u32>(std::clamp<int>(value, 0, 255));
+    };
+    return (byte(c[0]) << 24u) | (byte(c[1]) << 16u) |
+           (byte(c[2]) << 8u) | byte(c[3]);
+}
+
+bool TevRegisterIsNormalized(int reg) {
+    if (reg < GX_TEVPREV || reg >= GX_MAX_TEVREG) return false;
+    const auto& c = g_gx.tevColorS10[static_cast<size_t>(reg)];
+    return std::all_of(c.begin(), c.end(), [](s16 value) {
+        return value >= 0 && value <= 255;
+    });
+}
+
+bool IsDirectSimpleTevOp(u32 reg) {
+    // ADD, zero bias, scale 1 and output PREV. Clamp may be either value: the
+    // patterns below only interpolate/modulate normalized colors, so both
+    // clamped and unclamped GX equations have the same [0,1] result.
+    return ((reg >> 18u) & 1u) == 0u &&
+           ((reg >> 16u) & 3u) == GX_TB_ZERO &&
+           ((reg >> 20u) & 3u) == GX_CS_SCALE_1 &&
+           ((reg >> 22u) & 3u) == GX_TEVPREV;
+}
+
+bool TryClassifyDirectCustomTev(size_t stage, DirectCustomTevMatch& out) {
+    if (stage >= GX_MAX_TEVSTAGE) return false;
+    const u32 color = g_gx.bpRegs[0xC0u + stage * 2u] & 0x00ffffffu;
+    const u32 alpha = g_gx.bpRegs[0xC1u + stage * 2u] & 0x00ffffffu;
+    if (!IsDirectSimpleTevOp(color) || !IsDirectSimpleTevOp(alpha)) return false;
+
+    const auto ca = static_cast<GXTevColorArg>((color >> 12u) & 0xFu);
+    const auto cb = static_cast<GXTevColorArg>((color >> 8u) & 0xFu);
+    const auto cc = static_cast<GXTevColorArg>((color >> 4u) & 0xFu);
+    const auto cd = static_cast<GXTevColorArg>(color & 0xFu);
+    const auto aa = static_cast<GXTevAlphaArg>((alpha >> 13u) & 0x7u);
+    const auto ab = static_cast<GXTevAlphaArg>((alpha >> 10u) & 0x7u);
+    const auto ac = static_cast<GXTevAlphaArg>((alpha >> 7u) & 0x7u);
+    const auto ad = static_cast<GXTevAlphaArg>((alpha >> 4u) & 0x7u);
+
+    // Cn * TEX: 0 + mix(0, TEX, Cn). This is exact GL_MODULATE after replacing
+    // primary vertex color with the selected TEV register.
+    const int modColorReg = TevColorArgRegister(cc);
+    const int modAlphaReg = TevAlphaArgRegister(ac);
+    if (ca == GX_CC_ZERO && cb == GX_CC_TEXC && cd == GX_CC_ZERO &&
+        aa == GX_CA_ZERO && ab == GX_CA_TEXA && ad == GX_CA_ZERO &&
+        modColorReg >= 0 && modColorReg == modAlphaReg &&
+        TevRegisterIsNormalized(modColorReg)) {
+        out.kind = 1u;
+        out.primaryRgba = TevRegisterRgba(modColorReg);
+        return true;
+    }
+
+    // mix(Cn, Cm, TEX): GL_COMBINE/INTERPOLATE can express this exactly by
+    // publishing Cn as PRIMARY_COLOR and Cm as GL_CONSTANT.
+    const int colorA = TevColorArgRegister(ca);
+    const int colorB = TevColorArgRegister(cb);
+    const int alphaA = TevAlphaArgRegister(aa);
+    const int alphaB = TevAlphaArgRegister(ab);
+    if (cc == GX_CC_TEXC && cd == GX_CC_ZERO &&
+        ac == GX_CA_TEXA && ad == GX_CA_ZERO &&
+        colorA >= 0 && colorB >= 0 && colorA == alphaA && colorB == alphaB &&
+        TevRegisterIsNormalized(colorA) && TevRegisterIsNormalized(colorB)) {
+        out.kind = 2u;
+        out.primaryRgba = TevRegisterRgba(colorA);
+        out.envRgba = TevRegisterRgba(colorB);
+        return true;
+    }
+    return false;
+}
+
+bool OtherTevStagesPassThrough(size_t stageCount, size_t selectedStage) {
+    for (size_t stage = 0; stage < stageCount; ++stage) {
+        if (stage == selectedStage) continue;
+        GXTevMode mode = GX_MODULATE;
+        if (!TryClassifyTevStageMode(stage, mode) || mode != GX_PASSCLR) return false;
+    }
+    return true;
+}
+
 struct TevChainAnalysis {
     bool allClassified = true;
     bool collapsible = false;
@@ -1802,11 +1941,18 @@ void CaptureDrawTextureState(DrawTextureState& textureState) {
     const bool simplePreset = g_gx.tevPresetValid[selectedStage] != 0;
     GXTevMode selectedMode = simplePreset ? g_gx.tevModes[selectedStage] : GX_MODULATE;
     bool classifiedCustomPreset = false;
+    DirectCustomTevMatch directCustom{};
+    bool classifiedDirectCustom = false;
     if (!simplePreset) {
         ++g_gx.frame.textureStateRecoveredCustomStage;
         classifiedCustomPreset = TryClassifyCustomTevPreset(selectedStage, selectedMode);
         if (classifiedCustomPreset) {
             CountCustomTevPreset(selectedMode);
+        } else if (TryClassifyDirectCustomTev(selectedStage, directCustom) &&
+                   OtherTevStagesPassThrough(stageCount, selectedStage)) {
+            classifiedDirectCustom = true;
+            if (directCustom.kind == 1u) ++g_gx.frame.textureStateCustomRegModulate;
+            if (directCustom.kind == 2u) ++g_gx.frame.textureStateCustomRegLerp;
         } else {
             ++g_gx.frame.textureStateCustomPresetUnknown;
             RecordCustomTevSignature(selectedStage, stageCount);
@@ -1818,10 +1964,28 @@ void CaptureDrawTextureState(DrawTextureState& textureState) {
     draw.texture.tevMode = static_cast<u8>(selectedMode);
     const bool nativeSimpleTev =
         (g_gx.numTevStages == 1 && selectedStage == 0 &&
-         (simplePreset || classifiedCustomPreset)) ||
+         (simplePreset || classifiedCustomPreset || classifiedDirectCustom)) ||
         (draw.texture.tevCollapsedChain != 0 && (simplePreset || classifiedCustomPreset)) ||
-        (draw.texture.tevTwoTexture != 0 && (simplePreset || classifiedCustomPreset));
+        (draw.texture.tevTwoTexture != 0 && (simplePreset || classifiedCustomPreset)) ||
+        classifiedDirectCustom;
     draw.texture.tevSimple = nativeSimpleTev ? 1u : 0u;
+    if (classifiedDirectCustom) {
+        draw.texture.directTevKind = directCustom.kind;
+        draw.texture.directTevEnvRgba = directCustom.envRgba;
+        draw.texture.materialRgba = directCustom.primaryRgba;
+        if (directCustom.kind == 1u) {
+            // Cn*TEX is exact fixed-function MODULATE when the captured primary
+            // color is replaced with Cn.
+            draw.texture.materialMask = 3u;
+            draw.texture.tevMode = static_cast<u8>(GX_MODULATE);
+        } else {
+            // The speedhack vitaGL library is built with its generic texture
+            // combiner disabled. Bake mix(Cn,Cm,TEX) into the decoded texture on
+            // USER_2 and submit the result as REPLACE instead.
+            draw.texture.materialMask = 0u;
+            draw.texture.tevMode = static_cast<u8>(GX_REPLACE);
+        }
+    }
 
     const TexGenState& texGen = g_gx.texGen[0];
     draw.texture.texGenType = static_cast<u8>(texGen.type);
@@ -2007,7 +2171,8 @@ bool SameDrawTexture(const DrawTextureState& a, const DrawTextureState& b) {
            a.tevStageCount == b.tevStageCount && a.tevSelectedStage == b.tevSelectedStage &&
            a.tevCollapsedChain == b.tevCollapsedChain &&
            a.tevTwoTexture == b.tevTwoTexture && a.tevSecondStage == b.tevSecondStage &&
-           a.tevSecondMode == b.tevSecondMode &&
+           a.tevSecondMode == b.tevSecondMode && a.directTevKind == b.directTevKind &&
+           a.directTevEnvRgba == b.directTevEnvRgba &&
            a.mipmap == b.mipmap && a.enabled == b.enabled &&
            a.secondData == b.secondData && a.secondDataRevision == b.secondDataRevision &&
            a.secondSourceGeneration == b.secondSourceGeneration &&
@@ -2196,6 +2361,12 @@ void InitializeTransformDefaults() {
     g_gx.nrmMtx.fill(identity3x4);
     g_gx.texMtx.fill(identity3x4);
     g_gx.postTexMtx.fill(identity3x4);
+    // Revolution GX starts material registers at opaque white. Leaving this
+    // value-initialized to zero makes every unlit channel that selects the
+    // register source multiply otherwise valid textures/models to black until
+    // the title happens to write GXSetChanMatColor explicitly.
+    g_gx.chanAmb.fill(GXColor{0, 0, 0, 255});
+    g_gx.chanMat.fill(GXColor{255, 255, 255, 255});
     for (size_t i = 0; i < g_gx.texGen.size(); ++i) {
         g_gx.texGen[i].type = GX_TG_MTX2x4;
         g_gx.texGen[i].src = static_cast<GXTexGenSrc>(GX_TG_TEX0 + i);
@@ -3769,6 +3940,40 @@ bool ConvertTextureLevel0(const DrawTextureState& texture, u8* rgba, size_t rgba
     return false;
 }
 
+bool ApplyDirectTevTextureBake(const DrawTextureState& texture, u8* rgba, size_t rgbaBytes) {
+    if (texture.directTevKind != 2u) return true;
+    if (!rgba || texture.width == 0u || texture.height == 0u) return false;
+    const size_t required = static_cast<size_t>(texture.width) * texture.height * 4u;
+    if (required > rgbaBytes) return false;
+
+    const std::array<u8, 4> a{
+        static_cast<u8>((texture.materialRgba >> 24u) & 0xffu),
+        static_cast<u8>((texture.materialRgba >> 16u) & 0xffu),
+        static_cast<u8>((texture.materialRgba >> 8u) & 0xffu),
+        static_cast<u8>(texture.materialRgba & 0xffu),
+    };
+    const std::array<u8, 4> b{
+        static_cast<u8>((texture.directTevEnvRgba >> 24u) & 0xffu),
+        static_cast<u8>((texture.directTevEnvRgba >> 16u) & 0xffu),
+        static_cast<u8>((texture.directTevEnvRgba >> 8u) & 0xffu),
+        static_cast<u8>(texture.directTevEnvRgba & 0xffu),
+    };
+    const size_t pixels = static_cast<size_t>(texture.width) * texture.height;
+    for (size_t pixel = 0; pixel < pixels; ++pixel) {
+        u8* p = rgba + pixel * 4u;
+        for (size_t channel = 0; channel < 4u; ++channel) {
+            const uint32_t factor = p[channel];
+            // GX's normalized TEV ADD path is D + A*(1-C) + B*C. Integer
+            // arithmetic with round-to-nearest is deterministic and keeps the
+            // prepared texture cache independent of host floating-point mode.
+            p[channel] = static_cast<u8>((
+                static_cast<uint32_t>(a[channel]) * (255u - factor) +
+                static_cast<uint32_t>(b[channel]) * factor + 127u) / 255u);
+        }
+    }
+    return true;
+}
+
 GLint TextureWrapMode(u8 mode) {
     switch (static_cast<GXTexWrapMode>(mode)) {
     case GX_REPEAT: return GL_REPEAT;
@@ -3807,6 +4012,13 @@ bool SameTextureContentRevision(uint64_t aGeneration, uint64_t bGeneration,
 }
 
 bool SameTexturePixelSource(const DrawTextureState& a, const DrawTextureState& b) {
+    const bool aBaked = a.directTevKind == 2u;
+    const bool bBaked = b.directTevKind == 2u;
+    if (aBaked != bBaked) return false;
+    if (aBaked && (a.materialRgba != b.materialRgba ||
+                   a.directTevEnvRgba != b.directTevEnvRgba)) {
+        return false;
+    }
     if (a.data != b.data || a.format != b.format || a.width != b.width ||
         a.height != b.height || a.thpYuv420 != b.thpYuv420 ||
         !SameTextureContentRevision(a.sourceGeneration, b.sourceGeneration,
@@ -4061,7 +4273,8 @@ void PrepareFrameCpuTextures(FrameQueueSlot& slot) {
         const uint64_t decodeBeginUs = sceKernelGetProcessTimeWide();
         const bool sourceBefore = TextureSourceStillMatches(texture);
         const bool decoded = sourceBefore &&
-            ConvertTextureLevel0(texture, prepared.rgba.data(), prepared.rgba.size());
+            ConvertTextureLevel0(texture, prepared.rgba.data(), prepared.rgba.size()) &&
+            ApplyDirectTevTextureBake(texture, prepared.rgba.data(), prepared.rgba.size());
         const bool sourceAfter = decoded && TextureSourceStillMatches(texture);
         prepared.decodeUs = sceKernelGetProcessTimeWide() - decodeBeginUs;
         slot.prepTextureUs += prepared.decodeUs;
@@ -4332,7 +4545,8 @@ GLuint ResolveTexture(const DrawTextureState& texture, TextureRenderCounters& co
 #endif
     if (!uploadPixels) {
         ++counters.synchronousDecodes;
-        if (!ConvertTextureLevel0(texture, g_textureScratch.get(), kTextureScratchBytes)) {
+        if (!ConvertTextureLevel0(texture, g_textureScratch.get(), kTextureScratchBytes) ||
+            !ApplyDirectTevTextureBake(texture, g_textureScratch.get(), kTextureScratchBytes)) {
             ++counters.uploadFailures;
             return 0;
         }
@@ -4444,6 +4658,13 @@ void ApplySimpleTevMode(u8 mode) {
     }
 }
 
+void ApplyDirectTevMode(const DrawTextureState& texture) {
+    // The custom VitaGL library intentionally compiles out GL_COMBINE for FFP
+    // size/performance. Reg-lerp textures are therefore baked on USER_2 (or on
+    // the synchronous decode fallback) and submitted as ordinary REPLACE.
+    ApplySimpleTevMode(texture.tevMode);
+}
+
 #if MKW_VITA_DIRECT_TEV_TWO_TEXTURE && !defined(MKW_VITA_AURORA_RENDERER)
 DrawTextureState SecondaryTextureState(const DrawTextureState& texture) {
     DrawTextureState second{};
@@ -4506,7 +4727,7 @@ void RenderWorkerMain() {
             "efb_readback_flip_y=%u efb_transfer_readback=%u efb_resident_copy=%u "
             "efb_native_res_copy=%u stream_safe_reuse=%u ui_quad_runs=%u "
             "texture_shared_headroom=%u texture_safe_retry=%u clip_w=%u "
-            "wait_timing_service=%u incremental_cache_eviction=%u fiber_irq_state=%u wait_service_profile=%u audio_wait_profile=%u audio_ai_profile=%u native_audioout=%u audio_pacing=%u direct_batcher=%u direct_efb=%u direct_state_cache=%u direct_tev_specialize=%u direct_tev_two_texture=%u direct_prep_worker=%u direct_vertex_prep=%u direct_texture_prep=%u direct_state_prep=%u direct_texture_cache_antithrash=%u texture_cache_cap=%u texture_cache_budget=%u guest_io_profile=%u direct_worker_timing=%u audio_wait_block_budget=%u\n",
+            "wait_timing_service=%u incremental_cache_eviction=%u fiber_irq_state=%u wait_service_profile=%u audio_wait_profile=%u audio_ai_profile=%u native_audioout=%u audio_pacing=%u direct_batcher=%u direct_efb=%u direct_state_cache=%u direct_tev_specialize=%u direct_tev_two_texture=%u direct_prep_worker=%u direct_vertex_prep=%u direct_texture_prep=%u direct_state_prep=%u direct_texture_cache_antithrash=%u texture_cache_cap=%u texture_cache_budget=%u guest_io_profile=%u fullscreen_present=%u dvd_host_buffering=%u direct_efb_batch_sync=%u render_decouple=%u render_target_hz=%u direct_worker_timing=%u audio_wait_block_budget=%u\n",
             static_cast<unsigned long long>(vglInitBeginUs), kRendererVariant, kVitaGlVariant,
             static_cast<unsigned>(kRenderTargetScenes), static_cast<unsigned>(kRenderTargetScenes),
             static_cast<unsigned>(kMaxFrameDraws), static_cast<unsigned>(kMaxFrameVertices),
@@ -4566,6 +4787,11 @@ void RenderWorkerMain() {
             static_cast<unsigned>(kTextureCacheCapacity),
             static_cast<unsigned>(kTextureCacheBudgetBytes),
             static_cast<unsigned>(MKW_VITA_GUEST_IO_PROFILE),
+            static_cast<unsigned>(MKW_VITA_FULLSCREEN_PRESENT),
+            static_cast<unsigned>(MKW_VITA_DVD_HOST_BUFFERING),
+            static_cast<unsigned>(MKW_VITA_DIRECT_EFB_BATCH_SYNC),
+            static_cast<unsigned>(MKW_VITA_RENDER_DECOUPLE),
+            static_cast<unsigned>(MKW_VITA_RENDER_TARGET_HZ),
             static_cast<unsigned>(MKW_VITA_DIRECT_WORKER_TIMING),
             static_cast<unsigned>(MKW_VITA_AUDIO_WAIT_BLOCK_BUDGET));
     const bool resolutionFallback =
@@ -4664,6 +4890,16 @@ void RenderWorkerMain() {
             "init_marker=initial_swap phase=end t_us=%llu elapsed_us=%llu\n",
             static_cast<unsigned long long>(initialSwapEndUs),
             static_cast<unsigned long long>(initialSwapEndUs - initialSwapBeginUs));
+#if MKW_VITA_RENDER_DECOUPLE && !defined(MKW_VITA_AURORA_RENDERER)
+    // vitaGL's display queue callback implements the interval with
+    // sceDisplayWaitVblankStartMulti(). Interval 2 is a true 30 Hz present on
+    // Vita's 60 Hz scanout and, critically, runs on USER_1 rather than USER_0.
+    const EGLint swapInterval = MKW_VITA_RENDER_TARGET_HZ == 30 ? 2 : 1;
+    eglSwapInterval(EGL_DEFAULT_DISPLAY, swapInterval);
+    RT_LOGF(RT_TAG_GX,
+            "render_pacing decoupled=1 target_hz=%u swap_interval=%d owner=USER_1\n",
+            static_cast<unsigned>(MKW_VITA_RENDER_TARGET_HZ), static_cast<int>(swapInterval));
+#endif
 
     bool renderReady = true;
 #if !defined(MKW_VITA_AURORA_RENDERER) && defined(MKW_VITA_VITAGL_SPEEDHACK)
@@ -4720,6 +4956,7 @@ void RenderWorkerMain() {
 
     bool bootConsoleActive = true;
     uint32_t renderableTraceCount = 0;
+    uint64_t lastPresentSwapUs = 0;
     for (;;) {
         FrameQueueSlot* activeSlot = nullptr;
         uint64_t serial = 0;
@@ -4834,27 +5071,54 @@ void RenderWorkerMain() {
         }
 
         // Viewport/scissor are captured in the guest packet so USER_1 never
-        // races the live GX state. Aurora consumes top-left GX coordinates and
-        // performs the OpenGL Y flip in Renderer::draw.
-        const float scaleX = static_cast<float>(kSurfaceWidth) / 640.0f;
-        const float scaleY = static_cast<float>(kSurfaceHeight) / 480.0f;
-        const GLint viewportX = static_cast<GLint>(packet.viewport[0] * scaleX);
+        // races the live GX state. On Wii, MKW's EFB/display-copy source is
+        // typically 608x456 and VI stretches that source to the physical video
+        // mode. Reproduce that final presentation transform on Vita rather than
+        // treating the source rectangle as a 640x480 sub-viewport (which caused
+        // the visible ~5% black borders). Internal GX/EFB coordinates are not
+        // changed by this mapping.
+#if MKW_VITA_FULLSCREEN_PRESENT
+        const float presentLeft = static_cast<float>(packet.presentLeft);
+        const float presentTop = static_cast<float>(packet.presentTop);
+        const float presentWidth = static_cast<float>(std::max<u16>(1u, packet.presentWidth));
+        const float presentHeight = static_cast<float>(std::max<u16>(1u, packet.presentHeight));
+#else
+        const float presentLeft = 0.0f;
+        const float presentTop = 0.0f;
+        const float presentWidth = 640.0f;
+        const float presentHeight = 480.0f;
+#endif
+        const float scaleX = static_cast<float>(kSurfaceWidth) / presentWidth;
+        const float scaleY = static_cast<float>(kSurfaceHeight) / presentHeight;
+        const auto mapX = [&](float x) { return (x - presentLeft) * scaleX; };
+        const auto mapY = [&](float y) { return (y - presentTop) * scaleY; };
+        const GLint viewportX = static_cast<GLint>(std::lround(mapX(packet.viewport[0])));
         const GLsizei viewportW = std::max<GLsizei>(1, static_cast<GLsizei>(packet.viewport[2] * scaleX));
         const GLsizei viewportH = std::max<GLsizei>(1, static_cast<GLsizei>(packet.viewport[3] * scaleY));
         const GLint viewportY = static_cast<GLint>(kSurfaceHeight -
-            (packet.viewport[1] + packet.viewport[3]) * scaleY);
-        const GLint scissorX = static_cast<GLint>(packet.scissor[0] * scaleX);
-        const GLsizei scissorW = std::max<GLsizei>(1, static_cast<GLsizei>(packet.scissor[2] * scaleX));
-        const GLsizei scissorH = std::max<GLsizei>(1, static_cast<GLsizei>(packet.scissor[3] * scaleY));
-        const GLint scissorY = static_cast<GLint>(kSurfaceHeight -
-            (packet.scissor[1] + packet.scissor[3]) * scaleY);
+            mapY(packet.viewport[1] + packet.viewport[3]));
+        const GLint scissorX = std::clamp<GLint>(
+            static_cast<GLint>(std::floor(mapX(static_cast<float>(packet.scissor[0])))),
+            0, static_cast<GLint>(kSurfaceWidth));
+        const GLint scissorRight = std::clamp<GLint>(
+            static_cast<GLint>(std::ceil(mapX(static_cast<float>(packet.scissor[0] + packet.scissor[2])))),
+            scissorX, static_cast<GLint>(kSurfaceWidth));
+        const GLint scissorTop = std::clamp<GLint>(
+            static_cast<GLint>(std::floor(mapY(static_cast<float>(packet.scissor[1])))),
+            0, static_cast<GLint>(kSurfaceHeight));
+        const GLint scissorBottom = std::clamp<GLint>(
+            static_cast<GLint>(std::ceil(mapY(static_cast<float>(packet.scissor[1] + packet.scissor[3])))),
+            scissorTop, static_cast<GLint>(kSurfaceHeight));
+        const GLsizei scissorH = std::max<GLsizei>(1, scissorBottom - scissorTop);
+        const GLint scissorY = static_cast<GLint>(kSurfaceHeight) - scissorBottom;
+        const GLsizei mappedScissorW = std::max<GLsizei>(1, scissorRight - scissorX);
 
 #if defined(MKW_VITA_AURORA_RENDERER)
         const bool auroraFrameReady = WiiCompiledVita::AuroraPacketRendererBeginFrame(
             serial,
             packet.viewport[0] * scaleX, packet.viewport[1] * scaleY,
             static_cast<float>(viewportW), static_cast<float>(viewportH),
-            scissorX, static_cast<GLint>(packet.scissor[1] * scaleY), scissorW, scissorH);
+            scissorX, static_cast<GLint>(packet.scissor[1] * scaleY), mappedScissorW, scissorH);
         auroraBeginEndUs = sceKernelGetProcessTimeWide();
 #else
         // Clear/present is the first real GPU milestone for the legacy A/B arm.
@@ -4867,7 +5131,7 @@ void RenderWorkerMain() {
         glClearColor(0.015f, 0.02f, 0.035f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glViewport(viewportX, viewportY, viewportW, viewportH);
-        glScissor(scissorX, scissorY, scissorW, scissorH);
+        glScissor(scissorX, scissorY, mappedScissorW, scissorH);
         glEnable(GL_SCISSOR_TEST);
         if (traceGpu) {
             RT_LOGF(RT_TAG_GX, "gpu_trace frame=%llu phase=legacy_clear_end\n",
@@ -5013,6 +5277,10 @@ void RenderWorkerMain() {
 #if !defined(MKW_VITA_AURORA_RENDERER) && MKW_VITA_DIRECT_EFB
         size_t nextDirectEfb = 0;
         const auto ExecuteDirectEfbAt = [&](u16 boundary) {
+#if MKW_VITA_DIRECT_EFB_BATCH_SYNC
+            u16 synchronizedBoundary = UINT16_MAX;
+            bool sourceSynchronized = false;
+#endif
             while (nextDirectEfb < packet.geometry.efbCommandCount &&
                    packet.geometry.efbCommands[nextDirectEfb].afterDrawCount <= boundary) {
                 const auto& command = packet.geometry.efbCommands[nextDirectEfb++];
@@ -5023,14 +5291,39 @@ void RenderWorkerMain() {
                 directRasterStateValid = false;
                 directTextureStateValid = false;
 #endif
+#if MKW_VITA_DIRECT_EFB_BATCH_SYNC
+                if (!sourceSynchronized || synchronizedBoundary != command.afterDrawCount) {
+                    const uint64_t syncStart = sceKernelGetProcessTimeWide();
+                    glFinish();
+                    directEfbUs += sceKernelGetProcessTimeWide() - syncStart;
+                    synchronizedBoundary = command.afterDrawCount;
+                    sourceSynchronized = true;
+                }
+#endif
                 if (command.type == EfbFrameCommandType::Destroy) {
+#if MKW_VITA_DIRECT_EFB_BATCH_SYNC
+                    DestroyDirectEfbInternal(command.destination, true);
+#else
                     DestroyDirectEfb(command.destination);
+#endif
                     continue;
                 }
                 const uint64_t copyStart = sceKernelGetProcessTimeWide();
-                if (CopyDirectEfb(command, scaleX, scaleY)) ++efbCopiesExecuted;
+#if MKW_VITA_DIRECT_EFB_BATCH_SYNC
+                if (CopyDirectEfb(command, scaleX, scaleY, presentLeft, presentTop, true)) {
+                    ++efbCopiesExecuted;
+                }
+#else
+                if (CopyDirectEfb(command, scaleX, scaleY, presentLeft, presentTop, false)) {
+                    ++efbCopiesExecuted;
+                }
+#endif
                 else {
+#if MKW_VITA_DIRECT_EFB_BATCH_SYNC
+                    DestroyDirectEfbInternal(command.destination, true); // never sample a stale capture
+#else
                     DestroyDirectEfb(command.destination); // never sample a stale capture
+#endif
                     ++efbCopyFailures;
                     RecordPerfCriticalEvent(serial, kPerfEventTextureFailure, command.format, boundary);
                 }
@@ -5046,6 +5339,11 @@ void RenderWorkerMain() {
                         ? GL_COLOR_BUFFER_BIT : 0;
                     if (command.clearDepthEnable) mask |= GL_DEPTH_BUFFER_BIT;
                     if (mask) glClear(mask);
+#if MKW_VITA_DIRECT_EFB_BATCH_SYNC
+                    // A following copy at the same logical GX boundary must see
+                    // this clear, so it requires a fresh GPU synchronization.
+                    sourceSynchronized = false;
+#endif
                 }
             }
         };
@@ -5407,20 +5705,28 @@ void RenderWorkerMain() {
 
 #if !defined(MKW_VITA_AURORA_RENDERER)
                 if (directApplyRasterState) {
-                    const GLint drawViewportX = static_cast<GLint>(raster.viewport[0] * scaleX);
+                    const GLint drawViewportX = static_cast<GLint>(std::lround(mapX(raster.viewport[0])));
                     const GLsizei drawViewportW = std::max<GLsizei>(
                         1, static_cast<GLsizei>(raster.viewport[2] * scaleX));
                     const GLsizei drawViewportH = std::max<GLsizei>(
                         1, static_cast<GLsizei>(raster.viewport[3] * scaleY));
                     const GLint drawViewportY = static_cast<GLint>(kSurfaceHeight -
-                        (raster.viewport[1] + raster.viewport[3]) * scaleY);
-                    const GLint drawScissorX = static_cast<GLint>(raster.scissor[0] * scaleX);
-                    const GLsizei drawScissorW = std::max<GLsizei>(
-                        1, static_cast<GLsizei>(raster.scissor[2] * scaleX));
-                    const GLsizei drawScissorH = std::max<GLsizei>(
-                        1, static_cast<GLsizei>(raster.scissor[3] * scaleY));
-                    const GLint drawScissorY = static_cast<GLint>(kSurfaceHeight -
-                        (raster.scissor[1] + raster.scissor[3]) * scaleY);
+                        mapY(raster.viewport[1] + raster.viewport[3]));
+                    const GLint drawScissorX = std::clamp<GLint>(
+                        static_cast<GLint>(std::floor(mapX(static_cast<float>(raster.scissor[0])))),
+                        0, static_cast<GLint>(kSurfaceWidth));
+                    const GLint drawScissorRight = std::clamp<GLint>(
+                        static_cast<GLint>(std::ceil(mapX(static_cast<float>(raster.scissor[0] + raster.scissor[2])))),
+                        drawScissorX, static_cast<GLint>(kSurfaceWidth));
+                    const GLint drawScissorTop = std::clamp<GLint>(
+                        static_cast<GLint>(std::floor(mapY(static_cast<float>(raster.scissor[1])))),
+                        0, static_cast<GLint>(kSurfaceHeight));
+                    const GLint drawScissorBottom = std::clamp<GLint>(
+                        static_cast<GLint>(std::ceil(mapY(static_cast<float>(raster.scissor[1] + raster.scissor[3])))),
+                        drawScissorTop, static_cast<GLint>(kSurfaceHeight));
+                    const GLsizei drawScissorW = std::max<GLsizei>(1, drawScissorRight - drawScissorX);
+                    const GLsizei drawScissorH = std::max<GLsizei>(1, drawScissorBottom - drawScissorTop);
+                    const GLint drawScissorY = static_cast<GLint>(kSurfaceHeight) - drawScissorBottom;
                     glViewport(drawViewportX, drawViewportY, drawViewportW, drawViewportH);
                     glDepthRangef(std::clamp(raster.viewport[4], 0.0f, 1.0f),
                                   std::clamp(raster.viewport[5], 0.0f, 1.0f));
@@ -5567,7 +5873,7 @@ void RenderWorkerMain() {
                             glEnable(GL_TEXTURE_2D);
                             glBindTexture(GL_TEXTURE_2D, glTexture);
                             ApplyTextureSampler(texture);
-                            ApplySimpleTevMode(texture.tevMode);
+                            ApplyDirectTevMode(texture);
                             bool nativeTwoTextureApplied = false;
 #if MKW_VITA_DIRECT_TEV_TWO_TEXTURE
                             if (directTevClass == PreparedTevClass::TwoTexture && texture.secondEnabled) {
@@ -6199,6 +6505,19 @@ void RenderWorkerMain() {
         }
         vglSwapBuffers(GL_FALSE);
         const uint64_t swapEndUs = sceKernelGetProcessTimeWide();
+        const uint64_t presentIntervalUs = lastPresentSwapUs != 0 ? swapEndUs - lastPresentSwapUs : 0;
+        lastPresentSwapUs = swapEndUs;
+#if MKW_VITA_RENDER_DECOUPLE && !defined(MKW_VITA_AURORA_RENDERER)
+        if (serial <= 8u || (serial % kPerfSummaryInterval) == 0u ||
+            (presentIntervalUs != 0 && presentIntervalUs > 100000u)) {
+            RT_LOGF(RT_TAG_GX,
+                    "render_present serial=%llu target_hz=%u interval_us=%llu swap_us=%llu\n",
+                    static_cast<unsigned long long>(serial),
+                    static_cast<unsigned>(MKW_VITA_RENDER_TARGET_HZ),
+                    static_cast<unsigned long long>(presentIntervalUs),
+                    static_cast<unsigned long long>(swapEndUs - swapBeginUs));
+        }
+#endif
         if (traceLargeFrame) {
             RT_LOGF(RT_TAG_GX, "render_large phase=swap_end serial=%llu elapsed_us=%llu\n",
                     static_cast<unsigned long long>(serial),
@@ -6478,7 +6797,7 @@ void RenderWorkerMain() {
                     "prep=%llu/%llu/%llu/%llu/%u/%u/%u prep_tex=%u/%u/%u/%u texprep=%llu/%llu "
                     "texcache=%llu/%llu/%llu/%llu/%llu live=%llu/%u evict=%llu/%llu/%llu invalidate=%llu "
                     "direct_upload_us=%llu direct_upload=%u/%u/%llu state_skip=%llu/%llu/%llu "
-                    "tev_chain=%llu/%llu/%llu/%llu tev_draw=%llu/%llu/%llu "
+                    "tev_direct=%llu/%llu tev_chain=%llu/%llu/%llu/%llu tev_draw=%llu/%llu/%llu "
                     "efb=%llu/%llu sampled=%llu efb_us=%llu ring_write=%u\n",
                     static_cast<unsigned long long>(serial),
                     static_cast<unsigned>(packet.geometry.drawCount),
@@ -6518,6 +6837,8 @@ void RenderWorkerMain() {
                     static_cast<unsigned long long>(directLogicalStateSkips),
                     static_cast<unsigned long long>(directRasterStateSkips),
                     static_cast<unsigned long long>(directTextureStateSkips),
+                    static_cast<unsigned long long>(packet.counters.textureStateCustomRegModulate),
+                    static_cast<unsigned long long>(packet.counters.textureStateCustomRegLerp),
                     static_cast<unsigned long long>(packet.counters.textureStateTevChainCollapsed),
                     static_cast<unsigned long long>(packet.counters.textureStateTevChainUnsupported),
                     static_cast<unsigned long long>(packet.counters.textureStateTevChainMultiTexture),
@@ -6795,6 +7116,62 @@ void SubmitFrame() {
     const uint64_t queueWaitBeginUs = sceKernelGetProcessTimeWide();
     const bool requiresFrameBarrier = g_gx.geometry.efbCommandCount != 0;
     std::unique_lock<std::mutex> lock(g_renderMutex);
+#if MKW_VITA_RENDER_DECOUPLE && !defined(MKW_VITA_AURORA_RENDERER)
+    // Display submission is intentionally lossy under backpressure. The Wii VI
+    // clock and guest scheduler must never wait for USER_1 just because a visual
+    // frame missed its 30 Hz slot. A pending EFB barrier is treated the same way:
+    // drop this coherent visual packet rather than enqueue work that could race
+    // an earlier render-to-texture dependency.
+    FrameQueueSlot* queueSlot = nullptr;
+    const char* dropReason = nullptr;
+    if (g_frameBarrierSerial != 0 && g_completedSerial < g_frameBarrierSerial) {
+        dropReason = "efb_barrier";
+    } else if (requiresFrameBarrier && !AllFrameSlotsFreeLocked()) {
+        dropReason = "efb_needs_empty_queue";
+    } else {
+        queueSlot = FindFreeFrameSlotLocked();
+        if (!queueSlot) dropReason = "queue_full";
+    }
+    if (dropReason) {
+        const uint32_t droppedDraws = g_gx.geometry.drawCount;
+        const uint32_t droppedVertices = g_gx.geometry.vertexCount;
+        const uint32_t droppedEfb = g_gx.geometry.efbCommandCount;
+        AccumulateFrameStats(g_gx.frame);
+        ++g_stats.framesDropped;
+        g_stats.geometryVerticesDropped +=
+            static_cast<uint64_t>(droppedVertices) + g_gx.geometry.droppedVertices;
+        const uint64_t droppedTotal = g_stats.framesDropped;
+        const uint64_t completedAtDrop = g_completedSerial;
+        const uint64_t submittedAtDrop = g_submittedSerial;
+        lock.unlock();
+
+        g_gx.frame = {};
+        g_gx.geometry.vertexCount = 0;
+        g_gx.geometry.drawCount = 0;
+        g_gx.geometry.efbCommandCount = 0;
+        g_gx.geometry.droppedVertices = 0;
+#if MKW_VITA_COMPACT_FRAME_STATE
+        g_gx.geometry.transforms.clear();
+        g_gx.geometry.rasters.clear();
+        g_gx.geometry.textures.clear();
+#if MKW_VITA_GX_STATE_GENERATIONS
+        g_gx.geometry.lastTransformGeneration = 0;
+        g_gx.geometry.lastRasterGeneration = 0;
+        g_gx.geometry.lastTextureGeneration = 0;
+#endif
+#endif
+        g_gx.activeDraw = -1;
+        if (droppedTotal <= 16u || (droppedTotal % 60u) == 0u) {
+            RT_LOGF(RT_TAG_GX,
+                    "render_drop n=%llu reason=%s draws=%u vertices=%u efb=%u completed=%llu submitted=%llu\n",
+                    static_cast<unsigned long long>(droppedTotal), dropReason,
+                    droppedDraws, droppedVertices, droppedEfb,
+                    static_cast<unsigned long long>(completedAtDrop),
+                    static_cast<unsigned long long>(submittedAtDrop));
+        }
+        return;
+    }
+#else
     g_renderIdle.wait(lock, [requiresFrameBarrier] {
         if (g_frameBarrierSerial != 0 && g_completedSerial < g_frameBarrierSerial) return false;
         if (requiresFrameBarrier && !AllFrameSlotsFreeLocked()) return false;
@@ -6803,7 +7180,10 @@ void SubmitFrame() {
         }
         return false;
     });
+#endif
+#if !(MKW_VITA_RENDER_DECOUPLE && !defined(MKW_VITA_AURORA_RENDERER))
     FrameQueueSlot* queueSlot = FindFreeFrameSlotLocked();
+#endif
     if (!queueSlot) return;
     queueSlot->state = FrameQueueSlotState::Packing;
     FramePacket& pendingFrame = queueSlot->packet;
@@ -6839,6 +7219,17 @@ void SubmitFrame() {
 #endif
     pendingFrame.viewport = g_gx.viewport;
     pendingFrame.scissor = g_gx.scissor;
+#if MKW_VITA_FULLSCREEN_PRESENT
+    pendingFrame.presentLeft = g_gx.dispCopyLeft;
+    pendingFrame.presentTop = g_gx.dispCopyTop;
+    pendingFrame.presentWidth = g_gx.dispCopySrcWidth ? g_gx.dispCopySrcWidth : 640u;
+    pendingFrame.presentHeight = g_gx.dispCopySrcHeight ? g_gx.dispCopySrcHeight : 480u;
+#else
+    pendingFrame.presentLeft = 0u;
+    pendingFrame.presentTop = 0u;
+    pendingFrame.presentWidth = 640u;
+    pendingFrame.presentHeight = 480u;
+#endif
     g_gx.frame = {};
     g_gx.geometry.vertexCount = 0;
     g_gx.geometry.drawCount = 0;
@@ -7485,7 +7876,8 @@ void GXApplyBPReg(u8 reg, u32 value) {
     if (reg == 0x00u) {
         MarkRasterStateDirty();
         MarkTextureStateDirty();
-    } else if ((reg >= 0x28u && reg <= 0x2Fu) || (reg >= 0xC0u && reg <= 0xDFu)) {
+    } else if ((reg >= 0x28u && reg <= 0x2Fu) || (reg >= 0xC0u && reg <= 0xDFu) ||
+               (reg >= 0xE0u && reg <= 0xE7u)) {
         MarkTextureStateDirty();
     } else if (reg == 0x40u || reg == 0x41u || reg == 0xF3u) {
         MarkRasterStateDirty();
@@ -7535,6 +7927,49 @@ void GXApplyBPReg(u8 reg, u32 value) {
         }
         break;
     }
+    case 0xE0:
+    case 0xE1:
+    case 0xE2:
+    case 0xE3:
+    case 0xE4:
+    case 0xE5:
+    case 0xE6:
+    case 0xE7: {
+        const size_t index = static_cast<size_t>(reg - 0xE0u) / 2u;
+        const bool ra = (reg & 1u) == 0u;
+        if ((value & (1u << 23u)) != 0u) {
+            if (index < g_gx.kColor.size()) {
+                GXColor& c = g_gx.kColor[index];
+                if (ra) {
+                    c.r = static_cast<u8>(value & 0xffu);
+                    c.a = static_cast<u8>((value >> 12u) & 0xffu);
+                } else {
+                    c.b = static_cast<u8>(value & 0xffu);
+                    c.g = static_cast<u8>((value >> 12u) & 0xffu);
+                }
+            }
+        } else if (index < g_gx.tevColorS10.size()) {
+            const auto sign11 = [](u32 raw) -> s16 {
+                s32 value11 = static_cast<s32>(raw & 0x7ffu);
+                if ((value11 & 0x400) != 0) value11 |= ~0x7ff;
+                return static_cast<s16>(value11);
+            };
+            auto& signedColor = g_gx.tevColorS10[index];
+            GXColor& byteColor = g_gx.tevColor[index];
+            if (ra) {
+                signedColor[0] = sign11(value);
+                signedColor[3] = sign11(value >> 12u);
+                byteColor.r = static_cast<u8>(std::clamp<int>(signedColor[0], 0, 255));
+                byteColor.a = static_cast<u8>(std::clamp<int>(signedColor[3], 0, 255));
+            } else {
+                signedColor[2] = sign11(value);
+                signedColor[1] = sign11(value >> 12u);
+                byteColor.b = static_cast<u8>(std::clamp<int>(signedColor[2], 0, 255));
+                byteColor.g = static_cast<u8>(std::clamp<int>(signedColor[1], 0, 255));
+            }
+        }
+        break;
+    }
     case 0x40:
         g_gx.depthCompare = (value & 0x1u) ? GX_TRUE : GX_FALSE;
         g_gx.depthFunc = static_cast<GXCompare>((value >> 1) & 0x7u);
@@ -7581,16 +8016,21 @@ void GXApplyBPReg(u8 reg, u32 value) {
 void GXSetProjection(const void* mtx, GXProjectionType type) {
     MarkTransformStateDirty();
     InitializeTransformDefaults();
+    g_gx.projectionType = type;
     if (mtx) {
-        std::memcpy(g_gx.projection.data(), mtx, sizeof(f32) * 16);
+        // GXSetProjection does not upload an arbitrary 4x4 matrix to XF. The
+        // SDK extracts six coefficients from Mtx44 and writes XF_PROJECTIONA-F
+        // plus the projection type. Rebuild from that canonical six-word state
+        // so direct calls and display-list/XF replay produce identical clip
+        // coordinates.
         const auto* p = static_cast<const f32*>(mtx);
         g_gx.xfProjection = {
             p[0], type == GX_ORTHOGRAPHIC ? p[3] : p[2],
             p[5], type == GX_ORTHOGRAPHIC ? p[7] : p[6],
             p[10], p[11],
         };
+        RebuildProjectionFromXf();
     }
-    g_gx.projectionType = type;
 }
 void GXLoadPosMtxImm(const void* mtx, u32 id) {
     MarkTransformStateDirty();
@@ -7773,9 +8213,25 @@ void GXSetTevAlphaOp(GXTevStageID stage, GXTevOp op, GXTevBias bias, GXTevScale 
 }
 void GXSetTevColor(GXTevRegID id, GXColor color) {
     MarkTextureStateDirty();
-    if (id >= 0 && static_cast<size_t>(id) < g_gx.tevColor.size()) g_gx.tevColor[static_cast<size_t>(id)] = color;
+    if (id >= 0 && static_cast<size_t>(id) < g_gx.tevColor.size()) {
+        const size_t index = static_cast<size_t>(id);
+        g_gx.tevColor[index] = color;
+        g_gx.tevColorS10[index] = {
+            static_cast<s16>(color.r), static_cast<s16>(color.g),
+            static_cast<s16>(color.b), static_cast<s16>(color.a),
+        };
+    }
 }
-void GXSetTevColorS10(GXTevRegID, GXColorS10) {}
+void GXSetTevColorS10(GXTevRegID id, GXColorS10 color) {
+    MarkTextureStateDirty();
+    if (id < 0 || static_cast<size_t>(id) >= g_gx.tevColor.size()) return;
+    const size_t index = static_cast<size_t>(id);
+    g_gx.tevColorS10[index] = {color.r, color.g, color.b, color.a};
+    const auto byte = [](s16 value) {
+        return static_cast<u8>(std::clamp<int>(value, 0, 255));
+    };
+    g_gx.tevColor[index] = GXColor{byte(color.r), byte(color.g), byte(color.b), byte(color.a)};
+}
 void GXSetTevKColor(GXTevKColorID id, GXColor color) {
     MarkTextureStateDirty();
     if (id >= 0 && id < GX_MAX_KCOLOR) g_gx.kColor[static_cast<size_t>(id)] = color;

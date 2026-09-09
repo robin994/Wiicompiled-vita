@@ -15,19 +15,24 @@ DirectEfbEntry* FindDirectEfb(uintptr_t destination) {
         if (entry.destination == destination && destination) return &entry;
     return nullptr;
 }
-void DestroyDirectEfb(uintptr_t destination) {
+void DestroyDirectEfbInternal(uintptr_t destination, bool gpuAlreadySynchronized) {
     if (auto* entry = FindDirectEfb(destination)) {
-        glFinish(); // the previous draw may still sample this backing
+        if (!gpuAlreadySynchronized) glFinish(); // the previous draw may still sample this backing
         glDeleteTextures(1, &entry->texture);
         g_directEfbBytes -= entry->bytes;
         *entry = {};
     }
 }
+void DestroyDirectEfb(uintptr_t destination) {
+    DestroyDirectEfbInternal(destination, false);
+}
 void DestroyDirectEfbCache() {
     for (auto& entry : g_directEfb) DestroyDirectEfb(entry.destination);
 }
 
-bool CopyDirectEfb(const EfbFrameCommand& command, float scaleX, float scaleY) {
+bool CopyDirectEfb(const EfbFrameCommand& command, float scaleX, float scaleY,
+                   float sourceLeft = 0.0f, float sourceTop = 0.0f,
+                   bool gpuAlreadySynchronized = false) {
     // Depth copies require a separate depth conversion implementation.
     switch (command.format) {
     case 0: case 1: case 2: case 3: case 4: case 5: case 6:
@@ -35,10 +40,10 @@ bool CopyDirectEfb(const EfbFrameCommand& command, float scaleX, float scaleY) {
     case 0x29: case 0x2a: case 0x2b: case 0x2c: break;
     default: return false;
     }
-    const int x = std::clamp(int(std::lround(command.srcLeft * scaleX)), 0, DISPLAY_WIDTH);
-    const int y = std::clamp(int(std::lround(command.srcTop * scaleY)), 0, DISPLAY_HEIGHT);
-    const int x1 = std::clamp(int(std::lround((command.srcLeft + command.srcWidth) * scaleX)), x, DISPLAY_WIDTH);
-    const int y1 = std::clamp(int(std::lround((command.srcTop + command.srcHeight) * scaleY)), y, DISPLAY_HEIGHT);
+    const int x = std::clamp(int(std::lround((command.srcLeft - sourceLeft) * scaleX)), 0, DISPLAY_WIDTH);
+    const int y = std::clamp(int(std::lround((command.srcTop - sourceTop) * scaleY)), 0, DISPLAY_HEIGHT);
+    const int x1 = std::clamp(int(std::lround((command.srcLeft + command.srcWidth - sourceLeft) * scaleX)), x, DISPLAY_WIDTH);
+    const int y1 = std::clamp(int(std::lround((command.srcTop + command.srcHeight - sourceTop) * scaleY)), y, DISPLAY_HEIGHT);
     const uint32_t sw = x1 - x, sh = y1 - y;
     if (!sw || !sh || !command.dstWidth || !command.dstHeight || has_cached_mem) return false;
     const auto& surface = gxm_color_surfaces[gxm_back_buffer_index];
@@ -58,9 +63,9 @@ bool CopyDirectEfb(const EfbFrameCommand& command, float scaleX, float scaleY) {
 #endif
     const size_t bytes = size_t((dw + 7u) & ~7u) * dh * 4;
     if (bytes > kDirectEfbBudget - (g_directEfbBytes - oldBytes)) return false;
-    glFinish(); // finish the source scene and all prior destination readers
+    if (!gpuAlreadySynchronized) glFinish(); // finish source scene and prior destination readers
     if (entry && (entry->width != dw || entry->height != dh)) {
-        DestroyDirectEfb(command.destination);
+        DestroyDirectEfbInternal(command.destination, true);
         entry = nullptr;
     }
     if (!entry) {

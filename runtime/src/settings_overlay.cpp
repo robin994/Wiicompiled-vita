@@ -905,7 +905,15 @@ void HandleEvents(const AuroraEvent* events) noexcept {
 void Draw() noexcept {
     // Wait for the frame worker's DONE phase: it has replayed the previous frame's ImGui draw lists
     // and started the next ImGui frame, so all overlay callers can now safely issue ImGui commands.
+#if defined(MKW_TARGET_VITA) && MKW_VITA_RENDER_DECOUPLE
+    // Overlay ownership must not re-introduce the renderer join removed from
+    // GXCopyDisp. If USER_1 is still busy, skip this visual overlay update only.
+    if (!aurora_wait_for_frame_worker_for(0)) {
+        return;
+    }
+#else
     aurora_wait_for_frame_worker();
+#endif
     ApplyConfiguredMappings();
     PersistDisplayModeIfChanged();
     UpdateCursorAutoHide();

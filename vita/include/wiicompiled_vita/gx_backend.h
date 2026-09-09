@@ -9,6 +9,7 @@ struct Stats {
     uint64_t framesSubmitted = 0;
     uint64_t framesCompleted = 0;
     uint64_t framesPresented = 0;
+    uint64_t framesDropped = 0;
     uint64_t drawCalls = 0;
     uint64_t vertices = 0;
     uint64_t displayListBytes = 0;

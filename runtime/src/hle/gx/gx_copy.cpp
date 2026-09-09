@@ -16,6 +16,9 @@
 #ifndef MKW_VITA_PERF_SUMMARY_INTERVAL
 #define MKW_VITA_PERF_SUMMARY_INTERVAL 300
 #endif
+#ifndef MKW_VITA_RENDER_DECOUPLE
+#define MKW_VITA_RENDER_DECOUPLE 0
+#endif
 
 namespace {
 // Copy destinations stay GPU-only until an explicit/lazy readback. Track the
@@ -208,16 +211,20 @@ extern "C" void GX__CopyDisp_8016fc38(uint32_t da, uint32_t c) {
     EnsureAuroraFrameActive();
     // GX copies are FIFO-ordered on hardware. Drain submitted draws before
     // resolving the EFB so high-level copies see the same contents.
+#if !MKW_VITA_RENDER_DECOUPLE
     GXDrawDone();
+#endif
     GXCopyDisp(GuestToHostPtr(da), (GXBool)c);
     // No second GXDrawDone here: the frame-worker wait below is for the DONE
     // phase, which strictly subsumes the drain this call would perform.
     ++g_gxFrameCount;
     VI_HLE_SetXfbReady(da);
-    // Present immediately so post-copy draws don't leak into this frame. Join at the DONE phase
-    // (not the cheaper SEALED phase GXDrawDone waits for) because ImGui's draw lists, owned by
-    // Aurora's render worker, replay during encode; aurora_end_frame would join here anyway.
+    // The decoupled Vita path must not join USER_1 here. SubmitFrame owns a
+    // bounded two-slot queue and drops a visual frame under backpressure; VI and
+    // guest simulation continue on their own Wii timeline.
+#if !MKW_VITA_RENDER_DECOUPLE
     aurora_wait_for_frame_worker();
+#endif
     settings_overlay::Draw();
     // Seal, pace to the VI retrace boundary (Aurora renders the sealed frame
     // during the wait), and pre-warm the next frame.
@@ -290,8 +297,12 @@ extern "C" void GX__CopyTex_8016fd74(uint32_t da, uint32_t c) {
     return;
 #endif
     EnsureAuroraFrameActive();
-    // Match GX FIFO ordering: texture copies observe all prior draws.
+    // The direct Vita packet stores this copy at afterDrawCount, so FIFO ordering
+    // within the current frame is already explicit. Waiting here only joins the
+    // PREVIOUS submitted frame and unnecessarily couples USER_0 to USER_1.
+#if !MKW_VITA_RENDER_DECOUPLE
     GXDrawDone();
+#endif
     const uint16_t rawSrcLeft = g_texCopyState.srcLeft;
     const uint16_t rawSrcTop = g_texCopyState.srcTop;
     const uint16_t rawSrcWidth = g_texCopyState.srcWidth;

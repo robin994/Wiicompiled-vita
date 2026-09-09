@@ -18,6 +18,9 @@ extern "C" void GxNotifyGuestRamDmaWrite(uint32_t addr, uint32_t size);
 #ifndef MKW_VITA_GUEST_IO_PROFILE
 #define MKW_VITA_GUEST_IO_PROFILE 0
 #endif
+#ifndef MKW_VITA_DVD_HOST_BUFFERING
+#define MKW_VITA_DVD_HOST_BUFFERING 0
+#endif
 
 #if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
 #include <psp2/kernel/processmgr.h>
@@ -288,20 +291,27 @@ struct HostFileSlot {
     const DVDFileEntry* entry = nullptr;
     FILE* file = nullptr;
     uint64_t lastUse = 0;
+    uint64_t position = 0;
+    bool positionKnown = false;
+#if defined(MKW_TARGET_VITA) && MKW_VITA_DVD_HOST_BUFFERING
+    // The Vita libc default buffering is not predictable across runtimes. Keep
+    // the host DVD cache bounded and deterministic: eight slots * 64 KiB.
+    std::array<char, 64u * 1024u> ioBuffer{};
+#endif
 };
 constexpr size_t kHostFileSlots = 8;
 std::array<HostFileSlot, kHostFileSlots> g_hostFiles{};
 uint64_t g_hostFileClock = 0;
 std::mutex g_hostFileMutex;
 
-FILE* AcquireHostFile(const DVDFileEntry& entry) {
+HostFileSlot* AcquireHostFile(const DVDFileEntry& entry) {
     std::lock_guard<std::mutex> lock(g_hostFileMutex);
     ++g_hostFileClock;
     HostFileSlot* victim = &g_hostFiles[0];
     for (auto& slot : g_hostFiles) {
         if (slot.entry == &entry && slot.file) {
             slot.lastUse = g_hostFileClock;
-            return slot.file;
+            return &slot;
         }
         if (!slot.file) {
             victim = &slot;
@@ -317,10 +327,19 @@ FILE* AcquireHostFile(const DVDFileEntry& entry) {
     victim->file = std::fopen(RuntimeConfigFile::PathToUtf8(entry.hostPath).c_str(), "rb");
     victim->entry = victim->file ? &entry : nullptr;
     victim->lastUse = g_hostFileClock;
+    victim->position = 0;
+    victim->positionKnown = victim->file != nullptr;
     if (victim->file) {
+#if defined(MKW_TARGET_VITA) && MKW_VITA_DVD_HOST_BUFFERING
+        if (std::setvbuf(victim->file, victim->ioBuffer.data(), _IOFBF,
+                         victim->ioBuffer.size()) != 0) {
+            std::setvbuf(victim->file, nullptr, _IONBF, 0);
+        }
+#else
         std::setvbuf(victim->file, nullptr, _IONBF, 0);
+#endif
     }
-    return victim->file;
+    return victim->file ? victim : nullptr;
 }
 
 void DropHostFileCache() {
@@ -395,27 +414,34 @@ bool DvdReadIntoGuest(const DVDFileEntry& entry, uint32_t fileOffset, uint32_t l
 #if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
     const uint64_t openBeginUs = sceKernelGetProcessTimeWide();
 #endif
-    FILE* file = AcquireHostFile(entry);
+    HostFileSlot* fileSlot = AcquireHostFile(entry);
 #if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
     profileOpenUs = sceKernelGetProcessTimeWide() - openBeginUs;
 #endif
-    if (file == nullptr) {
+    if (fileSlot == nullptr || fileSlot->file == nullptr) {
 #if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
         logProfile(false);
 #endif
         *why = "cannot open host file";
         return false;
     }
+    FILE* file = fileSlot->file;
 #if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
     const uint64_t seekBeginUs = sceKernelGetProcessTimeWide();
 #endif
-    if (std::fseek(file, static_cast<long>(fileOffset), SEEK_SET) != 0) {
+    const bool needsSeek = !fileSlot->positionKnown || fileSlot->position != fileOffset;
+    if (needsSeek && std::fseek(file, static_cast<long>(fileOffset), SEEK_SET) != 0) {
+        fileSlot->positionKnown = false;
 #if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
         profileSeekUs = sceKernelGetProcessTimeWide() - seekBeginUs;
         logProfile(false);
 #endif
         *why = "seek failed";
         return false;
+    }
+    if (needsSeek) {
+        fileSlot->position = fileOffset;
+        fileSlot->positionKnown = true;
     }
 #if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
     profileSeekUs = sceKernelGetProcessTimeWide() - seekBeginUs;
@@ -425,6 +451,7 @@ bool DvdReadIntoGuest(const DVDFileEntry& entry, uint32_t fileOffset, uint32_t l
     while (done < length) {
         const size_t n = std::fread(host + done, 1, length - done, file);
         if (n == 0) {
+            fileSlot->positionKnown = false;
 #if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
             profileReadUs = sceKernelGetProcessTimeWide() - readBeginUs;
             logProfile(false);
@@ -433,6 +460,7 @@ bool DvdReadIntoGuest(const DVDFileEntry& entry, uint32_t fileOffset, uint32_t l
             return false;
         }
         done += n;
+        fileSlot->position += n;
     }
 #if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
     profileReadUs = sceKernelGetProcessTimeWide() - readBeginUs;

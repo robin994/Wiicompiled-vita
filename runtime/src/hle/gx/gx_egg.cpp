@@ -114,6 +114,23 @@ PPC_NATIVE_OVERRIDE_VOID(8022e2bc, EGG__LightTexture__SetupTevFinish_HLE_8022e2b
 // EGG::AsyncDisplay
 // ============================================================================
 
+#ifndef MKW_VITA_RENDER_DECOUPLE
+#define MKW_VITA_RENDER_DECOUPLE 0
+#endif
+
+#if MKW_VITA_RENDER_DECOUPLE
+extern "C" void GX__FinishInterruptHandler_8016ed94();
+
+// Original AsyncDisplay::beginRender is only GXDrawDone(). In the packetized
+// Vita renderer that waits for the previous host frame, not for any work in the
+// frame about to be generated. Preserve the guest-visible completion flag while
+// removing that host-render dependency.
+extern "C" void EGG__AsyncDisplay__beginRender_HLE_8020ff98(CpuContext*) {
+    GX__FinishInterruptHandler_8016ed94();
+}
+PPC_NATIVE_OVERRIDE_VOID(8020FF98, EGG__AsyncDisplay__beginRender_HLE_8020ff98, (CpuContext* ctx), (ctx));
+#endif
+
 extern "C" void EGG__AsyncDisplay__endRender_HLE_8020ff9c(CpuContext* ctx) {
     uint32_t p = ctx->gpr[3]; ctx->gpr[3] = p; ctx->lr = 0x8020FF9C;
     InvokeIndirectCpu(0x80219FB4u, ctx);

@@ -221,6 +221,24 @@ MKW_VITA_DIRECT_TEXTURE_CACHE_ANTITHRASH ?= 0
 # P6.13: bounded attribution for the multi-second guest-side archive/DVD stalls
 # that remain after P6.12 removed the renderer bottleneck. Diagnostic only.
 MKW_VITA_GUEST_IO_PROFILE ?= 0
+# P6.14: present the Wii display-copy source rectangle across the complete Vita
+# 960x544 surface. This changes only logical->surface mapping; EFB/game internal
+# resolution and copy source dimensions remain unchanged.
+MKW_VITA_FULLSCREEN_PRESENT ?= 0
+# P6.14: keep eight bounded 64 KiB stdio buffers with the existing DVD host-file
+# cache instead of forcing every file to _IONBF. This only targets host I/O stalls.
+MKW_VITA_DVD_HOST_BUFFERING ?= 0
+# P6.14: synchronize the direct EFB source once per GX copy boundary rather than
+# once per copy command at that same boundary. Intermediate GX boundaries remain
+# strict and no copy is dropped or reordered.
+MKW_VITA_DIRECT_EFB_BATCH_SYNC ?= 0
+# P6.15: keep the emulated VI/game timeline independent from the renderer. The
+# producer never waits for display-frame completion; saturated visual frames are
+# dropped instead of stalling USER_0. Explicit GX synchronization APIs remain.
+MKW_VITA_RENDER_DECOUPLE ?= 0
+# P6.15: Vita display cadence for the direct renderer. 30 means one swap every
+# two native 60 Hz VBlanks through vitaGL's EGL swap interval.
+MKW_VITA_RENDER_TARGET_HZ ?= 60
 # P6.4a: publish render-worker timing independently from USER_0's wait callback.
 MKW_VITA_DIRECT_WORKER_TIMING ?= 0
 # P6.5: Nintendo THP stores entropy-coded MJPEG scan data already unescaped.
@@ -285,7 +303,7 @@ MKW_VITA_RUNTIME_CONFIG_TEXT := lyt_direct=$(MKW_VITA_LYT_DIRECT) lyt_faithful=$
 # Objects compiled with renderer/vitaGL-specific flags live under this variant tag.
 MKW_VITA_RUNTIME_CONFIG_TEXT += clip_w=$(MKW_VITA_CLIP_W)
 MKW_VITA_RUNTIME_CONFIG_TEXT += efb_resident_copy=$(MKW_VITA_EFB_RESIDENT_COPY) efb_native_res_copy=$(MKW_VITA_EFB_NATIVE_RES_COPY) stream_safe_reuse=$(MKW_VITA_STREAM_SAFE_REUSE) efb_command_capacity=$(MKW_VITA_EFB_COMMAND_CAPACITY) ui_quad_runs=$(MKW_VITA_UI_QUAD_RUNS) texture_shared_headroom=$(MKW_VITA_TEXTURE_SHARED_HEADROOM) texture_safe_retry=$(MKW_VITA_TEXTURE_SAFE_RETRY)
-MKW_VITA_RUNTIME_CONFIG_TEXT += wait_timing_service=$(MKW_VITA_WAIT_TIMING_SERVICE) incremental_cache_eviction=$(MKW_VITA_INCREMENTAL_CACHE_EVICTION) fiber_irq_state=$(MKW_VITA_FIBER_IRQ_STATE) wait_service_profile=$(MKW_VITA_WAIT_SERVICE_PROFILE) audio_wait_profile=$(MKW_VITA_AUDIO_WAIT_PROFILE) audio_ai_profile=$(MKW_VITA_AUDIO_AI_PROFILE) native_audioout=$(MKW_VITA_NATIVE_AUDIOOUT) audio_pacing=$(MKW_VITA_AUDIO_PACING) direct_batcher=$(MKW_VITA_DIRECT_BATCHER) direct_efb=$(MKW_VITA_DIRECT_EFB) direct_state_cache=$(MKW_VITA_DIRECT_STATE_CACHE) direct_tev_specialize=$(MKW_VITA_DIRECT_TEV_SPECIALIZE) direct_tev_two_texture=$(MKW_VITA_DIRECT_TEV_TWO_TEXTURE) direct_prep_worker=$(MKW_VITA_DIRECT_PREP_WORKER) direct_vertex_prep=$(MKW_VITA_DIRECT_VERTEX_PREP) direct_texture_prep=$(MKW_VITA_DIRECT_TEXTURE_PREP) direct_state_prep=$(MKW_VITA_DIRECT_STATE_PREP) direct_texture_cache_antithrash=$(MKW_VITA_DIRECT_TEXTURE_CACHE_ANTITHRASH) guest_io_profile=$(MKW_VITA_GUEST_IO_PROFILE) direct_worker_timing=$(MKW_VITA_DIRECT_WORKER_TIMING) thp_unescaped_fix=$(MKW_VITA_THP_UNESCAPED_FIX) audio_wait_block_budget=$(MKW_VITA_AUDIO_WAIT_BLOCK_BUDGET)
+MKW_VITA_RUNTIME_CONFIG_TEXT += wait_timing_service=$(MKW_VITA_WAIT_TIMING_SERVICE) incremental_cache_eviction=$(MKW_VITA_INCREMENTAL_CACHE_EVICTION) fiber_irq_state=$(MKW_VITA_FIBER_IRQ_STATE) wait_service_profile=$(MKW_VITA_WAIT_SERVICE_PROFILE) audio_wait_profile=$(MKW_VITA_AUDIO_WAIT_PROFILE) audio_ai_profile=$(MKW_VITA_AUDIO_AI_PROFILE) native_audioout=$(MKW_VITA_NATIVE_AUDIOOUT) audio_pacing=$(MKW_VITA_AUDIO_PACING) direct_batcher=$(MKW_VITA_DIRECT_BATCHER) direct_efb=$(MKW_VITA_DIRECT_EFB) direct_state_cache=$(MKW_VITA_DIRECT_STATE_CACHE) direct_tev_specialize=$(MKW_VITA_DIRECT_TEV_SPECIALIZE) direct_tev_two_texture=$(MKW_VITA_DIRECT_TEV_TWO_TEXTURE) direct_prep_worker=$(MKW_VITA_DIRECT_PREP_WORKER) direct_vertex_prep=$(MKW_VITA_DIRECT_VERTEX_PREP) direct_texture_prep=$(MKW_VITA_DIRECT_TEXTURE_PREP) direct_state_prep=$(MKW_VITA_DIRECT_STATE_PREP) direct_texture_cache_antithrash=$(MKW_VITA_DIRECT_TEXTURE_CACHE_ANTITHRASH) guest_io_profile=$(MKW_VITA_GUEST_IO_PROFILE) fullscreen_present=$(MKW_VITA_FULLSCREEN_PRESENT) dvd_host_buffering=$(MKW_VITA_DVD_HOST_BUFFERING) direct_efb_batch_sync=$(MKW_VITA_DIRECT_EFB_BATCH_SYNC) render_decouple=$(MKW_VITA_RENDER_DECOUPLE) render_target_hz=$(MKW_VITA_RENDER_TARGET_HZ) direct_worker_timing=$(MKW_VITA_DIRECT_WORKER_TIMING) thp_unescaped_fix=$(MKW_VITA_THP_UNESCAPED_FIX) audio_wait_block_budget=$(MKW_VITA_AUDIO_WAIT_BLOCK_BUDGET)
 # Common runtime/third-party objects remain shared because their compile flags are identical.
 MKW_VITA_VARIANT_OBJ_DIR := $(MKW_RUNTIME_BUILD_DIR)/variants/$(MKW_VITA_BUILD_VARIANT)
 AURORA_VITA_GFX_OBJS := $(patsubst $(AURORA_VITA_GFX_DIR)/%.cpp,\
@@ -354,9 +372,14 @@ COMMON_FLAGS := -O2 -g -ffunction-sections -fdata-sections -D__vita__ -DMKW_TARG
 						-DMKW_VITA_DIRECT_VERTEX_PREP=$(MKW_VITA_DIRECT_VERTEX_PREP) \
 						-DMKW_VITA_DIRECT_TEXTURE_PREP=$(MKW_VITA_DIRECT_TEXTURE_PREP) \
 							-DMKW_VITA_DIRECT_STATE_PREP=$(MKW_VITA_DIRECT_STATE_PREP) \
-							-DMKW_VITA_DIRECT_TEXTURE_CACHE_ANTITHRASH=$(MKW_VITA_DIRECT_TEXTURE_CACHE_ANTITHRASH) \
-							-DMKW_VITA_GUEST_IO_PROFILE=$(MKW_VITA_GUEST_IO_PROFILE) \
-							-DMKW_VITA_DIRECT_WORKER_TIMING=$(MKW_VITA_DIRECT_WORKER_TIMING) \
+								-DMKW_VITA_DIRECT_TEXTURE_CACHE_ANTITHRASH=$(MKW_VITA_DIRECT_TEXTURE_CACHE_ANTITHRASH) \
+								-DMKW_VITA_GUEST_IO_PROFILE=$(MKW_VITA_GUEST_IO_PROFILE) \
+								-DMKW_VITA_FULLSCREEN_PRESENT=$(MKW_VITA_FULLSCREEN_PRESENT) \
+					-DMKW_VITA_DVD_HOST_BUFFERING=$(MKW_VITA_DVD_HOST_BUFFERING) \
+					-DMKW_VITA_DIRECT_EFB_BATCH_SYNC=$(MKW_VITA_DIRECT_EFB_BATCH_SYNC) \
+					-DMKW_VITA_RENDER_DECOUPLE=$(MKW_VITA_RENDER_DECOUPLE) \
+					-DMKW_VITA_RENDER_TARGET_HZ=$(MKW_VITA_RENDER_TARGET_HZ) \
+					-DMKW_VITA_DIRECT_WORKER_TIMING=$(MKW_VITA_DIRECT_WORKER_TIMING) \
 			-DMKW_VITA_THP_UNESCAPED_FIX=$(MKW_VITA_THP_UNESCAPED_FIX) \
 			-DMKW_VITA_AUDIO_WAIT_BLOCK_BUDGET=$(MKW_VITA_AUDIO_WAIT_BLOCK_BUDGET) \
 	-DCRYPTOPP_DISABLE_ASM -DCRYPTOPP_NO_GLOBAL_BYTE \
