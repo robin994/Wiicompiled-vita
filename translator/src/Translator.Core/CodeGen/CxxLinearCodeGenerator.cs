@@ -178,6 +178,7 @@ public sealed partial class CxxLinearCodeGenerator
         sb.AppendLine("#include <cstdint>");
         sb.AppendLine("#include \"ppc_runtime.h\"");
         sb.AppendLine("#include \"abi_bridge.h\"");
+        sb.AppendLine("#include \"guest_hot_profiler.h\"");
         sb.AppendLine("#include \"memory.h\"");
         sb.AppendLine("#include \"recomp_mod_loader.h\"");
         sb.AppendLine();
@@ -281,6 +282,7 @@ public sealed partial class CxxLinearCodeGenerator
             try
             {
                 body.AppendLine("{");
+                body.AppendLine($"    GuestHotProfiler::MarkGuestPc(0x{entryPoint:X8}u);");
                 foreach (var local in orderedLocals)
                 {
                     var representation = types.Get(local);

@@ -209,25 +209,23 @@ extern "C" void GX__CopyDisp_8016fc38(uint32_t da, uint32_t c) {
     GX_HLE_RecordCopyDispStart();
     const auto copyBegin = std::chrono::steady_clock::now();
     EnsureAuroraFrameActive();
+#if ((!defined(MKW_VITA_DIRECT_DECOUPLED_PRESENT) || !MKW_VITA_DIRECT_DECOUPLED_PRESENT) && !MKW_VITA_RENDER_DECOUPLE)
     // GX copies are FIFO-ordered on hardware. Drain submitted draws before
     // resolving the EFB so high-level copies see the same contents.
-#if !MKW_VITA_RENDER_DECOUPLE
     GXDrawDone();
+#else
+    // Direct Vita decoupling keeps display submission off USER_0. Packet FIFO
+    // order and the bounded queue preserve render order without joining USER_1.
 #endif
     GXCopyDisp(GuestToHostPtr(da), (GXBool)c);
-    // No second GXDrawDone here: the frame-worker wait below is for the DONE
-    // phase, which strictly subsumes the drain this call would perform.
     ++g_gxFrameCount;
     VI_HLE_SetXfbReady(da);
-    // The decoupled Vita path must not join USER_1 here. SubmitFrame owns a
-    // bounded two-slot queue and drops a visual frame under backpressure; VI and
-    // guest simulation continue on their own Wii timeline.
-#if !MKW_VITA_RENDER_DECOUPLE
+#if ((!defined(MKW_VITA_DIRECT_DECOUPLED_PRESENT) || !MKW_VITA_DIRECT_DECOUPLED_PRESENT) && !MKW_VITA_RENDER_DECOUPLE)
     aurora_wait_for_frame_worker();
 #endif
     settings_overlay::Draw();
-    // Seal, pace to the VI retrace boundary (Aurora renders the sealed frame
-    // during the wait), and pre-warm the next frame.
+    // Seal and hand the frame to the presentation policy. P6.15 keeps the Wii VI
+    // clock independent while USER_1 enforces the host-side 30 Hz cap.
     VI_HLE_PresentFrame(/*presentedXfb=*/true, /*paceToRetrace=*/true);
 #if defined(MKW_TARGET_VITA)
     const auto copyUs = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -240,7 +238,9 @@ extern "C" void GX__CopyDisp_8016fc38(uint32_t da, uint32_t c) {
                 "dl_calls=%llu dl_us=%llu dl_bytes=%llu dl_cache=%llu/%llu "
                 "dl_cache_mem=%llu/%llu/%llu dl_evict=%llu/%llu dl_clear=%llu/%llu dl_skip=%llu dl_fallback=%llu "
                 "dl_raw=%llu/%llu verts=%llu fail=%llu dl_template=%llu/%llu draws=%llu fallback=%llu "
-                "glyph_fast=%llu setup=%llu texload=%llu glyph_raw=%llu glyph_fallback=%llu prebegin_us=%llu tail_us=%llu copydisp_us=%llu\n",
+                "glyph_fast=%llu setup=%llu texload=%llu glyph_raw=%llu glyph_fallback=%llu "
+                "prebegin_us=%llu prebegin_run_clocks=%llu prebegin_cpu_us=%llu prebegin_offcpu_us=%llu "
+                "prebegin_cpu_permille=%u arm_mhz=%u tail_us=%llu copydisp_us=%llu\n",
                 g_gxFrameCount,
                 static_cast<unsigned long long>(cpuPerf.lytCalls),
                 static_cast<unsigned long long>(cpuPerf.lytUs),
@@ -275,6 +275,11 @@ extern "C" void GX__CopyDisp_8016fc38(uint32_t da, uint32_t c) {
                 static_cast<unsigned long long>(cpuPerf.glyphRawDirectCalls),
                 static_cast<unsigned long long>(cpuPerf.glyphRawFallbacks),
                 static_cast<unsigned long long>(cpuPerf.preFirstBeginUs),
+                static_cast<unsigned long long>(cpuPerf.preFirstBeginRunClocks),
+                static_cast<unsigned long long>(cpuPerf.preFirstBeginCpuUs),
+                static_cast<unsigned long long>(cpuPerf.preFirstBeginOffCpuUs),
+                cpuPerf.preFirstBeginCpuPermille,
+                cpuPerf.preFirstBeginArmMHz,
                 static_cast<unsigned long long>(cpuPerf.tailAfterLastBeginUs),
                 static_cast<unsigned long long>(copyUs > 0 ? copyUs : 0));
     }
@@ -300,7 +305,7 @@ extern "C" void GX__CopyTex_8016fd74(uint32_t da, uint32_t c) {
     // The direct Vita packet stores this copy at afterDrawCount, so FIFO ordering
     // within the current frame is already explicit. Waiting here only joins the
     // PREVIOUS submitted frame and unnecessarily couples USER_0 to USER_1.
-#if !MKW_VITA_RENDER_DECOUPLE
+#if ((!defined(MKW_VITA_DIRECT_DECOUPLED_PRESENT) || !MKW_VITA_DIRECT_DECOUPLED_PRESENT) && !MKW_VITA_RENDER_DECOUPLE)
     GXDrawDone();
 #endif
     const uint16_t rawSrcLeft = g_texCopyState.srcLeft;

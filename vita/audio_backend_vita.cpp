@@ -6,7 +6,6 @@
 #include <array>
 #include <condition_variable>
 #include <cstdint>
-#include <deque>
 #include <thread>
 #include <vector>
 
@@ -36,9 +35,13 @@ constexpr size_t kNativeDeclickFrames = 64;
 struct VitaAudioSinkState {
     std::mutex mutex;
     std::condition_variable wake;
-    std::deque<std::array<int16_t, kNativeChunkSamples>> ready;
-    std::vector<int16_t> staging;
-    size_t stagingOffset = 0;
+    // Fixed PCM ring: QueueNativePcm48 runs on USER_0, so avoid deque node
+    // allocation and vector insert/erase/capacity management on every DMA block.
+    std::array<std::array<int16_t, kNativeChunkSamples>, kNativeMaxQueuedChunks> ready{};
+    size_t readyHead = 0;
+    size_t readyCount = 0;
+    std::array<int16_t, kNativeChunkSamples> staging{};
+    size_t stagingCount = 0;
     std::thread worker;
     int port = -1;
     bool running = false;
@@ -78,14 +81,15 @@ void NativeAudioWorker(int port) {
             std::unique_lock<std::mutex> lock(state.mutex);
 #if MKW_VITA_AUDIO_PACING
             if (!playbackStarted) {
-                state.wake.wait(lock, [&] { return state.stop || !state.ready.empty(); });
+                state.wake.wait(lock, [&] { return state.stop || state.readyCount != 0; });
             }
             if (state.stop) {
                 break;
             }
-            if (!state.ready.empty()) {
-                chunk = state.ready.front();
-                state.ready.pop_front();
+            if (state.readyCount != 0) {
+                chunk = state.ready[state.readyHead];
+                state.readyHead = (state.readyHead + 1) % kNativeMaxQueuedChunks;
+                --state.readyCount;
                 realPcm = true;
                 playbackStarted = true;
                 discontinuity = state.discontinuityPending || previousWasSilence;
@@ -102,12 +106,13 @@ void NativeAudioWorker(int port) {
                 continue;
             }
 #else
-            state.wake.wait(lock, [&] { return state.stop || !state.ready.empty(); });
-            if (state.stop && state.ready.empty()) {
+            state.wake.wait(lock, [&] { return state.stop || state.readyCount != 0; });
+            if (state.stop && state.readyCount == 0) {
                 break;
             }
-            chunk = state.ready.front();
-            state.ready.pop_front();
+            chunk = state.ready[state.readyHead];
+            state.readyHead = (state.readyHead + 1) % kNativeMaxQueuedChunks;
+            --state.readyCount;
             realPcm = true;
 #endif
         }
@@ -174,7 +179,7 @@ void NativeAudioWorker(int port) {
                         static_cast<unsigned long long>(state.underrunChunks),
                         static_cast<unsigned long long>(state.droppedChunks),
                         static_cast<unsigned>(state.queueHighWater),
-                        static_cast<unsigned>(state.ready.size()));
+                        static_cast<unsigned>(state.readyCount));
             }
         }
         if (realPcm) {
@@ -220,10 +225,9 @@ bool StartNativeAudioSink() {
     state.realOutputChunks = 0;
     state.silenceOutputChunks = 0;
     state.queueHighWater = 0;
-    state.ready.clear();
-    state.staging.clear();
-    state.stagingOffset = 0;
-    state.staging.reserve(kNativeChunkSamples * 2);
+    state.readyHead = 0;
+    state.readyCount = 0;
+    state.stagingCount = 0;
     try {
         state.worker = std::thread(NativeAudioWorker, port);
     } catch (...) {
@@ -251,9 +255,9 @@ void StopNativeAudioSink() {
             return;
         }
         state.stop = true;
-        state.ready.clear();
-        state.staging.clear();
-        state.stagingOffset = 0;
+        state.readyHead = 0;
+        state.readyCount = 0;
+        state.stagingCount = 0;
         port = state.port;
     }
     state.wake.notify_all();
@@ -300,24 +304,22 @@ bool QueueNativePcm48(const int16_t* samples, size_t sampleCount) {
         if (!state.running || state.stop) {
             return false;
         }
-        state.staging.insert(state.staging.end(), samples, samples + sampleCount);
-        while (state.staging.size() - state.stagingOffset >= kNativeChunkSamples) {
-            if (state.ready.size() < kNativeMaxQueuedChunks) {
-                std::array<int16_t, kNativeChunkSamples> chunk{};
-                std::copy_n(state.staging.data() + state.stagingOffset,
-                            kNativeChunkSamples, chunk.data());
-                state.ready.push_back(std::move(chunk));
-                state.queueHighWater = std::max(state.queueHighWater, state.ready.size());
-                queued = true;
-            } else {
+        size_t consumed = 0;
+        while (consumed < sampleCount) {
+            const size_t writable = kNativeChunkSamples - state.stagingCount;
+            const size_t take = std::min(writable, sampleCount - consumed);
+            std::copy_n(samples + consumed, take, state.staging.data() + state.stagingCount);
+            state.stagingCount += take;
+            consumed += take;
+            if (state.stagingCount != kNativeChunkSamples) {
+                continue;
+            }
+
+            if (state.readyCount == kNativeMaxQueuedChunks) {
 #if MKW_VITA_AUDIO_PACING
-                state.ready.pop_front();
-                std::array<int16_t, kNativeChunkSamples> chunk{};
-                std::copy_n(state.staging.data() + state.stagingOffset,
-                            kNativeChunkSamples, chunk.data());
-                state.ready.push_back(std::move(chunk));
+                state.readyHead = (state.readyHead + 1) % kNativeMaxQueuedChunks;
+                --state.readyCount;
                 state.discontinuityPending = true;
-                queued = true;
 #endif
                 ++state.droppedChunks;
                 if (!state.loggedDrop) {
@@ -333,15 +335,15 @@ bool QueueNativePcm48(const int16_t* samples, size_t sampleCount) {
 #endif
                 }
             }
-            state.stagingOffset += kNativeChunkSamples;
-        }
-        if (state.stagingOffset == state.staging.size()) {
-            state.staging.clear();
-            state.stagingOffset = 0;
-        } else if (state.stagingOffset >= kNativeChunkSamples * 4) {
-            state.staging.erase(state.staging.begin(),
-                                state.staging.begin() + static_cast<std::ptrdiff_t>(state.stagingOffset));
-            state.stagingOffset = 0;
+
+            if (state.readyCount < kNativeMaxQueuedChunks) {
+                const size_t tail = (state.readyHead + state.readyCount) % kNativeMaxQueuedChunks;
+                state.ready[tail] = state.staging;
+                ++state.readyCount;
+                state.queueHighWater = std::max(state.queueHighWater, state.readyCount);
+                queued = true;
+            }
+            state.stagingCount = 0;
         }
     }
     if (queued) {

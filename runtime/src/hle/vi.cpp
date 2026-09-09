@@ -26,6 +26,12 @@
 #ifndef MKW_VITA_RENDER_DECOUPLE
 #define MKW_VITA_RENDER_DECOUPLE 0
 #endif
+#ifndef MKW_VITA_DIRECT_DECOUPLED_PRESENT
+#define MKW_VITA_DIRECT_DECOUPLED_PRESENT 0
+#endif
+#ifndef MKW_VITA_DIRECT_PRESENT_30HZ
+#define MKW_VITA_DIRECT_PRESENT_30HZ 0
+#endif
 
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -643,6 +649,7 @@ void VI_HLE_PresentFrame(bool presentedXfb, bool paceToRetrace) {
     Clock::time_point paceDeadline{};
     bool paceThisFrame = false;
     uint32_t retracesElapsedForPerf = 0;
+    const bool producerPaceRequested = paceToRetrace && !MKW_VITA_RENDER_DECOUPLE && !MKW_VITA_DIRECT_DECOUPLED_PRESENT;
     if (paceToRetrace) {
         uint64_t baseNanos = 0;
         uint64_t intervalNanos = 0;
@@ -667,14 +674,7 @@ void VI_HLE_PresentFrame(bool presentedXfb, bool paceToRetrace) {
         // heavy scene at e.g. 50 fps instead of hard 30.
         const uint32_t retracesElapsed = retraceCount - s_lastPacedRetraceCount;
         retracesElapsedForPerf = retracesElapsed;
-#if defined(MKW_TARGET_VITA) && MKW_VITA_RENDER_DECOUPLE
-        // VI remains the authoritative Wii clock (~60 Hz/PAL timing). Display
-        // submission must never sleep USER_0: USER_1 independently quantizes
-        // swaps to the configured Vita VBlank interval.
-        paceThisFrame = false;
-#else
-        paceThisFrame = retracesElapsed == 0;
-#endif
+        paceThisFrame = producerPaceRequested && retracesElapsed == 0;
         s_lastPacedRetraceCount = retraceCount;
         // aurora_report_producer_paced needs a different signal than the pace-wait above: the guest
         // self-paces via VIWaitForRetrace, so one retrace per produced frame is the healthy locked-60
@@ -718,11 +718,13 @@ void VI_HLE_PresentFrame(bool presentedXfb, bool paceToRetrace) {
         const auto paceUs = std::chrono::duration_cast<std::chrono::microseconds>(paceEnd - submitEnd).count();
         const auto totalUs = std::chrono::duration_cast<std::chrono::microseconds>(paceEnd - presentBegin).count();
         RT_LOGF(RT_TAG_VI,
-                "vi_perf present=%llu pace_requested=%u pace=%u render_decouple=%u retraces_elapsed=%u "
+                "vi_perf present=%llu pace_requested=%u pace=%u render_decouple=%u direct_decoupled=%u present30=%u retraces_elapsed=%u "
                 "submit_us=%lld pace_us=%lld total_us=%lld presented_xfb=%u\n",
                 static_cast<unsigned long long>(currentPresentOrdinal),
-                static_cast<unsigned>(paceToRetrace), static_cast<unsigned>(paceThisFrame),
+                static_cast<unsigned>(producerPaceRequested), static_cast<unsigned>(paceThisFrame),
                 static_cast<unsigned>(MKW_VITA_RENDER_DECOUPLE),
+                static_cast<unsigned>(MKW_VITA_DIRECT_DECOUPLED_PRESENT),
+                static_cast<unsigned>(MKW_VITA_DIRECT_PRESENT_30HZ),
                 retracesElapsedForPerf, static_cast<long long>(submitUs),
                 static_cast<long long>(paceUs), static_cast<long long>(totalUs),
                 static_cast<unsigned>(presentedXfb));

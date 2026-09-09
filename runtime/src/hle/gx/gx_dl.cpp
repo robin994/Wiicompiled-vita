@@ -5,6 +5,8 @@
 
 #if defined(MKW_TARGET_VITA)
 #include "wiicompiled_vita/gx_backend.h"
+#include <psp2/kernel/threadmgr.h>
+#include <psp2/power.h>
 #endif
 
 #include <algorithm>
@@ -45,6 +47,18 @@ thread_local std::chrono::steady_clock::time_point g_lastGxBeginRecordTime{};
 thread_local std::chrono::steady_clock::time_point g_lastGxPerfSnapshotTime{};
 #if defined(MKW_TARGET_VITA)
 thread_local bool g_allowIndexedRawDisplayList = false;
+thread_local uint64_t g_lastGxPerfRunClocks = 0;
+
+uint64_t CurrentThreadRunClocks() noexcept {
+#if MKW_VITA_GUEST_CPU_PROFILE
+    SceKernelThreadInfo info{};
+    info.size = sizeof(info);
+    if (sceKernelGetThreadInfo(sceKernelGetThreadId(), &info) >= 0) {
+        return static_cast<uint64_t>(info.runClocks);
+    }
+#endif
+    return 0;
+}
 
 class ScopedIndexedRawDisplayList {
 public:
@@ -1736,6 +1750,9 @@ GxCpuPerfSnapshot GX_HLE_TakeCpuPerfSnapshot() noexcept {
     g_cpuPerf = {};
     g_lastGxBeginRecordTime = {};
     g_lastGxPerfSnapshotTime = now;
+#if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_CPU_PROFILE
+    g_lastGxPerfRunClocks = CurrentThreadRunClocks();
+#endif
     return snapshot;
 }
 
@@ -1756,6 +1773,26 @@ void GX_HLE_RecordBeginCaller(uint32_t lr) noexcept {
         const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
             now - g_lastGxPerfSnapshotTime).count();
         g_cpuPerf.preFirstBeginUs = static_cast<uint64_t>(elapsed > 0 ? elapsed : 0);
+#if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_CPU_PROFILE
+        const uint64_t runNow = CurrentThreadRunClocks();
+        if (runNow >= g_lastGxPerfRunClocks && g_lastGxPerfRunClocks != 0) {
+            const uint64_t runDelta = runNow - g_lastGxPerfRunClocks;
+            const int armMHzRaw = scePowerGetArmClockFrequency();
+            const uint32_t armMHz = armMHzRaw > 0 ? static_cast<uint32_t>(armMHzRaw) : 0u;
+            g_cpuPerf.preFirstBeginRunClocks = runDelta;
+            g_cpuPerf.preFirstBeginArmMHz = armMHz;
+            if (armMHz != 0) {
+                const uint64_t cpuUs = runDelta / armMHz;
+                g_cpuPerf.preFirstBeginCpuUs = cpuUs;
+                g_cpuPerf.preFirstBeginOffCpuUs =
+                    g_cpuPerf.preFirstBeginUs > cpuUs ? g_cpuPerf.preFirstBeginUs - cpuUs : 0u;
+                if (g_cpuPerf.preFirstBeginUs != 0) {
+                    g_cpuPerf.preFirstBeginCpuPermille = static_cast<uint32_t>(std::min<uint64_t>(
+                        1000u, cpuUs * 1000u / g_cpuPerf.preFirstBeginUs));
+                }
+            }
+        }
+#endif
     }
     uint64_t gapUs = 0;
     if (g_lastGxBeginRecordTime.time_since_epoch().count() != 0) {

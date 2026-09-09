@@ -107,6 +107,15 @@ struct GxCpuPerfSnapshot {
     uint64_t glyphRawDirectCalls = 0;
     uint64_t glyphRawFallbacks = 0;
     uint64_t preFirstBeginUs = 0;
+    // Vita producer truth metric: wall time between the previous GXCopyDisp
+    // snapshot and the first GXBegin, split using the kernel's per-thread
+    // run-clock counter. runClocks is retained raw as well as converted with the
+    // observed ARM MHz so hardware logs can catch any counter-unit mismatch.
+    uint64_t preFirstBeginRunClocks = 0;
+    uint64_t preFirstBeginCpuUs = 0;
+    uint64_t preFirstBeginOffCpuUs = 0;
+    uint32_t preFirstBeginCpuPermille = 0;
+    uint32_t preFirstBeginArmMHz = 0;
     uint64_t tailAfterLastBeginUs = 0;
     uint32_t gxBeginCalls = 0;
     uint32_t gxBeginCallerCount = 0;

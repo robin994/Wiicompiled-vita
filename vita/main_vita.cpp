@@ -2,6 +2,7 @@
 #include "fiber_manager.h"
 #include "generated/RuntimeConfig.h"
 #include "guest_flat_memory.h"
+#include "guest_hot_profiler.h"
 #include "gx_guest_write.h"
 #include "hle_stubs.h"
 #include "audio_wait_profile.h"
@@ -18,6 +19,8 @@
 #include <psp2/power.h>
 
 #include <atomic>
+#include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
@@ -33,15 +36,72 @@ constexpr uint32_t kGuestStackTop = 0x81700000u;
 std::atomic<int> g_runtimeExitCode{EXIT_FAILURE};
 std::atomic_bool g_fatalErrorReported{false};
 
+#ifndef MKW_VITA_BUFFERED_LOGGING
+#define MKW_VITA_BUFFERED_LOGGING 0
+#endif
+#ifndef MKW_VITA_LOG_FLUSH_INTERVAL_US
+#define MKW_VITA_LOG_FLUSH_INTERVAL_US 250000
+#endif
+#ifndef MKW_VITA_AUDIO_WAIT_MIN_INTERVAL_US
+#define MKW_VITA_AUDIO_WAIT_MIN_INTERVAL_US 0
+#endif
+
+#if MKW_VITA_BUFFERED_LOGGING
+std::array<char, 64 * 1024> g_stdoutBuffer{};
+std::array<char, 64 * 1024> g_stderrBuffer{};
+std::atomic_bool g_logFlushStop{false};
+WiiCompiledVita::HostThread g_logFlushThread;
+#endif
+
 void SetupLogging() noexcept {
     sceIoMkdir(kDataDirectory, 0777);
     if (std::freopen(kRuntimeLogPath, "a", stdout) != nullptr) {
+#if MKW_VITA_BUFFERED_LOGGING
+        std::setvbuf(stdout, g_stdoutBuffer.data(), _IOFBF, g_stdoutBuffer.size());
+#else
         std::setvbuf(stdout, nullptr, _IOLBF, 0);
+#endif
     }
     if (std::freopen(kRuntimeLogPath, "a", stderr) != nullptr) {
+#if MKW_VITA_BUFFERED_LOGGING
+        std::setvbuf(stderr, g_stderrBuffer.data(), _IOFBF, g_stderrBuffer.size());
+#else
         std::setvbuf(stderr, nullptr, _IOLBF, 0);
+#endif
     }
 }
+
+#if MKW_VITA_BUFFERED_LOGGING
+void LogFlushWorker() {
+    while (!g_logFlushStop.load(std::memory_order_acquire)) {
+        sceKernelDelayThread(std::max<uint32_t>(10000u, MKW_VITA_LOG_FLUSH_INTERVAL_US));
+        std::fflush(stdout);
+        std::fflush(stderr);
+    }
+    std::fflush(stdout);
+    std::fflush(stderr);
+}
+
+void StartLogFlushWorker() noexcept {
+    if (g_logFlushThread.joinable()) return;
+    g_logFlushStop.store(false, std::memory_order_release);
+    if (!g_logFlushThread.start(WiiCompiledVita::HostThreadRole::Background,
+                                64 * 1024, LogFlushWorker)) {
+        std::fprintf(stderr,
+                     "[PERF] buffered log flush worker failed; fatal paths still flush explicitly\n");
+        std::fflush(stderr);
+    }
+}
+
+void StopLogFlushWorker() noexcept {
+    if (!g_logFlushThread.joinable()) return;
+    g_logFlushStop.store(true, std::memory_order_release);
+    g_logFlushThread.join();
+}
+#else
+void StartLogFlushWorker() noexcept {}
+void StopLogFlushWorker() noexcept {}
+#endif
 
 void BootLog(const char* phase, const char* message) noexcept {
     std::fprintf(stderr, "[%s] %s\n", phase, message);
@@ -54,19 +114,22 @@ void ConfigurePerformanceClocks() noexcept {
     const int beforeGpu = scePowerGetGpuClockFrequency();
     const int beforeXbar = scePowerGetGpuXbarClockFrequency();
 
-    // Highest clocks exposed by the stock Vita power API. These do not rely on
-    // an overclock plugin and keep the test reproducible on unmodified hardware.
-    const int armResult = scePowerSetArmClockFrequency(444);
-    const int busResult = scePowerSetBusClockFrequency(222);
-    const int gpuResult = scePowerSetGpuClockFrequency(222);
-    const int xbarResult = scePowerSetGpuXbarClockFrequency(166);
+    // Never lower a clock already raised by the user's overclock setup (500 MHz
+    // ARM is common in hardware testing). Stock systems are still raised to the
+    // established safe floor. Calling the stock setter with an overclock value
+    // can reject it, so preserve a higher observed value by simply not touching it.
+    const int armResult = beforeArm < 444 ? scePowerSetArmClockFrequency(444) : 0;
+    const int busResult = beforeBus < 222 ? scePowerSetBusClockFrequency(222) : 0;
+    const int gpuResult = beforeGpu < 222 ? scePowerSetGpuClockFrequency(222) : 0;
+    const int xbarResult = beforeXbar < 166 ? scePowerSetGpuXbarClockFrequency(166) : 0;
 
     std::fprintf(stderr,
-                 "[PERF] clocks before=%d/%d/%d/%d set_rc=%d/%d/%d/%d after=%d/%d/%d/%d MHz\n",
+                 "[PERF] clocks before=%d/%d/%d/%d set_rc=%d/%d/%d/%d after=%d/%d/%d/%d MHz preserve_high=%d\n",
                  beforeArm, beforeBus, beforeGpu, beforeXbar,
                  armResult, busResult, gpuResult, xbarResult,
                  scePowerGetArmClockFrequency(), scePowerGetBusClockFrequency(),
-                 scePowerGetGpuClockFrequency(), scePowerGetGpuXbarClockFrequency());
+                 scePowerGetGpuClockFrequency(), scePowerGetGpuXbarClockFrequency(),
+                 beforeArm > 444 ? 1 : 0);
     std::fflush(stderr);
 }
 
@@ -91,19 +154,36 @@ void ServiceGuestTimingDuringAuroraFrameWait() {
 #if MKW_VITA_WAIT_SERVICE_PROFILE
     const uint64_t beginUs = sceKernelGetProcessTimeWide();
 #endif
-    VI_HLE_ProcessRetracesDeferred(8);
+    {
+        GuestHotProfiler::HostPhaseScope phase(GuestHotProfiler::kPhaseWaitVi);
+        VI_HLE_ProcessRetracesDeferred(8);
+    }
 #if MKW_VITA_WAIT_SERVICE_PROFILE
     const uint64_t viEndUs = sceKernelGetProcessTimeWide();
 #endif
-    OS_HLE_ProcessAlarmsDeferred(8);
+    {
+        GuestHotProfiler::HostPhaseScope phase(GuestHotProfiler::kPhaseWaitAlarm);
+        OS_HLE_ProcessAlarmsDeferred(8);
+    }
 #if MKW_VITA_WAIT_SERVICE_PROFILE
     const uint64_t alarmEndUs = sceKernelGetProcessTimeWide();
 #endif
-#if MKW_VITA_AUDIO_WAIT_PROFILE
-    Audio_HLE_PollDeferredForRenderWait();
-#else
-    Audio_HLE_PollDeferred();
+    bool serviceAudio = true;
+#if MKW_VITA_AUDIO_WAIT_MIN_INTERVAL_US > 0
+    static uint64_t lastAudioServiceUs = 0;
+    const uint64_t audioServiceNowUs = sceKernelGetProcessTimeWide();
+    serviceAudio = lastAudioServiceUs == 0 ||
+                   audioServiceNowUs - lastAudioServiceUs >= MKW_VITA_AUDIO_WAIT_MIN_INTERVAL_US;
+    if (serviceAudio) lastAudioServiceUs = audioServiceNowUs;
 #endif
+    if (serviceAudio) {
+        GuestHotProfiler::HostPhaseScope phase(GuestHotProfiler::kPhaseWaitAudio);
+#if MKW_VITA_AUDIO_WAIT_PROFILE
+        Audio_HLE_PollDeferredForRenderWait();
+#else
+        Audio_HLE_PollDeferred();
+#endif
+    }
 #if MKW_VITA_WAIT_SERVICE_PROFILE
     const uint64_t audioEndUs = sceKernelGetProcessTimeWide();
     WiiCompiledVita::GxBackend::RecordWaitServiceParts(
@@ -112,12 +192,14 @@ void ServiceGuestTimingDuringAuroraFrameWait() {
 }
 
 void ShutdownRuntime(bool fibersReady, bool gxReady) noexcept {
+    GuestHotProfiler::Stop();
     if (fibersReady && Fiber::GuestFiberManager::IsInitialized()) {
         Fiber::GuestFiberManager::Shutdown();
     }
     if (gxReady) {
         WiiCompiledVita::GxBackend::Shutdown();
     }
+    StopLogFlushWorker();
 }
 
 } // namespace
@@ -190,6 +272,11 @@ int main() {
             throw std::runtime_error("guest runtime affinity is not USER_0");
         }
         BootLog("BOOT", "guest thread configured on USER_0");
+        StartLogFlushWorker();
+
+        if (!GuestHotProfiler::Start()) {
+            BootLog("PERF", "guest hot-PC sampler failed to start; continuing without samples");
+        }
 
         // SystemBridge owns the canonical Wii memory layout and data-section
         // initialization; initializing GuestFlat independently here would risk

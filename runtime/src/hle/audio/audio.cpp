@@ -36,6 +36,9 @@ constexpr int kMaxBlocksPerTick = 4;
 #ifndef MKW_VITA_AUDIO_WAIT_BLOCK_BUDGET
 #define MKW_VITA_AUDIO_WAIT_BLOCK_BUDGET 4
 #endif
+#ifndef MKW_VITA_AUDIO_BACKLOG_CLAMP_BLOCKS
+#define MKW_VITA_AUDIO_BACKLOG_CLAMP_BLOCKS 0
+#endif
 
 struct AIDmaState {
     std::mutex mutex;
@@ -51,6 +54,8 @@ struct AIDmaState {
     bool loggedBackendFailure = false;
     bool loggedMissingCallback = false;
     bool loggedAccessFailure = false;
+    uint64_t backlogClampCount = 0;
+    uint64_t backlogDroppedUs = 0;
 };
 
 AIDmaState g_ai{};
@@ -465,6 +470,35 @@ void Audio_HLE_TickBudgeted(CpuContext* ctx, uint32_t deltaMicros, int blockBudg
     if (blockDuration <= 0.0) {
         return;
     }
+
+#if defined(MKW_TARGET_VITA) && MKW_VITA_AUDIO_BACKLOG_CLAMP_BLOCKS > 0
+    // Real-time catch-up must be bounded. If USER_0 stalls for seconds, charging
+    // the whole wall-clock gap into AI creates a positive feedback loop: each
+    // expensive guest audio callback makes the backlog older and forces more
+    // callbacks. Keep only a few newest DMA periods; the native sink already
+    // drops stale PCM on overflow, so stale guest audio is not useful either.
+    uint64_t clampCount = 0;
+    uint64_t clampDroppedUs = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_ai.mutex);
+        const double maxBacklog = blockDuration * static_cast<double>(MKW_VITA_AUDIO_BACKLOG_CLAMP_BLOCKS);
+        if (g_ai.accumulatorSeconds > maxBacklog) {
+            const double dropped = g_ai.accumulatorSeconds - maxBacklog;
+            g_ai.accumulatorSeconds = maxBacklog;
+            ++g_ai.backlogClampCount;
+            g_ai.backlogDroppedUs += static_cast<uint64_t>(dropped * 1'000'000.0);
+            clampCount = g_ai.backlogClampCount;
+            clampDroppedUs = g_ai.backlogDroppedUs;
+        }
+    }
+    if (clampCount != 0 && (clampCount <= 8u || (clampCount & (clampCount - 1u)) == 0u)) {
+        RT_LOGF(RT_TAG_AUDIO,
+                "audio_backlog_clamp n=%llu kept_blocks=%u dropped_total_us=%llu\n",
+                static_cast<unsigned long long>(clampCount),
+                static_cast<unsigned>(MKW_VITA_AUDIO_BACKLOG_CLAMP_BLOCKS),
+                static_cast<unsigned long long>(clampDroppedUs));
+    }
+#endif
 
     CpuContext* cpu = ctx ? ctx : &GetPersistentCpuContext();
     CpuContextScope scope(cpu);

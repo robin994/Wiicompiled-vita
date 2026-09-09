@@ -103,6 +103,12 @@ static_assert(MKW_VITA_FRAME_QUEUE_DEPTH >= 1 && MKW_VITA_FRAME_QUEUE_DEPTH <= 2
 #ifndef MKW_VITA_DIRECT_TEV_TWO_TEXTURE
 #define MKW_VITA_DIRECT_TEV_TWO_TEXTURE 0
 #endif
+#ifndef MKW_VITA_DIRECT_PRESENT_30HZ
+#define MKW_VITA_DIRECT_PRESENT_30HZ 0
+#endif
+#ifndef MKW_VITA_DIRECT_DECOUPLED_PRESENT
+#define MKW_VITA_DIRECT_DECOUPLED_PRESENT 0
+#endif
 #ifndef MKW_VITA_DIRECT_PREP_WORKER
 #define MKW_VITA_DIRECT_PREP_WORKER 0
 #endif
@@ -1243,6 +1249,32 @@ bool AllFrameSlotsFreeLocked() {
     }
     return true;
 }
+
+#if MKW_VITA_DIRECT_PRESENT_30HZ && !defined(MKW_VITA_AURORA_RENDERER)
+constexpr uint64_t kDirectPresentIntervalUs = 1000000u / 30u;
+
+uint64_t PaceDirectPresent30Hz() {
+    static thread_local uint64_t nextPresentUs = 0;
+    const uint64_t waitBeginUs = sceKernelGetProcessTimeWide();
+    uint64_t nowUs = waitBeginUs;
+    if (nextPresentUs == 0) {
+        nextPresentUs = nowUs;
+    }
+    while (nowUs < nextPresentUs) {
+        const uint64_t remainingUs = nextPresentUs - nowUs;
+        sceKernelDelayThread(static_cast<unsigned int>(std::min<uint64_t>(remainingUs, 2000u)));
+        nowUs = sceKernelGetProcessTimeWide();
+    }
+    if (nowUs > nextPresentUs + kDirectPresentIntervalUs) {
+        // A slow frame never triggers a catch-up burst: restart the cap from
+        // the actual late presentation time instead.
+        nextPresentUs = nowUs + kDirectPresentIntervalUs;
+    } else {
+        nextPresentUs += kDirectPresentIntervalUs;
+    }
+    return nowUs - waitBeginUs;
+}
+#endif
 
 WiiCompiledVita::GxBackend::Stats g_stats{};
 AuroraFrameWorkerWaitCallback g_waitCallback = nullptr;
@@ -6493,6 +6525,11 @@ void RenderWorkerMain() {
 #if !defined(MKW_VITA_AURORA_RENDERER) && MKW_VITA_DIRECT_EFB
         ExecuteDirectEfbAt(packet.geometry.drawCount);
 #endif
+#if MKW_VITA_DIRECT_PRESENT_30HZ && !defined(MKW_VITA_AURORA_RENDERER)
+        const uint64_t directPresentWaitUs = PaceDirectPresent30Hz();
+#else
+        const uint64_t directPresentWaitUs = 0;
+#endif
         const uint64_t swapBeginUs = sceKernelGetProcessTimeWide();
         if (traceLargeFrame) {
             RT_LOGF(RT_TAG_GX, "render_large phase=swap_begin serial=%llu elapsed_us=%llu\n",
@@ -6793,7 +6830,7 @@ void RenderWorkerMain() {
 #else
             RT_LOGF(RT_TAG_GX,
                     "perf_summary serial=%llu draws=%u vertices=%u presented=%llu physical=%llu merged=%llu "
-                    "raw_ok=%llu raw_fail=%llu dropped=%u transform_fail=%llu render_us=%llu swap_us=%llu "
+                    "raw_ok=%llu raw_fail=%llu dropped=%u transform_fail=%llu render_us=%llu present_wait_us=%llu swap_us=%llu "
                     "prep=%llu/%llu/%llu/%llu/%u/%u/%u prep_tex=%u/%u/%u/%u texprep=%llu/%llu "
                     "texcache=%llu/%llu/%llu/%llu/%llu live=%llu/%u evict=%llu/%llu/%llu invalidate=%llu "
                     "direct_upload_us=%llu direct_upload=%u/%u/%llu state_skip=%llu/%llu/%llu "
@@ -6810,6 +6847,7 @@ void RenderWorkerMain() {
                     static_cast<unsigned>(packet.geometry.droppedVertices),
                     static_cast<unsigned long long>(geometryTransformFailures),
                     static_cast<unsigned long long>(swapEndUs - frameRenderBeginUs),
+                    static_cast<unsigned long long>(directPresentWaitUs),
                     static_cast<unsigned long long>(swapEndUs - swapBeginUs),
                     static_cast<unsigned long long>(directPrepUs),
                     static_cast<unsigned long long>(directPrepVertexUs),
@@ -7085,6 +7123,25 @@ void SubmitFrame() {
         }
     };
 
+    const auto ResetProducerFrame = [] {
+        g_gx.frame = {};
+        g_gx.geometry.vertexCount = 0;
+        g_gx.geometry.drawCount = 0;
+        g_gx.geometry.efbCommandCount = 0;
+        g_gx.geometry.droppedVertices = 0;
+#if MKW_VITA_COMPACT_FRAME_STATE
+        g_gx.geometry.transforms.clear();
+        g_gx.geometry.rasters.clear();
+        g_gx.geometry.textures.clear();
+#if MKW_VITA_GX_STATE_GENERATIONS
+        g_gx.geometry.lastTransformGeneration = 0;
+        g_gx.geometry.lastRasterGeneration = 0;
+        g_gx.geometry.lastTextureGeneration = 0;
+#endif
+#endif
+        g_gx.activeDraw = -1;
+    };
+
     if (!EnsureRenderWorker()) {
         // Fallback keeps the serial contract valid even if thread creation fails.
         ++g_submittedSerial;
@@ -7094,96 +7151,62 @@ void SubmitFrame() {
         AccumulateFrameStats(g_gx.frame);
         g_stats.geometryVerticesDropped +=
             static_cast<uint64_t>(g_gx.geometry.vertexCount) + g_gx.geometry.droppedVertices;
-        g_gx.frame = {};
-        g_gx.geometry.vertexCount = 0;
-        g_gx.geometry.drawCount = 0;
-        g_gx.geometry.efbCommandCount = 0;
-        g_gx.geometry.droppedVertices = 0;
-#if MKW_VITA_COMPACT_FRAME_STATE
-        g_gx.geometry.transforms.clear();
-        g_gx.geometry.rasters.clear();
-        g_gx.geometry.textures.clear();
-#if MKW_VITA_GX_STATE_GENERATIONS
-        g_gx.geometry.lastTransformGeneration = 0;
-        g_gx.geometry.lastRasterGeneration = 0;
-        g_gx.geometry.lastTextureGeneration = 0;
-#endif
-#endif
-        g_gx.activeDraw = -1;
+        ResetProducerFrame();
         return;
     }
 
     const uint64_t queueWaitBeginUs = sceKernelGetProcessTimeWide();
     const bool requiresFrameBarrier = g_gx.geometry.efbCommandCount != 0;
     std::unique_lock<std::mutex> lock(g_renderMutex);
-#if MKW_VITA_RENDER_DECOUPLE && !defined(MKW_VITA_AURORA_RENDERER)
-    // Display submission is intentionally lossy under backpressure. The Wii VI
-    // clock and guest scheduler must never wait for USER_1 just because a visual
-    // frame missed its 30 Hz slot. A pending EFB barrier is treated the same way:
-    // drop this coherent visual packet rather than enqueue work that could race
-    // an earlier render-to-texture dependency.
-    FrameQueueSlot* queueSlot = nullptr;
-    const char* dropReason = nullptr;
-    if (g_frameBarrierSerial != 0 && g_completedSerial < g_frameBarrierSerial) {
-        dropReason = "efb_barrier";
-    } else if (requiresFrameBarrier && !AllFrameSlotsFreeLocked()) {
-        dropReason = "efb_needs_empty_queue";
-    } else {
-        queueSlot = FindFreeFrameSlotLocked();
-        if (!queueSlot) dropReason = "queue_full";
-    }
-    if (dropReason) {
-        const uint32_t droppedDraws = g_gx.geometry.drawCount;
-        const uint32_t droppedVertices = g_gx.geometry.vertexCount;
-        const uint32_t droppedEfb = g_gx.geometry.efbCommandCount;
-        AccumulateFrameStats(g_gx.frame);
-        ++g_stats.framesDropped;
-        g_stats.geometryVerticesDropped +=
-            static_cast<uint64_t>(droppedVertices) + g_gx.geometry.droppedVertices;
-        const uint64_t droppedTotal = g_stats.framesDropped;
-        const uint64_t completedAtDrop = g_completedSerial;
-        const uint64_t submittedAtDrop = g_submittedSerial;
-        lock.unlock();
-
-        g_gx.frame = {};
-        g_gx.geometry.vertexCount = 0;
-        g_gx.geometry.drawCount = 0;
-        g_gx.geometry.efbCommandCount = 0;
-        g_gx.geometry.droppedVertices = 0;
-#if MKW_VITA_COMPACT_FRAME_STATE
-        g_gx.geometry.transforms.clear();
-        g_gx.geometry.rasters.clear();
-        g_gx.geometry.textures.clear();
-#if MKW_VITA_GX_STATE_GENERATIONS
-        g_gx.geometry.lastTransformGeneration = 0;
-        g_gx.geometry.lastRasterGeneration = 0;
-        g_gx.geometry.lastTextureGeneration = 0;
-#endif
-#endif
-        g_gx.activeDraw = -1;
-        if (droppedTotal <= 16u || (droppedTotal % 60u) == 0u) {
-            RT_LOGF(RT_TAG_GX,
-                    "render_drop n=%llu reason=%s draws=%u vertices=%u efb=%u completed=%llu submitted=%llu\n",
-                    static_cast<unsigned long long>(droppedTotal), dropReason,
-                    droppedDraws, droppedVertices, droppedEfb,
-                    static_cast<unsigned long long>(completedAtDrop),
-                    static_cast<unsigned long long>(submittedAtDrop));
-        }
-        return;
-    }
-#else
-    g_renderIdle.wait(lock, [requiresFrameBarrier] {
+    const auto queueCanAccept = [requiresFrameBarrier] {
         if (g_frameBarrierSerial != 0 && g_completedSerial < g_frameBarrierSerial) return false;
         if (requiresFrameBarrier && !AllFrameSlotsFreeLocked()) return false;
         for (const auto& slot : g_frameQueue) {
             if (slot.state == FrameQueueSlotState::Free) return true;
         }
         return false;
-    });
+    };
+#if (MKW_VITA_RENDER_DECOUPLE || MKW_VITA_DIRECT_DECOUPLED_PRESENT) && !defined(MKW_VITA_AURORA_RENDERER)
+    // Display-only snapshots are lossy under backpressure, but EFB-bearing frames
+    // are never discarded: they retain GX side effects and wait with bounded
+    // timing-service callbacks so USER_0 does not enter an audio/timing dead zone.
+    if (!requiresFrameBarrier && !queueCanAccept()) {
+        const uint32_t droppedDraws = g_gx.geometry.drawCount;
+        const uint32_t droppedVertices = g_gx.geometry.vertexCount;
+        AccumulateFrameStats(g_gx.frame);
+        ++g_stats.framesDropped;
+        g_stats.geometryVerticesDropped +=
+            static_cast<uint64_t>(droppedVertices) + g_gx.geometry.droppedVertices;
+        const uint64_t dropOrdinal = g_stats.framesDropped;
+        ResetProducerFrame();
+        lock.unlock();
+        if (dropOrdinal <= 16u || (dropOrdinal % 120u) == 0u) {
+            RT_LOGF(RT_TAG_GX,
+                    "direct_present_drop n=%llu draws=%u vertices=%u reason=queue_saturated depth=%u\n",
+                    static_cast<unsigned long long>(dropOrdinal), droppedDraws, droppedVertices,
+                    static_cast<unsigned>(MKW_VITA_FRAME_QUEUE_DEPTH));
+        }
+        return;
+    }
+
+    while (!queueCanAccept()) {
+        if (g_renderIdle.wait_for(lock, std::chrono::milliseconds(1)) == std::cv_status::timeout) {
+            lock.unlock();
+            if (g_waitCallback) {
+                const uint64_t callbackBeginUs = sceKernelGetProcessTimeWide();
+                g_waitCallback();
+                const uint64_t callbackUs = sceKernelGetProcessTimeWide() - callbackBeginUs;
+                ++g_waitCallbackCallsSinceSubmit;
+                g_waitCallbackUsSinceSubmit += callbackUs;
+                g_waitCallbackMaxUsSinceSubmit = std::max(g_waitCallbackMaxUsSinceSubmit, callbackUs);
+            }
+            lock.lock();
+        }
+    }
+#else
+    g_renderIdle.wait(lock, queueCanAccept);
 #endif
-#if !(MKW_VITA_RENDER_DECOUPLE && !defined(MKW_VITA_AURORA_RENDERER))
     FrameQueueSlot* queueSlot = FindFreeFrameSlotLocked();
-#endif
     if (!queueSlot) return;
     queueSlot->state = FrameQueueSlotState::Packing;
     FramePacket& pendingFrame = queueSlot->packet;
@@ -7230,22 +7253,7 @@ void SubmitFrame() {
     pendingFrame.presentWidth = 640u;
     pendingFrame.presentHeight = 480u;
 #endif
-    g_gx.frame = {};
-    g_gx.geometry.vertexCount = 0;
-    g_gx.geometry.drawCount = 0;
-    g_gx.geometry.efbCommandCount = 0;
-    g_gx.geometry.droppedVertices = 0;
-#if MKW_VITA_COMPACT_FRAME_STATE
-    g_gx.geometry.transforms.clear();
-    g_gx.geometry.rasters.clear();
-    g_gx.geometry.textures.clear();
-#if MKW_VITA_GX_STATE_GENERATIONS
-    g_gx.geometry.lastTransformGeneration = 0;
-    g_gx.geometry.lastRasterGeneration = 0;
-    g_gx.geometry.lastTextureGeneration = 0;
-#endif
-#endif
-    g_gx.activeDraw = -1;
+    ResetProducerFrame();
     const uint64_t packetCopyEndUs = sceKernelGetProcessTimeWide();
     lock.lock();
     AccumulateFrameStats(pendingFrame.counters);

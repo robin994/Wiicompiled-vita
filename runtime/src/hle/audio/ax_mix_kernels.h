@@ -9,6 +9,13 @@
 #include <cstdint>
 #include <cstring>
 
+#if defined(MKW_TARGET_VITA) && defined(MKW_VITA_AX_NEON) && MKW_VITA_AX_NEON && defined(__ARM_NEON)
+#include <arm_neon.h>
+#define MKW_AX_MIX_NEON 1
+#else
+#define MKW_AX_MIX_NEON 0
+#endif
+
 #if defined(__AVX2__)
 #include <immintrin.h>
 #define MKW_AX_MIX_AVX2 1
@@ -46,6 +53,50 @@ inline uint16_t MixAddRampScalar(int32_t* out, const int16_t* input, uint32_t co
     dpop = last;
     return volume;
 }
+
+#if MKW_AX_MIX_NEON
+inline uint32x4_t Ramp4(uint16_t volume, uint16_t delta, uint32_t laneBase) {
+    const uint32x4_t lanes = {laneBase + 0u, laneBase + 1u, laneBase + 2u, laneBase + 3u};
+    const uint32x4_t ramp = vaddq_u32(
+        vdupq_n_u32(static_cast<uint32_t>(volume)),
+        vmulq_n_u32(lanes, static_cast<uint32_t>(delta)));
+    return vandq_u32(ramp, vdupq_n_u32(0xffffu));
+}
+
+inline uint16_t MixAddRampNeon(int32_t* out, const int16_t* input, uint32_t count,
+                               uint16_t volume, uint16_t delta, int16_t& dpop) {
+    uint32_t i = 0;
+    int16_t last = dpop;
+    for (; i + 8 <= count; i += 8) {
+        const int16x8_t in = vld1q_s16(input + i);
+        const int32x4_t s0 = vmovl_s16(vget_low_s16(in));
+        const int32x4_t s1 = vmovl_s16(vget_high_s16(in));
+        const int32x4_t g0 = vreinterpretq_s32_u32(Ramp4(volume, delta, 0));
+        const int32x4_t g1 = vreinterpretq_s32_u32(Ramp4(volume, delta, 4));
+        const int32x4_t p0 = vshrq_n_s32(vmulq_s32(s0, g0), 15);
+        const int32x4_t p1 = vshrq_n_s32(vmulq_s32(s1, g1), 15);
+        const int16x8_t packed = vcombine_s16(vqmovn_s32(p0), vqmovn_s32(p1));
+
+        const int32x4_t o0 = vaddq_s32(vld1q_s32(out + i), vmovl_s16(vget_low_s16(packed)));
+        const int32x4_t o1 = vaddq_s32(vld1q_s32(out + i + 4), vmovl_s16(vget_high_s16(packed)));
+        vst1q_s32(out + i, o0);
+        vst1q_s32(out + i + 4, o1);
+        last = vgetq_lane_s16(packed, 7);
+        volume = static_cast<uint16_t>(static_cast<uint32_t>(volume) +
+                                       static_cast<uint32_t>(delta) * 8u);
+    }
+    for (; i < count; ++i) {
+        const int32_t scaled =
+            (static_cast<int32_t>(input[i]) * static_cast<int32_t>(volume)) >> 15;
+        const int16_t sample = ClampToS16(scaled);
+        out[i] += sample;
+        volume = static_cast<uint16_t>(volume + delta);
+        last = sample;
+    }
+    dpop = last;
+    return volume;
+}
+#endif
 
 #if MKW_AX_MIX_AVX2
 inline uint16_t MixAddRampAvx2(int32_t* out, const int16_t* input, uint32_t count,
@@ -101,7 +152,9 @@ inline uint16_t MixAddRampAvx2(int32_t* out, const int16_t* input, uint32_t coun
 
 inline uint16_t MixAddRamp(int32_t* out, const int16_t* input, uint32_t count,
                            uint16_t volume, uint16_t delta, int16_t& dpop) {
-#if MKW_AX_MIX_AVX2
+#if MKW_AX_MIX_NEON
+    return MixAddRampNeon(out, input, count, volume, delta, dpop);
+#elif MKW_AX_MIX_AVX2
     return MixAddRampAvx2(out, input, count, volume, delta, dpop);
 #else
     return MixAddRampScalar(out, input, count, volume, delta, dpop);
@@ -123,6 +176,32 @@ inline uint16_t ScaleRampScalar(int16_t* samples, uint32_t count, uint16_t volum
     }
     return volume;
 }
+
+#if MKW_AX_MIX_NEON
+inline uint16_t ScaleRampNeon(int16_t* samples, uint32_t count, uint16_t volume,
+                              uint16_t delta) {
+    uint32_t i = 0;
+    for (; i + 8 <= count; i += 8) {
+        const int16x8_t in = vld1q_s16(samples + i);
+        const int32x4_t s0 = vmovl_s16(vget_low_s16(in));
+        const int32x4_t s1 = vmovl_s16(vget_high_s16(in));
+        const int32x4_t g0 = vreinterpretq_s32_u32(Ramp4(volume, delta, 0));
+        const int32x4_t g1 = vreinterpretq_s32_u32(Ramp4(volume, delta, 4));
+        const int32x4_t p0 = vshrq_n_s32(vmulq_s32(s0, g0), 15);
+        const int32x4_t p1 = vshrq_n_s32(vmulq_s32(s1, g1), 15);
+        vst1q_s16(samples + i, vcombine_s16(vqmovn_s32(p0), vqmovn_s32(p1)));
+        volume = static_cast<uint16_t>(static_cast<uint32_t>(volume) +
+                                       static_cast<uint32_t>(delta) * 8u);
+    }
+    for (; i < count; ++i) {
+        const int32_t scaled =
+            (static_cast<int32_t>(samples[i]) * static_cast<int32_t>(volume)) >> 15;
+        samples[i] = ClampToS16(scaled);
+        volume = static_cast<uint16_t>(volume + delta);
+    }
+    return volume;
+}
+#endif
 
 #if MKW_AX_MIX_AVX2
 inline uint16_t ScaleRampAvx2(int16_t* samples, uint32_t count, uint16_t volume,
@@ -164,7 +243,9 @@ inline uint16_t ScaleRampAvx2(int16_t* samples, uint32_t count, uint16_t volume,
 
 inline uint16_t ScaleRamp(int16_t* samples, uint32_t count, uint16_t volume,
                           uint16_t delta) {
-#if MKW_AX_MIX_AVX2
+#if MKW_AX_MIX_NEON
+    return ScaleRampNeon(samples, count, volume, delta);
+#elif MKW_AX_MIX_AVX2
     return ScaleRampAvx2(samples, count, volume, delta);
 #else
     return ScaleRampScalar(samples, count, volume, delta);
@@ -183,6 +264,27 @@ inline void MixAccumRamp32Scalar(int32_t* dst, const int32_t* src, const uint16_
             (static_cast<int64_t>(src[i]) * static_cast<int64_t>(ramp[i])) >> 15);
     }
 }
+
+#if MKW_AX_MIX_NEON
+inline void MixAccumRamp32Neon(int32_t* dst, const int32_t* src, const uint16_t* ramp,
+                               uint32_t count) {
+    uint32_t i = 0;
+    for (; i + 4 <= count; i += 4) {
+        const int32x4_t source = vld1q_s32(src + i);
+        const int32x4_t gain = vreinterpretq_s32_u32(vmovl_u16(vld1_u16(ramp + i)));
+        const int64x2_t lo = vshrq_n_s64(
+            vmull_s32(vget_low_s32(source), vget_low_s32(gain)), 15);
+        const int64x2_t hi = vshrq_n_s64(
+            vmull_s32(vget_high_s32(source), vget_high_s32(gain)), 15);
+        const int32x4_t mixed = vcombine_s32(vmovn_s64(lo), vmovn_s64(hi));
+        vst1q_s32(dst + i, vaddq_s32(vld1q_s32(dst + i), mixed));
+    }
+    for (; i < count; ++i) {
+        dst[i] += static_cast<int32_t>(
+            (static_cast<int64_t>(src[i]) * static_cast<int64_t>(ramp[i])) >> 15);
+    }
+}
+#endif
 
 #if MKW_AX_MIX_AVX2
 inline void MixAccumRamp32Avx2(int32_t* dst, const int32_t* src, const uint16_t* ramp,
@@ -216,7 +318,9 @@ inline void MixAccumRamp32Avx2(int32_t* dst, const int32_t* src, const uint16_t*
 
 inline void MixAccumRamp32(int32_t* dst, const int32_t* src, const uint16_t* ramp,
                            uint32_t count) {
-#if MKW_AX_MIX_AVX2
+#if MKW_AX_MIX_NEON
+    MixAccumRamp32Neon(dst, src, ramp, count);
+#elif MKW_AX_MIX_AVX2
     MixAccumRamp32Avx2(dst, src, ramp, count);
 #else
     MixAccumRamp32Scalar(dst, src, ramp, count);
@@ -238,6 +342,26 @@ inline void LoadBigEndian32Scalar(int32_t* dst, const uint8_t* src, size_t count
         dst[i] = static_cast<int32_t>(BigEndian::Read32(src + i * sizeof(uint32_t)));
     }
 }
+
+#if MKW_AX_MIX_NEON
+inline void StoreBigEndian32Neon(uint8_t* dst, const int32_t* src, size_t count) {
+    size_t i = 0;
+    for (; i + 4 <= count; i += 4) {
+        const uint8x16_t bytes = vreinterpretq_u8_s32(vld1q_s32(src + i));
+        vst1q_u8(dst + i * sizeof(uint32_t), vrev32q_u8(bytes));
+    }
+    StoreBigEndian32Scalar(dst + i * sizeof(uint32_t), src + i, count - i);
+}
+
+inline void LoadBigEndian32Neon(int32_t* dst, const uint8_t* src, size_t count) {
+    size_t i = 0;
+    for (; i + 4 <= count; i += 4) {
+        const uint8x16_t bytes = vld1q_u8(src + i * sizeof(uint32_t));
+        vst1q_s32(dst + i, vreinterpretq_s32_u8(vrev32q_u8(bytes)));
+    }
+    LoadBigEndian32Scalar(dst + i, src + i * sizeof(uint32_t), count - i);
+}
+#endif
 
 #if MKW_AX_MIX_AVX2
 inline __m256i ByteSwapMask32() {
@@ -271,7 +395,9 @@ inline void LoadBigEndian32Avx2(int32_t* dst, const uint8_t* src, size_t count) 
 #endif
 
 inline void StoreBigEndian32(uint8_t* dst, const int32_t* src, size_t count) {
-#if MKW_AX_MIX_AVX2
+#if MKW_AX_MIX_NEON
+    StoreBigEndian32Neon(dst, src, count);
+#elif MKW_AX_MIX_AVX2
     StoreBigEndian32Avx2(dst, src, count);
 #else
     StoreBigEndian32Scalar(dst, src, count);
@@ -279,7 +405,9 @@ inline void StoreBigEndian32(uint8_t* dst, const int32_t* src, size_t count) {
 }
 
 inline void LoadBigEndian32(int32_t* dst, const uint8_t* src, size_t count) {
-#if MKW_AX_MIX_AVX2
+#if MKW_AX_MIX_NEON
+    LoadBigEndian32Neon(dst, src, count);
+#elif MKW_AX_MIX_AVX2
     LoadBigEndian32Avx2(dst, src, count);
 #else
     LoadBigEndian32Scalar(dst, src, count);

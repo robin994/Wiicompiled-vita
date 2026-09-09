@@ -38,6 +38,7 @@ runtime:
   native_registration_root: runtime/src
   native_abi_directories:
     - runtime/src/hle/gx
+    - runtime/src/hle/math
 
 output:
   root: generated

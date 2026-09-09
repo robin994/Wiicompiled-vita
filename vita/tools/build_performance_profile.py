@@ -40,6 +40,11 @@ BASE = dict(
     MKW_VITA_DIRECT_EFB_BATCH_SYNC=0,
     MKW_VITA_RENDER_DECOUPLE=0, MKW_VITA_RENDER_TARGET_HZ=60,
     MKW_VITA_DIRECT_WORKER_TIMING=0,
+    MKW_VITA_DIRECT_PRESENT_30HZ=0, MKW_VITA_DIRECT_DECOUPLED_PRESENT=0,
+    MKW_VITA_GUEST_CPU_PROFILE=0, MKW_VITA_GUEST_PC_SAMPLER=0,
+    MKW_VITA_GUEST_PC_SAMPLE_US=2000, MKW_VITA_BUFFERED_LOGGING=0,
+    MKW_VITA_LOG_FLUSH_INTERVAL_US=250000, MKW_VITA_AUDIO_WAIT_MIN_INTERVAL_US=0,
+    MKW_VITA_AUDIO_BACKLOG_CLAMP_BLOCKS=0, MKW_VITA_AX_NEON=0,
     MKW_VITA_THP_UNESCAPED_FIX=0, MKW_VITA_AUDIO_WAIT_BLOCK_BUDGET=4,
     MKW_VITA_AURORA_RENDERER=1,
 )
@@ -169,22 +174,41 @@ PROFILES["full-content-p6_13-guest-io-profile"] = (
     PROFILES["full-content-p6_12-texture-antithrash"] |
     dict(MKW_VITA_GUEST_IO_PROFILE=1))
 
-# P6.14 hardware candidate: preserve the validated P6.13 stack, correct the
-# GX material/projection path in source, stretch only the display-copy source
-# rectangle to 960x544, buffer host DVD reads, and amortize redundant EFB syncs.
+# P6.14 mainline hardware candidate: full-screen display mapping, buffered host
+# DVD I/O and batched direct-EFB synchronization, without changing EFB resolution.
 PROFILES["full-content-p6_14-30fps-graphics-fullscreen"] = (
     PROFILES["full-content-p6_13-guest-io-profile"] |
     dict(MKW_VITA_FULLSCREEN_PRESENT=1,
          MKW_VITA_DVD_HOST_BUFFERING=1,
          MKW_VITA_DIRECT_EFB_BATCH_SYNC=1))
 
-# P6.15: the Wii VI/game clock stays unchanged while display submission is
-# decoupled from USER_0. USER_1 presents at 30 Hz (two Vita VBlanks) and visual
-# frames are dropped under renderer backpressure instead of stalling the guest.
+# P6.15 mainline: keep the Wii timeline independent and use vitaGL/VBlank
+# interval 2 for a true 30 Hz presenter on USER_1.
 PROFILES["full-content-p6_15-decoupled-30hz"] = (
     PROFILES["full-content-p6_14-30fps-graphics-fullscreen"] |
     dict(MKW_VITA_RENDER_DECOUPLE=1,
          MKW_VITA_RENDER_TARGET_HZ=30))
+
+# Retain the earlier software-paced profiles for direct A/B reproduction.
+PROFILES["full-content-p6_14-present-30hz"] = (
+    PROFILES["full-content-p6_13-guest-io-profile"] |
+    dict(MKW_VITA_DIRECT_PRESENT_30HZ=1))
+PROFILES["full-content-p6_15-decoupled-present"] = (
+    PROFILES["full-content-p6_14-present-30hz"] |
+    dict(MKW_VITA_DIRECT_DECOUPLED_PRESENT=1))
+
+# P6.16 layers producer truth/optimization work on the newer VBlank-decoupled
+# mainline P6.15 stack, avoiding a second software 30 Hz pacer.
+PROFILES["full-content-p6_16-producer-all"] = (
+    PROFILES["full-content-p6_15-decoupled-30hz"] |
+    dict(MKW_VITA_GUEST_CPU_PROFILE=1,
+         MKW_VITA_GUEST_PC_SAMPLER=1,
+         MKW_VITA_GUEST_PC_SAMPLE_US=2000,
+         MKW_VITA_BUFFERED_LOGGING=1,
+         MKW_VITA_LOG_FLUSH_INTERVAL_US=250000,
+         MKW_VITA_AUDIO_WAIT_MIN_INTERVAL_US=6000,
+         MKW_VITA_AUDIO_BACKLOG_CLAMP_BLOCKS=3,
+         MKW_VITA_AX_NEON=1))
 
 def sha(path):
     with path.open("rb") as stream:
