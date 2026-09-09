@@ -100,6 +100,33 @@ static_assert(MKW_VITA_FRAME_QUEUE_DEPTH >= 1 && MKW_VITA_FRAME_QUEUE_DEPTH <= 2
 #ifndef MKW_VITA_DIRECT_TEV_SPECIALIZE
 #define MKW_VITA_DIRECT_TEV_SPECIALIZE 0
 #endif
+#ifndef MKW_VITA_DIRECT_TEV_TWO_TEXTURE
+#define MKW_VITA_DIRECT_TEV_TWO_TEXTURE 0
+#endif
+#ifndef MKW_VITA_DIRECT_PREP_WORKER
+#define MKW_VITA_DIRECT_PREP_WORKER 0
+#endif
+#ifndef MKW_VITA_DIRECT_VERTEX_PREP
+#define MKW_VITA_DIRECT_VERTEX_PREP 0
+#endif
+#ifndef MKW_VITA_DIRECT_TEXTURE_PREP
+#define MKW_VITA_DIRECT_TEXTURE_PREP 0
+#endif
+#ifndef MKW_VITA_DIRECT_STATE_PREP
+#define MKW_VITA_DIRECT_STATE_PREP 0
+#endif
+#ifndef MKW_VITA_DIRECT_TEXTURE_CACHE_ANTITHRASH
+#define MKW_VITA_DIRECT_TEXTURE_CACHE_ANTITHRASH 0
+#endif
+#ifndef MKW_VITA_GUEST_IO_PROFILE
+#define MKW_VITA_GUEST_IO_PROFILE 0
+#endif
+#ifndef MKW_VITA_DIRECT_WORKER_TIMING
+#define MKW_VITA_DIRECT_WORKER_TIMING 0
+#endif
+#ifndef MKW_VITA_AUDIO_WAIT_BLOCK_BUDGET
+#define MKW_VITA_AUDIO_WAIT_BLOCK_BUDGET 4
+#endif
 
 #if defined(MKW_VITA_VITAGL_SPEEDHACK)
 extern "C" void vglSetupRenderTargetScenesNum(uint8_t displaySize, uint8_t fboSize);
@@ -136,6 +163,10 @@ using WiiCompiledVita::HostThreadRole;
 constexpr uint32_t kSurfaceWidth = 960;
 constexpr uint32_t kSurfaceHeight = 544;
 constexpr size_t kRenderWorkerStack = 128 * 1024;
+constexpr size_t kPrepWorkerStack = 96 * 1024;
+constexpr size_t kMaxPreparedTexturesPerFrame = MKW_VITA_DIRECT_TEXTURE_PREP ? 8u : 2u;
+constexpr size_t kPreparedTextureBudgetBytes = MKW_VITA_DIRECT_TEXTURE_PREP
+    ? 4u * 1024u * 1024u : 2u * 1024u * 1024u;
 constexpr int kVitaGlUserRamReserve = 8 * 1024 * 1024;
 // M12.6 hardware reached the first race frame with 6154 requested draws, at
 // least 36457 requested vertices and exactly 64 recorded EFB commands. Keep a
@@ -162,7 +193,8 @@ constexpr size_t kMaxFrameEfbCommands = MKW_VITA_EFB_COMMAND_CAPACITY;
 static_assert(kMaxFrameEfbCommands >= 128 && kMaxFrameEfbCommands <= 1024);
 constexpr size_t kPnMtxCount = 10;
 constexpr u8 kPnMtxExplicitBit = 0x80u;
-constexpr size_t kTextureCacheCapacity = 32;
+constexpr size_t kTextureCacheCapacity =
+    MKW_VITA_DIRECT_TEXTURE_CACHE_ANTITHRASH ? 256u : 32u;
 constexpr size_t kMaxTevSignaturesPerFrame = 12;
 constexpr size_t kMaxTextureDimension = 1024;
 constexpr size_t kTextureScratchBytes = kMaxTextureDimension * kMaxTextureDimension * 4;
@@ -321,6 +353,7 @@ struct FrameCounters {
     uint64_t textureStateTevChainCollapsed = 0;
     uint64_t textureStateTevChainUnsupported = 0;
     uint64_t textureStateTevChainMultiTexture = 0;
+    uint64_t textureStateTevChainTwoTextureNative = 0;
     uint64_t textureInvalidateAllCalls = 0;
     uint64_t efbCopyCalls = 0;
     uint64_t efbCopyRecorded = 0;
@@ -744,8 +777,23 @@ struct DrawTextureState {
     u8 tevStageCount = 1;
     u8 tevSelectedStage = 0;
     u8 tevCollapsedChain = 0;
+    u8 tevTwoTexture = 0;
+    u8 tevSecondStage = 0;
+    u8 tevSecondMode = static_cast<u8>(GX_MODULATE);
     u8 mipmap = 0;
     u8 enabled = 0;
+    const void* secondData = nullptr;
+    u32 secondDataRevision = 0;
+    uint64_t secondSourceGeneration = AURORA_GUEST_WRITE_UNTRACKED;
+    u32 secondFormat = GX_TF_I4;
+    u16 secondWidth = 0;
+    u16 secondHeight = 0;
+    u8 secondWrapS = static_cast<u8>(GX_CLAMP);
+    u8 secondWrapT = static_cast<u8>(GX_CLAMP);
+    u8 secondMinFilter = static_cast<u8>(GX_NEAR);
+    u8 secondMagFilter = static_cast<u8>(GX_NEAR);
+    u8 secondMipmap = 0;
+    u8 secondEnabled = 0;
     u8 texGenMode = 0; // 0=raw/identity, 1=matrix, 2=unsupported fallback
     u8 texGenType = static_cast<u8>(GX_TG_MTX2x4);
     u8 texGenSrc = static_cast<u8>(GX_TG_TEX0);
@@ -1004,6 +1052,12 @@ std::mutex g_renderMutex;
 std::condition_variable g_renderWake;
 std::condition_variable g_renderIdle;
 HostThread g_renderThread;
+#if MKW_VITA_DIRECT_PREP_WORKER && !defined(MKW_VITA_AURORA_RENDERER)
+std::condition_variable g_prepWake;
+HostThread g_prepThread;
+bool g_prepStarted = false;
+bool g_prepStop = false;
+#endif
 bool g_renderStarted = false;
 bool g_renderStop = false;
 bool g_renderInitDone = false;
@@ -1013,9 +1067,19 @@ uint64_t g_completedSerial = 0;
 uint64_t g_lastProducerSubmitUs = 0;
 uint64_t g_guestWaitRenderCallsSinceSubmit = 0;
 uint64_t g_guestWaitRenderUsSinceSubmit = 0;
+uint64_t g_guestWaitSleepUsSinceSubmit = 0;
 uint64_t g_waitCallbackCallsSinceSubmit = 0;
 uint64_t g_waitCallbackUsSinceSubmit = 0;
 uint64_t g_waitCallbackMaxUsSinceSubmit = 0;
+#if MKW_VITA_DIRECT_WORKER_TIMING && !defined(MKW_VITA_AURORA_RENDERER)
+// USER_1 publishes the fields first and the serial last. USER_0 acquires the
+// serial before reading the matching timing snapshot, so wait-service work can
+// never be mistaken for renderer time.
+std::atomic<uint64_t> g_lastWorkerTimingSerial{0};
+std::atomic<uint64_t> g_lastWorkerRenderUs{0};
+std::atomic<uint64_t> g_lastWorkerSwapUs{0};
+std::atomic<uint64_t> g_lastWorkerCompletedUs{0};
+#endif
 #if MKW_VITA_WAIT_SERVICE_PROFILE
 struct WaitServiceParts {
     uint64_t calls = 0;
@@ -1028,15 +1092,81 @@ enum class RenderWaitReason : u8 { DrawDone = 0, FrameWorker = 1, Count = 2 };
 std::array<uint64_t, static_cast<size_t>(RenderWaitReason::Count)> g_renderWaitCallsByReason{};
 std::array<uint64_t, static_cast<size_t>(RenderWaitReason::Count)> g_renderWaitUsByReason{};
 
-enum class FrameQueueSlotState : u8 { Free = 0, Packing, Ready, Busy };
+enum class FrameQueueSlotState : u8 { Free = 0, Packing, PrepQueued, Prepping, Ready, Busy };
+
+struct PreparedTextureCpu {
+    DrawTextureState source{};
+    std::vector<u8> rgba;
+    uint64_t decodeUs = 0;
+    bool valid = false;
+};
+
+struct PreparedVertexMetrics {
+    uint64_t verticesTransformed = 0;
+    uint64_t pnMatrixVertices = 0;
+    uint64_t transformFailures = 0;
+    uint64_t texGenIdentityDraws = 0;
+    uint64_t texGenAppliedDraws = 0;
+    uint64_t texGenUnsupportedDraws = 0;
+    uint64_t perspectiveDraws = 0;
+    uint64_t perspectiveVertices = 0;
+    uint64_t perspectiveVerticesInsideXY = 0;
+    uint64_t perspectiveVerticesInsideXYZ = 0;
+    uint64_t oversizeNdcDraws = 0;
+    f32 maxNdcSpanX = 0.0f;
+    f32 maxNdcSpanY = 0.0f;
+    f32 perspectiveMinZ = std::numeric_limits<f32>::infinity();
+    f32 perspectiveMaxZ = -std::numeric_limits<f32>::infinity();
+};
+
+enum class PreparedTevClass : u8 {
+    Disabled = 0,
+    Simple = 1,
+    TwoTexture = 2,
+    Fallback = 3,
+};
+
+struct PreparedDrawCpu {
+    u16 batchEndDraw = 0;
+    uint32_t batchVertexCount = 0;
+    PreparedTevClass tevClass = PreparedTevClass::Disabled;
+    u8 concatPrimitive = 0;
+};
+
 struct FrameQueueSlot {
     FramePacket packet{};
     uint64_t serial = 0;
     FrameQueueSlotState state = FrameQueueSlotState::Free;
+#if MKW_VITA_DIRECT_PREP_WORKER && !defined(MKW_VITA_AURORA_RENDERER)
+    std::vector<PreparedTextureCpu> preparedTextures;
+    uint64_t prepUs = 0;
+    uint64_t prepTextureUs = 0;
+    uint32_t prepTextures = 0;
+    uint32_t prepFailures = 0;
+    uint32_t prepTextureReuses = 0;
+    uint32_t prepTextureCapacitySkips = 0;
+    uint32_t prepTextureBudgetSkips = 0;
+    uint32_t prepTextureDecodeFailures = 0;
+#if MKW_VITA_DIRECT_VERTEX_PREP
+    std::vector<RenderVertex> preparedVertices;
+    PreparedVertexMetrics preparedVertexMetrics{};
+    uint64_t prepVertexUs = 0;
+    bool preparedVerticesValid = false;
+#endif
+#if MKW_VITA_DIRECT_STATE_PREP
+    std::vector<PreparedDrawCpu> preparedDraws;
+    uint64_t prepStateUs = 0;
+    uint32_t prepStateRuns = 0;
+    bool preparedStateValid = false;
+#endif
+#endif
 };
 std::array<FrameQueueSlot, MKW_VITA_FRAME_QUEUE_DEPTH> g_frameQueue{};
 uint32_t g_frameWriteCursor = 0;
 uint64_t g_frameBarrierSerial = 0;
+#if MKW_VITA_DIRECT_PREP_WORKER && !defined(MKW_VITA_AURORA_RENDERER)
+thread_local FrameQueueSlot* g_activePreparedSlot = nullptr;
+#endif
 
 FrameQueueSlot* FindFreeFrameSlotLocked() {
     for (uint32_t n = 0; n < g_frameQueue.size(); ++n) {
@@ -1059,6 +1189,18 @@ FrameQueueSlot* FindReadyFrameSlotLocked() {
 }
 
 bool HasReadyFrameLocked() { return FindReadyFrameSlotLocked() != nullptr; }
+#if MKW_VITA_DIRECT_PREP_WORKER && !defined(MKW_VITA_AURORA_RENDERER)
+FrameQueueSlot* FindPrepQueuedFrameSlotLocked() {
+    FrameQueueSlot* best = nullptr;
+    for (auto& slot : g_frameQueue) {
+        if (slot.state != FrameQueueSlotState::PrepQueued) continue;
+        if (!best || slot.serial < best->serial) best = &slot;
+    }
+    return best;
+}
+
+bool HasPrepQueuedFrameLocked() { return FindPrepQueuedFrameSlotLocked() != nullptr; }
+#endif
 bool AllFrameSlotsFreeLocked() {
     for (const auto& slot : g_frameQueue) {
         if (slot.state != FrameQueueSlotState::Free) return false;
@@ -1116,6 +1258,11 @@ struct TextureRenderCounters {
     uint64_t ia4Uploads = 0;
     uint64_t ia8Uploads = 0;
     uint64_t cmprUploads = 0;
+    uint64_t preparedHits = 0;
+    uint64_t synchronousDecodes = 0;
+    uint64_t budgetEvictions = 0;
+    uint64_t entryEvictions = 0;
+    uint64_t evictedBytes = 0;
 };
 
 std::array<TextureCacheEntry, kTextureCacheCapacity> g_textureCache{};
@@ -1126,6 +1273,7 @@ uint64_t g_textureUseSerial = 0;
 TexMeta& Tex(GXTexObj* obj);
 const TexMeta& Tex(const GXTexObj* obj);
 uint32_t TextureLevelSize(u16 width, u16 height, u32 fmt);
+DrawTextureState SecondaryTextureState(const DrawTextureState& texture);
 
 #if defined(MKW_TARGET_VITA)
 extern "C" void GX_HLE_ReplayDisplayListVita(const uint8_t*, uint32_t) __attribute__((weak));
@@ -1455,8 +1603,12 @@ struct TevChainAnalysis {
     bool allClassified = true;
     bool collapsible = false;
     bool multiTexture = false;
+    bool twoTextureNative = false;
     size_t sampledStage = GX_MAX_TEVSTAGE;
     size_t sampledStages = 0;
+    std::array<size_t, 2> sampledStageList{GX_MAX_TEVSTAGE, GX_MAX_TEVSTAGE};
+    std::array<GXTevMode, 2> sampledModes{GX_MODULATE, GX_MODULATE};
+    std::array<GXTexMapID, 2> sampledMaps{GX_TEXMAP_NULL, GX_TEXMAP_NULL};
 };
 
 TevChainAnalysis AnalyzeTevChain(size_t stageCount) {
@@ -1470,9 +1622,14 @@ TevChainAnalysis AnalyzeTevChain(size_t stageCount) {
         }
         if (mode == GX_PASSCLR) continue;
 
-        ++result.sampledStages;
+        const size_t sampledIndex = result.sampledStages++;
         result.sampledStage = stage;
         const GXTexMapID map = g_gx.tevTexMaps[stage];
+        if (sampledIndex < result.sampledStageList.size()) {
+            result.sampledStageList[sampledIndex] = stage;
+            result.sampledModes[sampledIndex] = mode;
+            result.sampledMaps[sampledIndex] = map;
+        }
         if (g_gx.tevTexCoords[stage] != GX_TEXCOORD0 || map < 0 || map >= GX_MAX_TEXMAP ||
             !g_gx.textures[static_cast<size_t>(map)]) {
             sampledStageRepresentable = false;
@@ -1481,6 +1638,16 @@ TevChainAnalysis AnalyzeTevChain(size_t stageCount) {
     result.multiTexture = result.sampledStages > 1u;
     result.collapsible = result.allClassified && result.sampledStages == 1u &&
                          sampledStageRepresentable;
+#if MKW_VITA_DIRECT_TEV_TWO_TEXTURE && !defined(MKW_VITA_AURORA_RENDERER)
+    // Fixed-function vitaGL can exactly represent the common MKW chain where
+    // unit 0 establishes TEX0*RAS (or replaces RAS) and unit 1 multiplies a
+    // second texture into CPREV, provided both stages use the same TEXCOORD0.
+    // All other two-/multi-texture chains remain explicitly tracked fallback.
+    result.twoTextureNative = result.allClassified && result.sampledStages == 2u &&
+        sampledStageRepresentable &&
+        (result.sampledModes[0] == GX_MODULATE || result.sampledModes[0] == GX_REPLACE) &&
+        result.sampledModes[1] == GX_MODULATE;
+#endif
     return result;
 }
 
@@ -1578,6 +1745,14 @@ void CaptureDrawTextureState(DrawTextureState& textureState) {
             draw.texture.tevCollapsedChain = 1u;
             ++g_gx.frame.textureStateTevChainCollapsed;
         }
+    } else if (tevChain.twoTextureNative) {
+        selectedStage = tevChain.sampledStageList[0];
+        const GXTexMapID map = tevChain.sampledMaps[0];
+        obj = g_gx.textures[static_cast<size_t>(map)];
+        draw.texture.tevTwoTexture = 1u;
+        draw.texture.tevSecondStage = static_cast<u8>(tevChain.sampledStageList[1]);
+        draw.texture.tevSecondMode = static_cast<u8>(tevChain.sampledModes[1]);
+        ++g_gx.frame.textureStateTevChainTwoTextureNative;
     } else if (stageCount > 1u) {
         ++g_gx.frame.textureStateTevChainUnsupported;
         if (tevChain.multiTexture) ++g_gx.frame.textureStateTevChainMultiTexture;
@@ -1644,7 +1819,8 @@ void CaptureDrawTextureState(DrawTextureState& textureState) {
     const bool nativeSimpleTev =
         (g_gx.numTevStages == 1 && selectedStage == 0 &&
          (simplePreset || classifiedCustomPreset)) ||
-        (draw.texture.tevCollapsedChain != 0 && (simplePreset || classifiedCustomPreset));
+        (draw.texture.tevCollapsedChain != 0 && (simplePreset || classifiedCustomPreset)) ||
+        (draw.texture.tevTwoTexture != 0 && (simplePreset || classifiedCustomPreset));
     draw.texture.tevSimple = nativeSimpleTev ? 1u : 0u;
 
     const TexGenState& texGen = g_gx.texGen[0];
@@ -1720,6 +1896,49 @@ void CaptureDrawTextureState(DrawTextureState& textureState) {
         }
     }
 
+#if MKW_VITA_DIRECT_TEV_TWO_TEXTURE && !defined(MKW_VITA_AURORA_RENDERER)
+    if (draw.texture.tevTwoTexture) {
+        const size_t secondStage = draw.texture.tevSecondStage;
+        if (secondStage >= stageCount) {
+            draw.texture.tevTwoTexture = 0u;
+            draw.texture.tevSimple = 0u;
+        } else {
+            const GXTexMapID secondMap = g_gx.tevTexMaps[secondStage];
+            GXTexObj* secondObj = secondMap >= 0 && secondMap < GX_MAX_TEXMAP
+                ? g_gx.textures[static_cast<size_t>(secondMap)] : nullptr;
+            if (!secondObj) {
+                draw.texture.tevTwoTexture = 0u;
+                draw.texture.tevSimple = 0u;
+            } else {
+                const TexMeta& second = Tex(secondObj);
+                draw.texture.secondData = second.data;
+                draw.texture.secondDataRevision = second.dataRevision;
+                draw.texture.secondFormat = second.format;
+                draw.texture.secondWidth = second.width;
+                draw.texture.secondHeight = second.height;
+                draw.texture.secondWrapS = static_cast<u8>(second.wrapS);
+                draw.texture.secondWrapT = static_cast<u8>(second.wrapT);
+                draw.texture.secondMinFilter = static_cast<u8>(second.minFilter);
+                draw.texture.secondMagFilter = static_cast<u8>(second.magFilter);
+                draw.texture.secondMipmap = second.mipmap ? 1u : 0u;
+                draw.texture.secondEnabled = second.data && second.width != 0u && second.height != 0u;
+                if (draw.texture.secondEnabled && g_guestWriteGeneration) {
+                    const uint32_t bytes = TextureLevelSize(second.width, second.height, second.format);
+                    if (bytes != 0u) {
+                        draw.texture.secondSourceGeneration =
+                            g_guestWriteGeneration(second.data, bytes);
+                    }
+                }
+                if (!draw.texture.secondEnabled) {
+                    draw.texture.tevTwoTexture = 0u;
+                    draw.texture.tevSimple = 0u;
+                    ++g_gx.frame.textureStateInvalidObject;
+                }
+            }
+        }
+    }
+#endif
+
     // THP's MoviePaneHandler binds three tiled I8 planes to TEXMAP0/1/2 and
     // combines them with an 11-stage YUV TEV program. The Vita packet bridge
     // currently represents one sampled texture, so retain the chroma planes
@@ -1787,7 +2006,16 @@ bool SameDrawTexture(const DrawTextureState& a, const DrawTextureState& b) {
            a.tevMode == b.tevMode && a.tevSimple == b.tevSimple &&
            a.tevStageCount == b.tevStageCount && a.tevSelectedStage == b.tevSelectedStage &&
            a.tevCollapsedChain == b.tevCollapsedChain &&
+           a.tevTwoTexture == b.tevTwoTexture && a.tevSecondStage == b.tevSecondStage &&
+           a.tevSecondMode == b.tevSecondMode &&
            a.mipmap == b.mipmap && a.enabled == b.enabled &&
+           a.secondData == b.secondData && a.secondDataRevision == b.secondDataRevision &&
+           a.secondSourceGeneration == b.secondSourceGeneration &&
+           a.secondFormat == b.secondFormat && a.secondWidth == b.secondWidth &&
+           a.secondHeight == b.secondHeight && a.secondWrapS == b.secondWrapS &&
+           a.secondWrapT == b.secondWrapT && a.secondMinFilter == b.secondMinFilter &&
+           a.secondMagFilter == b.secondMagFilter && a.secondMipmap == b.secondMipmap &&
+           a.secondEnabled == b.secondEnabled &&
            a.texGenMode == b.texGenMode && a.texGenType == b.texGenType &&
            a.texGenSrc == b.texGenSrc && a.texGenNormalize == b.texGenNormalize &&
            a.texGenMtx == b.texGenMtx && a.texGenPostMtx == b.texGenPostMtx &&
@@ -1815,6 +2043,15 @@ bool CapturedTextureSourcesStillCurrent(const DrawTextureState& texture) {
         texture.sourceGeneration != AURORA_GUEST_WRITE_UNTRACKED) {
         const uint32_t bytes = TextureLevelSize(texture.width, texture.height, texture.format);
         if (bytes == 0 || g_guestWriteGeneration(texture.data, bytes) != texture.sourceGeneration) {
+            return false;
+        }
+    }
+    if (texture.tevTwoTexture && texture.secondEnabled && texture.secondData &&
+        texture.secondSourceGeneration != AURORA_GUEST_WRITE_UNTRACKED) {
+        const uint32_t bytes = TextureLevelSize(
+            texture.secondWidth, texture.secondHeight, texture.secondFormat);
+        if (bytes == 0 ||
+            g_guestWriteGeneration(texture.secondData, bytes) != texture.secondSourceGeneration) {
             return false;
         }
     }
@@ -3552,17 +3789,45 @@ GLint TextureBaseFilter(u8 filter) {
     }
 }
 
+bool SameTextureContentRevision(uint64_t aGeneration, uint64_t bGeneration,
+                                u32 aRevision, u32 bRevision,
+                                u32 aEpoch, u32 bEpoch) {
+#if MKW_VITA_DIRECT_TEXTURE_CACHE_ANTITHRASH
+    // Match Aurora's validated semantics: for tracked guest RAM the range
+    // generation is the content revision. GXInvalidateTexAll and GXTexObj
+    // rebuilds invalidate Wii-side cache state, not unchanged source pixels.
+    if (aGeneration != AURORA_GUEST_WRITE_UNTRACKED ||
+        bGeneration != AURORA_GUEST_WRITE_UNTRACKED) {
+        return aGeneration == bGeneration;
+    }
+#else
+    if (aGeneration != bGeneration) return false;
+#endif
+    return aRevision == bRevision && aEpoch == bEpoch;
+}
+
+bool SameTexturePixelSource(const DrawTextureState& a, const DrawTextureState& b) {
+    if (a.data != b.data || a.format != b.format || a.width != b.width ||
+        a.height != b.height || a.thpYuv420 != b.thpYuv420 ||
+        !SameTextureContentRevision(a.sourceGeneration, b.sourceGeneration,
+                                    a.dataRevision, b.dataRevision,
+                                    a.globalEpoch, b.globalEpoch)) {
+        return false;
+    }
+    if (!a.thpYuv420) return true;
+    return a.thpUData == b.thpUData && a.thpVData == b.thpVData &&
+           a.thpChromaWidth == b.thpChromaWidth &&
+           a.thpChromaHeight == b.thpChromaHeight &&
+           SameTextureContentRevision(a.thpUGeneration, b.thpUGeneration,
+                                      a.thpURevision, b.thpURevision,
+                                      a.globalEpoch, b.globalEpoch) &&
+           SameTextureContentRevision(a.thpVGeneration, b.thpVGeneration,
+                                      a.thpVRevision, b.thpVRevision,
+                                      a.globalEpoch, b.globalEpoch);
+}
+
 bool TextureCacheMatches(const TextureCacheEntry& entry, const DrawTextureState& texture) {
-    return entry.valid && entry.source.thpYuv420 == texture.thpYuv420 &&
-           (!texture.thpYuv420 ||
-            (entry.source.thpUData == texture.thpUData && entry.source.thpVData == texture.thpVData &&
-             entry.source.thpURevision == texture.thpURevision && entry.source.thpVRevision == texture.thpVRevision &&
-             entry.source.thpUGeneration == texture.thpUGeneration && entry.source.thpVGeneration == texture.thpVGeneration &&
-             entry.source.thpChromaWidth == texture.thpChromaWidth && entry.source.thpChromaHeight == texture.thpChromaHeight)) &&
-           entry.data == reinterpret_cast<uintptr_t>(texture.data) &&
-           entry.dataRevision == texture.dataRevision && entry.globalEpoch == texture.globalEpoch &&
-           entry.sourceGeneration == texture.sourceGeneration &&
-           entry.format == texture.format && entry.width == texture.width && entry.height == texture.height;
+    return entry.valid && SameTexturePixelSource(entry.source, texture);
 }
 
 bool TextureSourceStillMatches(const DrawTextureState& texture) {
@@ -3576,6 +3841,403 @@ bool TextureSourceStillMatches(const DrawTextureState& texture) {
     return sourceBytes != 0 &&
            g_guestWriteGeneration(texture.data, sourceBytes) == texture.sourceGeneration;
 }
+
+#if MKW_VITA_DIRECT_PREP_WORKER && !defined(MKW_VITA_AURORA_RENDERER)
+bool SamePreparedTextureSource(const DrawTextureState& a, const DrawTextureState& b) {
+    return SameTexturePixelSource(a, b);
+}
+
+const PreparedTextureCpu* FindPreparedTextureCpu(const DrawTextureState& texture) {
+    if (!g_activePreparedSlot) return nullptr;
+    for (const auto& prepared : g_activePreparedSlot->preparedTextures) {
+        if (prepared.valid && SamePreparedTextureSource(prepared.source, texture)) {
+            return &prepared;
+        }
+    }
+    return nullptr;
+}
+
+#if MKW_VITA_DIRECT_VERTEX_PREP
+void PrepareFrameCpuVertices(FrameQueueSlot& slot) {
+    const uint64_t beginUs = sceKernelGetProcessTimeWide();
+    FrameGeometry& geometry = slot.packet.geometry;
+    slot.preparedVertexMetrics = {};
+    slot.preparedVerticesValid = false;
+    if (slot.preparedVertices.size() < geometry.vertexCount) {
+        slot.preparedVertices.resize(geometry.vertexCount);
+    }
+
+    bool valid = true;
+    for (u16 drawIndex = 0; drawIndex < geometry.drawCount; ++drawIndex) {
+        const GeometryDraw& draw = geometry.draws[drawIndex];
+#if MKW_VITA_COMPACT_FRAME_STATE
+        if (draw.transformId >= geometry.transforms.size() ||
+            draw.textureId >= geometry.textures.size()) {
+            valid = false;
+            break;
+        }
+        const DrawTransform& transform = geometry.transforms[draw.transformId];
+        const DrawTextureState& texture = geometry.textures[draw.textureId];
+#else
+        const DrawTransform& transform = draw.transform;
+        const DrawTextureState& texture = draw.texture;
+#endif
+        const uint32_t endVertex = static_cast<uint32_t>(draw.firstVertex) + draw.vertexCount;
+        if (draw.vertexCount == 0 || endVertex > geometry.vertexCount) {
+            valid = false;
+            break;
+        }
+
+        bool texGenFailed = false;
+        f32 ndcMinX = std::numeric_limits<f32>::infinity();
+        f32 ndcMinY = std::numeric_limits<f32>::infinity();
+        f32 ndcMaxX = -std::numeric_limits<f32>::infinity();
+        f32 ndcMaxY = -std::numeric_limits<f32>::infinity();
+        for (uint32_t vertexIndex = draw.firstVertex; vertexIndex < endVertex; ++vertexIndex) {
+            const u8 pnMtxRef = geometry.pnMtxRefs[vertexIndex];
+            if ((pnMtxRef & kPnMtxExplicitBit) != 0) {
+                ++slot.preparedVertexMetrics.pnMatrixVertices;
+            }
+            RenderVertex& output = slot.preparedVertices[vertexIndex];
+            if (TransformVertex(transform, pnMtxRef, geometry.vertices[vertexIndex], output)) {
+                ++slot.preparedVertexMetrics.verticesTransformed;
+                ndcMinX = std::min(ndcMinX, output.x);
+                ndcMinY = std::min(ndcMinY, output.y);
+                ndcMaxX = std::max(ndcMaxX, output.x);
+                ndcMaxY = std::max(ndcMaxY, output.y);
+                if (transform.projectionType == GX_PERSPECTIVE) {
+                    ++slot.preparedVertexMetrics.perspectiveVertices;
+                    const bool insideXY = output.x >= -1.0f && output.x <= 1.0f &&
+                                          output.y >= -1.0f && output.y <= 1.0f;
+                    if (insideXY) {
+                        ++slot.preparedVertexMetrics.perspectiveVerticesInsideXY;
+                        if (output.z >= -1.0f && output.z <= 1.0f) {
+                            ++slot.preparedVertexMetrics.perspectiveVerticesInsideXYZ;
+                        }
+                    }
+                    slot.preparedVertexMetrics.perspectiveMinZ =
+                        std::min(slot.preparedVertexMetrics.perspectiveMinZ, output.z);
+                    slot.preparedVertexMetrics.perspectiveMaxZ =
+                        std::max(slot.preparedVertexMetrics.perspectiveMaxZ, output.z);
+                }
+            } else {
+                output = geometry.vertices[vertexIndex];
+                output.x = 2.0f;
+                output.y = 2.0f;
+                output.z = 2.0f;
+                ++slot.preparedVertexMetrics.transformFailures;
+            }
+
+            if (texture.materialMask) {
+                if (texture.materialMask & 1u) {
+                    output.r = u8(texture.materialRgba >> 24);
+                    output.g = u8(texture.materialRgba >> 16);
+                    output.b = u8(texture.materialRgba >> 8);
+                }
+                if (texture.materialMask & 2u) output.a = u8(texture.materialRgba);
+            }
+            if (texture.enabled &&
+                !TransformTexCoord(texture, geometry.vertices[vertexIndex], output)) {
+                texGenFailed = true;
+            }
+        }
+
+        if (texture.enabled) {
+            if (texture.texGenMode == 0u) {
+                ++slot.preparedVertexMetrics.texGenIdentityDraws;
+            } else if (texture.texGenMode == 1u && !texGenFailed) {
+                ++slot.preparedVertexMetrics.texGenAppliedDraws;
+            } else {
+                ++slot.preparedVertexMetrics.texGenUnsupportedDraws;
+            }
+        }
+        if (std::isfinite(ndcMinX) && std::isfinite(ndcMaxX) &&
+            std::isfinite(ndcMinY) && std::isfinite(ndcMaxY)) {
+            const f32 spanX = ndcMaxX - ndcMinX;
+            const f32 spanY = ndcMaxY - ndcMinY;
+            slot.preparedVertexMetrics.maxNdcSpanX =
+                std::max(slot.preparedVertexMetrics.maxNdcSpanX, spanX);
+            slot.preparedVertexMetrics.maxNdcSpanY =
+                std::max(slot.preparedVertexMetrics.maxNdcSpanY, spanY);
+            if (spanX > 2.05f || spanY > 2.05f) {
+                ++slot.preparedVertexMetrics.oversizeNdcDraws;
+            }
+        }
+    }
+
+#if MKW_VITA_CLIP_W
+    if (valid) {
+        for (uint32_t vertexIndex = 0; vertexIndex < geometry.vertexCount; ++vertexIndex) {
+            RenderVertex& vertex = slot.preparedVertices[vertexIndex];
+            vertex.x *= vertex.clipW;
+            vertex.y *= vertex.clipW;
+            vertex.z *= vertex.clipW;
+        }
+    }
+#endif
+    slot.preparedVerticesValid = valid;
+    slot.prepVertexUs = sceKernelGetProcessTimeWide() - beginUs;
+}
+#endif
+
+void PrepareFrameCpuTextures(FrameQueueSlot& slot) {
+    slot.prepTextureUs = 0;
+    slot.prepTextures = 0;
+    slot.prepFailures = 0;
+    slot.prepTextureReuses = 0;
+    slot.prepTextureCapacitySkips = 0;
+    slot.prepTextureBudgetSkips = 0;
+    slot.prepTextureDecodeFailures = 0;
+    size_t preparedCount = 0;
+    size_t preparedBytes = 0;
+
+#if MKW_VITA_COMPACT_FRAME_STATE
+    const auto prepareTexture = [&](const DrawTextureState& texture) {
+        if (!texture.enabled || !texture.data) return;
+#if !MKW_VITA_DIRECT_TEXTURE_PREP
+        // P6.8-MT only moves the validated THP YUV path. P6.10 enables the same
+        // bounded worker path for ordinary Wii texture formats.
+        if (!texture.thpYuv420) return;
+#else
+        if (!SupportedTextureFormat(texture.format)) return;
+#endif
+        bool duplicate = false;
+        for (size_t i = 0; i < preparedCount; ++i) {
+            if (slot.preparedTextures[i].valid &&
+                SamePreparedTextureSource(slot.preparedTextures[i].source, texture)) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate) return;
+
+        const size_t rgbaBytes = static_cast<size_t>(texture.width) * texture.height * 4u;
+        if (preparedCount >= kMaxPreparedTexturesPerFrame) {
+            ++slot.prepFailures;
+            ++slot.prepTextureCapacitySkips;
+            return;
+        }
+        if (rgbaBytes == 0 || rgbaBytes > kTextureScratchBytes ||
+            preparedBytes + rgbaBytes > kPreparedTextureBudgetBytes) {
+            ++slot.prepFailures;
+            ++slot.prepTextureBudgetSkips;
+            return;
+        }
+
+#if MKW_VITA_DIRECT_TEXTURE_CACHE_ANTITHRASH
+        // Queue slots are recycled. Preserve the decoded pixels from the last
+        // use of this same slot and promote a matching source into the active
+        // prefix instead of paying the tiled GX/THP conversion again.
+        for (size_t reuseIndex = preparedCount;
+             reuseIndex < slot.preparedTextures.size(); ++reuseIndex) {
+            PreparedTextureCpu& candidate = slot.preparedTextures[reuseIndex];
+            if (!candidate.valid || candidate.rgba.size() < rgbaBytes ||
+                !SamePreparedTextureSource(candidate.source, texture)) {
+                continue;
+            }
+            if (!TextureSourceStillMatches(texture)) break;
+            if (reuseIndex != preparedCount) {
+                std::swap(slot.preparedTextures[reuseIndex],
+                          slot.preparedTextures[preparedCount]);
+            }
+            PreparedTextureCpu& reused = slot.preparedTextures[preparedCount++];
+            reused.source = texture;
+            reused.decodeUs = 0;
+            preparedBytes += rgbaBytes;
+            ++slot.prepTextures;
+            ++slot.prepTextureReuses;
+            return;
+        }
+#endif
+
+        if (preparedCount >= slot.preparedTextures.size()) {
+            slot.preparedTextures.emplace_back();
+        }
+        PreparedTextureCpu& prepared = slot.preparedTextures[preparedCount++];
+        prepared.valid = false;
+        prepared.source = texture;
+        if (prepared.rgba.size() < rgbaBytes) prepared.rgba.resize(rgbaBytes);
+
+        const uint64_t decodeBeginUs = sceKernelGetProcessTimeWide();
+        const bool sourceBefore = TextureSourceStillMatches(texture);
+        const bool decoded = sourceBefore &&
+            ConvertTextureLevel0(texture, prepared.rgba.data(), prepared.rgba.size());
+        const bool sourceAfter = decoded && TextureSourceStillMatches(texture);
+        prepared.decodeUs = sceKernelGetProcessTimeWide() - decodeBeginUs;
+        slot.prepTextureUs += prepared.decodeUs;
+        if (sourceAfter) {
+            prepared.valid = true;
+            preparedBytes += rgbaBytes;
+            ++slot.prepTextures;
+        } else {
+            ++slot.prepFailures;
+            ++slot.prepTextureDecodeFailures;
+        }
+    };
+
+    for (const DrawTextureState& texture : slot.packet.geometry.textures) {
+        prepareTexture(texture);
+#if MKW_VITA_DIRECT_TEXTURE_PREP && MKW_VITA_DIRECT_TEV_TWO_TEXTURE
+        if (texture.tevTwoTexture && texture.secondEnabled) {
+            prepareTexture(SecondaryTextureState(texture));
+        }
+#endif
+    }
+#endif
+
+    // Retain existing RGBA capacities for reuse by this queue slot, but ignore
+    // stale entries beyond the active prefix on the next frame.
+    for (size_t i = preparedCount; i < slot.preparedTextures.size(); ++i) {
+        slot.preparedTextures[i].valid = false;
+    }
+}
+
+#if MKW_VITA_DIRECT_STATE_PREP
+void PrepareFrameCpuState(FrameQueueSlot& slot) {
+    const uint64_t beginUs = sceKernelGetProcessTimeWide();
+    const FrameGeometry& geometry = slot.packet.geometry;
+    slot.preparedStateValid = false;
+    slot.prepStateRuns = 0;
+    if (slot.preparedDraws.size() < geometry.drawCount) {
+        slot.preparedDraws.resize(geometry.drawCount);
+    }
+
+    std::vector<u8> efbBoundary(static_cast<size_t>(geometry.drawCount) + 1u, 0u);
+    for (u16 commandIndex = 0; commandIndex < geometry.efbCommandCount; ++commandIndex) {
+        const u16 boundary = geometry.efbCommands[commandIndex].afterDrawCount;
+        if (boundary <= geometry.drawCount) efbBoundary[boundary] = 1u;
+    }
+
+    bool valid = true;
+    for (u16 drawIndex = 0; drawIndex < geometry.drawCount; ++drawIndex) {
+        const GeometryDraw& draw = geometry.draws[drawIndex];
+        PreparedDrawCpu& prepared = slot.preparedDraws[drawIndex];
+        prepared = {};
+        prepared.batchEndDraw = drawIndex;
+        prepared.batchVertexCount = draw.vertexCount;
+        prepared.concatPrimitive =
+            (draw.primitive == GX_QUADS || draw.primitive == GX_TRIANGLES ||
+             draw.primitive == GX_LINES || draw.primitive == GX_POINTS) ? 1u : 0u;
+#if MKW_VITA_COMPACT_FRAME_STATE
+        if (draw.textureId >= geometry.textures.size()) {
+            valid = false;
+            break;
+        }
+        const DrawTextureState& texture = geometry.textures[draw.textureId];
+#else
+        const DrawTextureState& texture = draw.texture;
+#endif
+        if (!texture.enabled) {
+            prepared.tevClass = PreparedTevClass::Disabled;
+        } else if (texture.tevTwoTexture && texture.secondEnabled) {
+            prepared.tevClass = PreparedTevClass::TwoTexture;
+        } else if (texture.tevSimple) {
+            prepared.tevClass = PreparedTevClass::Simple;
+        } else {
+            prepared.tevClass = PreparedTevClass::Fallback;
+        }
+
+        if (!prepared.concatPrimitive) {
+            ++slot.prepStateRuns;
+            continue;
+        }
+        uint32_t runEndVertex = static_cast<uint32_t>(draw.firstVertex) + draw.vertexCount;
+        u16 runEnd = drawIndex;
+        for (u16 candidateIndex = static_cast<u16>(drawIndex + 1u);
+             candidateIndex < geometry.drawCount; ++candidateIndex) {
+            const GeometryDraw& candidate = geometry.draws[candidateIndex];
+            if (efbBoundary[candidateIndex] || candidate.primitive != draw.primitive ||
+                candidate.firstVertex != runEndVertex) {
+                break;
+            }
+#if MKW_VITA_COMPACT_FRAME_STATE
+            if (candidate.renderStateId != draw.renderStateId) break;
+#else
+            break;
+#endif
+            runEndVertex += candidate.vertexCount;
+            runEnd = candidateIndex;
+        }
+        prepared.batchEndDraw = runEnd;
+        prepared.batchVertexCount = runEndVertex - static_cast<uint32_t>(draw.firstVertex);
+        ++slot.prepStateRuns;
+    }
+
+    slot.preparedStateValid = valid;
+    slot.prepStateUs = sceKernelGetProcessTimeWide() - beginUs;
+}
+#endif
+
+void PrepWorkerMain() {
+    for (;;) {
+        FrameQueueSlot* slot = nullptr;
+        {
+            std::unique_lock<std::mutex> lock(g_renderMutex);
+            g_prepWake.wait(lock, [] { return g_prepStop || HasPrepQueuedFrameLocked(); });
+            if (g_prepStop) break;
+            slot = FindPrepQueuedFrameSlotLocked();
+            if (!slot) continue;
+            slot->state = FrameQueueSlotState::Prepping;
+        }
+
+        const uint64_t prepBeginUs = sceKernelGetProcessTimeWide();
+#if MKW_VITA_DIRECT_VERTEX_PREP
+        PrepareFrameCpuVertices(*slot);
+#endif
+        PrepareFrameCpuTextures(*slot);
+#if MKW_VITA_DIRECT_STATE_PREP
+        PrepareFrameCpuState(*slot);
+#endif
+        slot->prepUs = sceKernelGetProcessTimeWide() - prepBeginUs;
+
+        const uint64_t serial = slot->serial;
+        const uint64_t prepUs = slot->prepUs;
+        const uint64_t textureUs = slot->prepTextureUs;
+        const uint32_t textureCount = slot->prepTextures;
+        const uint32_t failures = slot->prepFailures;
+        const uint32_t textureReuses = slot->prepTextureReuses;
+        const uint32_t textureCapacitySkips = slot->prepTextureCapacitySkips;
+        const uint32_t textureBudgetSkips = slot->prepTextureBudgetSkips;
+        const uint32_t textureDecodeFailures = slot->prepTextureDecodeFailures;
+#if MKW_VITA_DIRECT_VERTEX_PREP
+        const uint64_t vertexUs = slot->prepVertexUs;
+        const uint32_t vertexCount = slot->preparedVerticesValid
+            ? static_cast<uint32_t>(slot->packet.geometry.vertexCount) : 0u;
+#else
+        const uint64_t vertexUs = 0;
+        const uint32_t vertexCount = 0;
+#endif
+#if MKW_VITA_DIRECT_STATE_PREP
+        const uint64_t stateUs = slot->prepStateUs;
+        const uint32_t stateRuns = slot->preparedStateValid ? slot->prepStateRuns : 0u;
+#else
+        const uint64_t stateUs = 0;
+        const uint32_t stateRuns = 0;
+#endif
+        {
+            std::lock_guard<std::mutex> lock(g_renderMutex);
+            if (slot->state == FrameQueueSlotState::Prepping) {
+                slot->state = FrameQueueSlotState::Ready;
+            }
+        }
+        if (serial <= 8u || (serial % kPerfSummaryInterval) == 0u || prepUs >= 100000u) {
+            RT_LOGF(RT_TAG_GX,
+                    "direct_prep serial=%llu affinity=USER_2 prep_us=%llu vertex_us=%llu vertices=%u "
+                    "texture_us=%llu textures=%u reuse=%u cap_skip=%u budget_skip=%u decode_fail=%u "
+                    "state_us=%llu state_runs=%u failures=%u\n",
+                    static_cast<unsigned long long>(serial),
+                    static_cast<unsigned long long>(prepUs),
+                    static_cast<unsigned long long>(vertexUs), vertexCount,
+                    static_cast<unsigned long long>(textureUs),
+                    textureCount, textureReuses, textureCapacitySkips,
+                    textureBudgetSkips, textureDecodeFailures,
+                    static_cast<unsigned long long>(stateUs), stateRuns, failures);
+        }
+        g_renderWake.notify_one();
+        g_renderIdle.notify_all();
+    }
+}
+#endif
 
 void EvictTextureEntry(TextureCacheEntry& entry) {
     if (!entry.valid) {
@@ -3600,6 +4262,25 @@ TextureCacheEntry* OldestTextureEntry() {
         }
     }
     return oldest;
+}
+
+TextureCacheEntry* OldestValidTextureEntry() {
+    TextureCacheEntry* oldest = nullptr;
+    for (auto& entry : g_textureCache) {
+        if (!entry.valid) continue;
+        if (!oldest || entry.lastUse < oldest->lastUse) {
+            oldest = &entry;
+        }
+    }
+    return oldest;
+}
+
+uint32_t TextureCacheLiveEntries() {
+    uint32_t count = 0;
+    for (const auto& entry : g_textureCache) {
+        if (entry.valid) ++count;
+    }
+    return count;
 }
 
 #if !defined(MKW_VITA_AURORA_RENDERER) && MKW_VITA_DIRECT_EFB
@@ -3641,9 +4322,21 @@ GLuint ResolveTexture(const DrawTextureState& texture, TextureRenderCounters& co
         return 0;
     }
     const size_t rgbaBytes = static_cast<size_t>(texture.width) * texture.height * 4u;
-    if (!ConvertTextureLevel0(texture, g_textureScratch.get(), kTextureScratchBytes)) {
-        ++counters.uploadFailures;
-        return 0;
+    const u8* uploadPixels = nullptr;
+#if MKW_VITA_DIRECT_PREP_WORKER && !defined(MKW_VITA_AURORA_RENDERER)
+    if (const PreparedTextureCpu* prepared = FindPreparedTextureCpu(texture);
+        prepared && prepared->rgba.size() >= rgbaBytes) {
+        uploadPixels = prepared->rgba.data();
+        ++counters.preparedHits;
+    }
+#endif
+    if (!uploadPixels) {
+        ++counters.synchronousDecodes;
+        if (!ConvertTextureLevel0(texture, g_textureScratch.get(), kTextureScratchBytes)) {
+            ++counters.uploadFailures;
+            return 0;
+        }
+        uploadPixels = g_textureScratch.get();
     }
     if (!TextureSourceStillMatches(texture)) {
         ++counters.sourceRaceDraws;
@@ -3651,10 +4344,12 @@ GLuint ResolveTexture(const DrawTextureState& texture, TextureRenderCounters& co
     }
 
     while (g_textureCacheBytes + rgbaBytes > kTextureCacheBudgetBytes) {
-        TextureCacheEntry* victim = OldestTextureEntry();
-        if (!victim || !victim->valid) {
+        TextureCacheEntry* victim = OldestValidTextureEntry();
+        if (!victim) {
             break;
         }
+        counters.evictedBytes += victim->gpuBytes;
+        ++counters.budgetEvictions;
         EvictTextureEntry(*victim);
     }
     TextureCacheEntry* entry = OldestTextureEntry();
@@ -3663,6 +4358,8 @@ GLuint ResolveTexture(const DrawTextureState& texture, TextureRenderCounters& co
         return 0;
     }
     if (entry->valid) {
+        counters.evictedBytes += entry->gpuBytes;
+        ++counters.entryEvictions;
         EvictTextureEntry(*entry);
     }
 
@@ -3676,7 +4373,7 @@ GLuint ResolveTexture(const DrawTextureState& texture, TextureRenderCounters& co
     while (glGetError() != GL_NO_ERROR) {
     }
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, texture.width, texture.height, 0,
-                 GL_RGBA, GL_UNSIGNED_BYTE, g_textureScratch.get());
+                 GL_RGBA, GL_UNSIGNED_BYTE, uploadPixels);
     if (glGetError() != GL_NO_ERROR) {
         glDeleteTextures(1, &glTexture);
         ++counters.uploadFailures;
@@ -3721,6 +4418,54 @@ void ApplyTextureSampler(const DrawTextureState& texture) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, TextureBaseFilter(texture.magFilter));
 }
 
+void ApplySimpleTevMode(u8 mode) {
+    switch (static_cast<GXTevMode>(mode)) {
+    case GX_MODULATE:
+        glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+        break;
+    case GX_DECAL:
+        glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL);
+        break;
+    case GX_BLEND: {
+        GLfloat white[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+        glTexEnvfv(GL_TEXTURE_ENV, GL_TEXTURE_ENV_COLOR, white);
+        glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_BLEND);
+        break;
+    }
+    case GX_REPLACE:
+        glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+        break;
+    case GX_PASSCLR:
+        glDisable(GL_TEXTURE_2D);
+        break;
+    default:
+        glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+        break;
+    }
+}
+
+#if MKW_VITA_DIRECT_TEV_TWO_TEXTURE && !defined(MKW_VITA_AURORA_RENDERER)
+DrawTextureState SecondaryTextureState(const DrawTextureState& texture) {
+    DrawTextureState second{};
+    second.data = texture.secondData;
+    second.dataRevision = texture.secondDataRevision;
+    second.globalEpoch = texture.globalEpoch;
+    second.sourceGeneration = texture.secondSourceGeneration;
+    second.format = texture.secondFormat;
+    second.width = texture.secondWidth;
+    second.height = texture.secondHeight;
+    second.wrapS = texture.secondWrapS;
+    second.wrapT = texture.secondWrapT;
+    second.minFilter = texture.secondMinFilter;
+    second.magFilter = texture.secondMagFilter;
+    second.mipmap = texture.secondMipmap;
+    second.enabled = texture.secondEnabled;
+    second.tevMode = texture.tevSecondMode;
+    second.tevSimple = 1u;
+    return second;
+}
+#endif
+
 void DestroyTextureCache() {
 #if !defined(MKW_VITA_AURORA_RENDERER) && MKW_VITA_DIRECT_EFB
     DestroyDirectEfbCache();
@@ -3761,7 +4506,7 @@ void RenderWorkerMain() {
             "efb_readback_flip_y=%u efb_transfer_readback=%u efb_resident_copy=%u "
             "efb_native_res_copy=%u stream_safe_reuse=%u ui_quad_runs=%u "
             "texture_shared_headroom=%u texture_safe_retry=%u clip_w=%u "
-            "wait_timing_service=%u incremental_cache_eviction=%u fiber_irq_state=%u wait_service_profile=%u audio_wait_profile=%u audio_ai_profile=%u native_audioout=%u audio_pacing=%u direct_batcher=%u direct_efb=%u direct_state_cache=%u direct_tev_specialize=%u\n",
+            "wait_timing_service=%u incremental_cache_eviction=%u fiber_irq_state=%u wait_service_profile=%u audio_wait_profile=%u audio_ai_profile=%u native_audioout=%u audio_pacing=%u direct_batcher=%u direct_efb=%u direct_state_cache=%u direct_tev_specialize=%u direct_tev_two_texture=%u direct_prep_worker=%u direct_vertex_prep=%u direct_texture_prep=%u direct_state_prep=%u direct_texture_cache_antithrash=%u texture_cache_cap=%u texture_cache_budget=%u guest_io_profile=%u direct_worker_timing=%u audio_wait_block_budget=%u\n",
             static_cast<unsigned long long>(vglInitBeginUs), kRendererVariant, kVitaGlVariant,
             static_cast<unsigned>(kRenderTargetScenes), static_cast<unsigned>(kRenderTargetScenes),
             static_cast<unsigned>(kMaxFrameDraws), static_cast<unsigned>(kMaxFrameVertices),
@@ -3811,7 +4556,18 @@ void RenderWorkerMain() {
             static_cast<unsigned>(MKW_VITA_DIRECT_BATCHER),
             static_cast<unsigned>(MKW_VITA_DIRECT_EFB),
             static_cast<unsigned>(MKW_VITA_DIRECT_STATE_CACHE),
-            static_cast<unsigned>(MKW_VITA_DIRECT_TEV_SPECIALIZE));
+            static_cast<unsigned>(MKW_VITA_DIRECT_TEV_SPECIALIZE),
+            static_cast<unsigned>(MKW_VITA_DIRECT_TEV_TWO_TEXTURE),
+            static_cast<unsigned>(MKW_VITA_DIRECT_PREP_WORKER),
+            static_cast<unsigned>(MKW_VITA_DIRECT_VERTEX_PREP),
+            static_cast<unsigned>(MKW_VITA_DIRECT_TEXTURE_PREP),
+            static_cast<unsigned>(MKW_VITA_DIRECT_STATE_PREP),
+            static_cast<unsigned>(MKW_VITA_DIRECT_TEXTURE_CACHE_ANTITHRASH),
+            static_cast<unsigned>(kTextureCacheCapacity),
+            static_cast<unsigned>(kTextureCacheBudgetBytes),
+            static_cast<unsigned>(MKW_VITA_GUEST_IO_PROFILE),
+            static_cast<unsigned>(MKW_VITA_DIRECT_WORKER_TIMING),
+            static_cast<unsigned>(MKW_VITA_AUDIO_WAIT_BLOCK_BUDGET));
     const bool resolutionFallback =
         vglInitExtended(0, kSurfaceWidth, kSurfaceHeight, kVitaGlUserRamReserve,
                         SCE_GXM_MULTISAMPLE_NONE) == GL_TRUE;
@@ -3991,6 +4747,9 @@ void RenderWorkerMain() {
             serial = activeSlot->serial;
         }
         FramePacket& packet = activeSlot->packet;
+#if MKW_VITA_DIRECT_PREP_WORKER && !defined(MKW_VITA_AURORA_RENDERER)
+        g_activePreparedSlot = activeSlot;
+#endif
 
         const bool hasRenderableGeometry =
             packet.geometry.drawCount != 0 && packet.geometry.vertexCount != 0;
@@ -4031,6 +4790,9 @@ void RenderWorkerMain() {
 #endif
             {
                 std::lock_guard<std::mutex> lock(g_renderMutex);
+#if MKW_VITA_DIRECT_PREP_WORKER && !defined(MKW_VITA_AURORA_RENDERER)
+                g_activePreparedSlot = nullptr;
+#endif
                 activeSlot->state = FrameQueueSlotState::Free;
                 g_completedSerial = serial;
                 g_stats.framesCompleted = g_completedSerial;
@@ -4130,6 +4892,7 @@ void RenderWorkerMain() {
         uint64_t geometryAlphaCompareFallbackDraws = 0;
         uint64_t geometryTevSimpleDraws = 0;
         uint64_t geometryTevFallbackDraws = 0;
+        uint64_t geometryTevTwoTextureDraws = 0;
         uint64_t geometryTexGenIdentityDraws = 0;
         uint64_t geometryTexGenAppliedDraws = 0;
         uint64_t geometryTexGenUnsupportedDraws = 0;
@@ -4158,9 +4921,40 @@ void RenderWorkerMain() {
         uint64_t directRasterStateSkips = 0;
         uint64_t directTextureStateSkips = 0;
         uint64_t directFrameUploadUs = 0;
+        uint64_t directPrepUs = 0;
+        uint64_t directPrepVertexUs = 0;
+        uint64_t directPrepTextureUs = 0;
+        uint64_t directPrepStateUs = 0;
+        uint32_t directPrepTextures = 0;
+        uint32_t directPrepStateRuns = 0;
+        uint32_t directPrepFailures = 0;
+        uint32_t directPrepTextureReuses = 0;
+        uint32_t directPrepTextureCapacitySkips = 0;
+        uint32_t directPrepTextureBudgetSkips = 0;
+        uint32_t directPrepTextureDecodeFailures = 0;
+#if MKW_VITA_DIRECT_PREP_WORKER
+        directPrepUs = activeSlot->prepUs;
+        directPrepTextureUs = activeSlot->prepTextureUs;
+        directPrepTextures = activeSlot->prepTextures;
+        directPrepFailures = activeSlot->prepFailures;
+        directPrepTextureReuses = activeSlot->prepTextureReuses;
+        directPrepTextureCapacitySkips = activeSlot->prepTextureCapacitySkips;
+        directPrepTextureBudgetSkips = activeSlot->prepTextureBudgetSkips;
+        directPrepTextureDecodeFailures = activeSlot->prepTextureDecodeFailures;
+#if MKW_VITA_DIRECT_VERTEX_PREP
+        directPrepVertexUs = activeSlot->prepVertexUs;
+#endif
+#if MKW_VITA_DIRECT_STATE_PREP
+        directPrepStateUs = activeSlot->prepStateUs;
+        directPrepStateRuns = activeSlot->prepStateRuns;
+#endif
+#endif
         uint32_t directUploadChunks = 0;
         uint32_t directUploadRetries = 0;
         uint64_t directUploadRetryWaitUs = 0;
+#if MKW_VITA_DIRECT_TEV_TWO_TEXTURE
+        bool directTextureUnit1Enabled = false;
+#endif
 #if MKW_VITA_DIRECT_STATE_CACHE && MKW_VITA_COMPACT_FRAME_STATE
         bool directRasterStateValid = false;
         bool directTextureStateValid = false;
@@ -4258,6 +5052,40 @@ void RenderWorkerMain() {
 #endif
         if (packet.geometry.vertexCount != 0) {
 #if !defined(MKW_VITA_AURORA_RENDERER)
+            RenderVertex* renderVertices = g_renderVertices.data();
+#if MKW_VITA_DIRECT_VERTEX_PREP && MKW_VITA_DIRECT_BATCHER
+            const bool usePreparedVertices = activeSlot->preparedVerticesValid &&
+                activeSlot->preparedVertices.size() >= packet.geometry.vertexCount;
+            if (usePreparedVertices) {
+                renderVertices = activeSlot->preparedVertices.data();
+                const PreparedVertexMetrics& prepared = activeSlot->preparedVertexMetrics;
+                geometryVerticesTransformed = prepared.verticesTransformed;
+                geometryPnMatrixVertices = prepared.pnMatrixVertices;
+                geometryTransformFailures = prepared.transformFailures;
+                geometryTexGenIdentityDraws = prepared.texGenIdentityDraws;
+                geometryTexGenAppliedDraws = prepared.texGenAppliedDraws;
+                geometryTexGenUnsupportedDraws = prepared.texGenUnsupportedDraws;
+                geometryPerspectiveVertices = prepared.perspectiveVertices;
+                geometryPerspectiveVerticesInsideXY = prepared.perspectiveVerticesInsideXY;
+                geometryPerspectiveVerticesInsideXYZ = prepared.perspectiveVerticesInsideXYZ;
+                geometryOversizeNdcDraws = prepared.oversizeNdcDraws;
+                geometryMaxNdcSpanX = prepared.maxNdcSpanX;
+                geometryMaxNdcSpanY = prepared.maxNdcSpanY;
+                geometryPerspectiveMinZ = prepared.perspectiveMinZ;
+                geometryPerspectiveMaxZ = prepared.perspectiveMaxZ;
+            }
+#else
+            const bool usePreparedVertices = false;
+#endif
+#if MKW_VITA_DIRECT_TEV_TWO_TEXTURE
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, 0);
+            glDisable(GL_TEXTURE_2D);
+            glClientActiveTexture(GL_TEXTURE1);
+            glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+            glActiveTexture(GL_TEXTURE0);
+            glClientActiveTexture(GL_TEXTURE0);
+#endif
             glDisable(GL_TEXTURE_2D);
             glDisable(GL_BLEND);
             glDisable(GL_ALPHA_TEST);
@@ -4280,9 +5108,9 @@ void RenderWorkerMain() {
                               reinterpret_cast<const GLvoid*>(offsetof(RenderVertex, s)));
 #else
             glBindBuffer(GL_ARRAY_BUFFER, 0);
-            glVertexPointer(MKW_VITA_CLIP_W ? 4 : 3, GL_FLOAT, sizeof(RenderVertex), &g_renderVertices[0].x);
-            glColorPointer(4, GL_UNSIGNED_BYTE, sizeof(RenderVertex), &g_renderVertices[0].r);
-            glTexCoordPointer(2, GL_FLOAT, sizeof(RenderVertex), &g_renderVertices[0].s);
+            glVertexPointer(MKW_VITA_CLIP_W ? 4 : 3, GL_FLOAT, sizeof(RenderVertex), &renderVertices[0].x);
+            glColorPointer(4, GL_UNSIGNED_BYTE, sizeof(RenderVertex), &renderVertices[0].r);
+            glTexCoordPointer(2, GL_FLOAT, sizeof(RenderVertex), &renderVertices[0].s);
 #endif
             if (traceGpu) {
                 RT_LOGF(RT_TAG_GX,
@@ -4300,6 +5128,7 @@ void RenderWorkerMain() {
             // P6.1 performs all CPU transforms up front and uploads the contiguous
             // frame vertex range once, leaving the draw loop to submit state/runs.
             const uint64_t directPrepareBeginUs = sceKernelGetProcessTimeWide();
+            if (!usePreparedVertices) {
             for (u16 directIndex = 0; directIndex < packet.geometry.drawCount; ++directIndex) {
                 const GeometryDraw& directDraw = packet.geometry.draws[directIndex];
 #if MKW_VITA_COMPACT_FRAME_STATE
@@ -4336,9 +5165,9 @@ void RenderWorkerMain() {
                     }
                     if (TransformVertex(directTransform, pnMtxRef,
                                         packet.geometry.vertices[vertexIndex],
-                                        g_renderVertices[vertexIndex])) {
+                                        renderVertices[vertexIndex])) {
                         ++geometryVerticesTransformed;
-                        const RenderVertex& transformed = g_renderVertices[vertexIndex];
+                        const RenderVertex& transformed = renderVertices[vertexIndex];
                         directNdcMinX = std::min(directNdcMinX, transformed.x);
                         directNdcMinY = std::min(directNdcMinY, transformed.y);
                         directNdcMaxX = std::max(directNdcMaxX, transformed.x);
@@ -4357,16 +5186,16 @@ void RenderWorkerMain() {
                             geometryPerspectiveMaxZ = std::max(geometryPerspectiveMaxZ, transformed.z);
                         }
                     } else {
-                        g_renderVertices[vertexIndex] = packet.geometry.vertices[vertexIndex];
-                        g_renderVertices[vertexIndex].x = 2.0f;
-                        g_renderVertices[vertexIndex].y = 2.0f;
-                        g_renderVertices[vertexIndex].z = 2.0f;
+                        renderVertices[vertexIndex] = packet.geometry.vertices[vertexIndex];
+                        renderVertices[vertexIndex].x = 2.0f;
+                        renderVertices[vertexIndex].y = 2.0f;
+                        renderVertices[vertexIndex].z = 2.0f;
                         ++geometryTransformFailures;
                         RecordPerfCriticalEvent(serial, kPerfEventTransformFailure,
                                                 directIndex, vertexIndex);
                     }
                     if (directTexture.materialMask) {
-                        auto& vertex = g_renderVertices[vertexIndex];
+                        auto& vertex = renderVertices[vertexIndex];
                         if (directTexture.materialMask & 1u) {
                             vertex.r = u8(directTexture.materialRgba >> 24);
                             vertex.g = u8(directTexture.materialRgba >> 16);
@@ -4378,7 +5207,7 @@ void RenderWorkerMain() {
                     }
                     if (directTexture.enabled &&
                         !TransformTexCoord(directTexture, packet.geometry.vertices[vertexIndex],
-                                           g_renderVertices[vertexIndex])) {
+                                           renderVertices[vertexIndex])) {
                         directTexGenFailed = true;
                     }
                 }
@@ -4404,12 +5233,13 @@ void RenderWorkerMain() {
             }
 #if MKW_VITA_CLIP_W
             for (uint32_t v = 0; v < packet.geometry.vertexCount; ++v) {
-                auto& vertex = g_renderVertices[v];
+                auto& vertex = renderVertices[v];
                 vertex.x *= vertex.clipW;
                 vertex.y *= vertex.clipW;
                 vertex.z *= vertex.clipW;
             }
 #endif
+            }
 #if defined(MKW_VITA_VITAGL_SPEEDHACK)
             const size_t directUploadVertices = packet.geometry.vertexCount;
             if (directUploadVertices != 0) {
@@ -4446,7 +5276,7 @@ void RenderWorkerMain() {
                         directUploadFailureError = glGetError();
                         break;
                     }
-                    std::memcpy(mappedVertices, &g_renderVertices[firstUploadVertex], uploadBytes);
+                    std::memcpy(mappedVertices, &renderVertices[firstUploadVertex], uploadBytes);
                     if (glUnmapBuffer(GL_ARRAY_BUFFER) != GL_TRUE) {
                         directFrameUploadReady = false;
                         directUploadFailureStage = 2;
@@ -4520,6 +5350,19 @@ void RenderWorkerMain() {
                 const DrawTransform& transform = draw.transform;
                 const DrawRasterState& raster = draw.raster;
                 const DrawTextureState& texture = draw.texture;
+#endif
+#if !defined(MKW_VITA_AURORA_RENDERER)
+                PreparedTevClass directTevClass = !texture.enabled
+                    ? PreparedTevClass::Disabled
+                    : (texture.tevTwoTexture && texture.secondEnabled
+                        ? PreparedTevClass::TwoTexture
+                        : (texture.tevSimple ? PreparedTevClass::Simple
+                                             : PreparedTevClass::Fallback));
+#if MKW_VITA_DIRECT_STATE_PREP
+                if (activeSlot->preparedStateValid && i < activeSlot->preparedDraws.size()) {
+                    directTevClass = activeSlot->preparedDraws[i].tevClass;
+                }
+#endif
 #endif
                 const uint32_t endVertex = static_cast<uint32_t>(draw.firstVertex) + draw.vertexCount;
                 if (draw.vertexCount == 0 || endVertex > packet.geometry.vertexCount) {
@@ -4708,33 +5551,67 @@ void RenderWorkerMain() {
                                     static_cast<unsigned long long>(textureCounters.uploadFailures));
                         }
                         if (glTexture != 0) {
+#if MKW_VITA_DIRECT_TEV_TWO_TEXTURE
+                            if (directTextureUnit1Enabled && directTevClass != PreparedTevClass::TwoTexture) {
+                                glActiveTexture(GL_TEXTURE1);
+                                glBindTexture(GL_TEXTURE_2D, 0);
+                                glDisable(GL_TEXTURE_2D);
+                                glClientActiveTexture(GL_TEXTURE1);
+                                glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+                                glActiveTexture(GL_TEXTURE0);
+                                glClientActiveTexture(GL_TEXTURE0);
+                                directTextureUnit1Enabled = false;
+                            }
+#endif
+                            glActiveTexture(GL_TEXTURE0);
                             glEnable(GL_TEXTURE_2D);
                             glBindTexture(GL_TEXTURE_2D, glTexture);
                             ApplyTextureSampler(texture);
-                            switch (static_cast<GXTevMode>(texture.tevMode)) {
-                            case GX_MODULATE:
-                                glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-                                break;
-                            case GX_DECAL:
-                                glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL);
-                                break;
-                            case GX_BLEND: {
-                                GLfloat white[4] = {1.0f, 1.0f, 1.0f, 1.0f};
-                                glTexEnvfv(GL_TEXTURE_ENV, GL_TEXTURE_ENV_COLOR, white);
-                                glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_BLEND);
-                                break;
+                            ApplySimpleTevMode(texture.tevMode);
+                            bool nativeTwoTextureApplied = false;
+#if MKW_VITA_DIRECT_TEV_TWO_TEXTURE
+                            if (directTevClass == PreparedTevClass::TwoTexture && texture.secondEnabled) {
+                                const DrawTextureState second = SecondaryTextureState(texture);
+                                const GLuint secondTexture = ResolveTexture(second, textureCounters);
+                                if (secondTexture != 0) {
+                                    glActiveTexture(GL_TEXTURE1);
+                                    glEnable(GL_TEXTURE_2D);
+                                    glBindTexture(GL_TEXTURE_2D, secondTexture);
+                                    ApplyTextureSampler(second);
+                                    ApplySimpleTevMode(texture.tevSecondMode);
+                                    glClientActiveTexture(GL_TEXTURE1);
+                                    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+#if defined(MKW_VITA_VITAGL_SPEEDHACK)
+                                    glTexCoordPointer(2, GL_FLOAT, sizeof(RenderVertex),
+                                        reinterpret_cast<const GLvoid*>(offsetof(RenderVertex, s)));
+#else
+                                    glTexCoordPointer(2, GL_FLOAT, sizeof(RenderVertex),
+                                                      &renderVertices[0].s);
+#endif
+                                    glActiveTexture(GL_TEXTURE0);
+                                    glClientActiveTexture(GL_TEXTURE0);
+                                    directTextureUnit1Enabled = true;
+                                    nativeTwoTextureApplied = true;
+                                    ++geometryTevTwoTextureDraws;
+#if MKW_VITA_DIRECT_EFB
+                                    if (FindDirectEfb(reinterpret_cast<uintptr_t>(second.data))) {
+                                        ++efbTexturesSampled;
+                                    }
+#endif
+                                } else {
+                                    glActiveTexture(GL_TEXTURE1);
+                                    glBindTexture(GL_TEXTURE_2D, 0);
+                                    glDisable(GL_TEXTURE_2D);
+                                    glClientActiveTexture(GL_TEXTURE1);
+                                    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+                                    glActiveTexture(GL_TEXTURE0);
+                                    glClientActiveTexture(GL_TEXTURE0);
+                                    directTextureUnit1Enabled = false;
+                                }
                             }
-                            case GX_REPLACE:
-                                glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
-                                break;
-                            case GX_PASSCLR:
-                                glDisable(GL_TEXTURE_2D);
-                                break;
-                            default:
-                                glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-                                break;
-                            }
-                            if (texture.tevSimple) {
+#endif
+                            if (directTevClass == PreparedTevClass::Simple ||
+                                (directTevClass == PreparedTevClass::TwoTexture && nativeTwoTextureApplied)) {
                                 ++geometryTevSimpleDraws;
                             } else {
                                 ++geometryTevFallbackDraws;
@@ -4744,19 +5621,47 @@ void RenderWorkerMain() {
                                 ++textureCounters.mipFallbackDraws;
                             }
                         } else {
+                            glActiveTexture(GL_TEXTURE0);
                             glBindTexture(GL_TEXTURE_2D, 0);
                             glDisable(GL_TEXTURE_2D);
+#if MKW_VITA_DIRECT_TEV_TWO_TEXTURE
+                            if (directTextureUnit1Enabled) {
+                                glActiveTexture(GL_TEXTURE1);
+                                glBindTexture(GL_TEXTURE_2D, 0);
+                                glDisable(GL_TEXTURE_2D);
+                                glClientActiveTexture(GL_TEXTURE1);
+                                glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+                                glActiveTexture(GL_TEXTURE0);
+                                glClientActiveTexture(GL_TEXTURE0);
+                                directTextureUnit1Enabled = false;
+                            }
+#endif
                         }
                     } else {
+                        glActiveTexture(GL_TEXTURE0);
                         glBindTexture(GL_TEXTURE_2D, 0);
                         glDisable(GL_TEXTURE_2D);
+#if MKW_VITA_DIRECT_TEV_TWO_TEXTURE
+                        if (directTextureUnit1Enabled) {
+                            glActiveTexture(GL_TEXTURE1);
+                            glBindTexture(GL_TEXTURE_2D, 0);
+                            glDisable(GL_TEXTURE_2D);
+                            glClientActiveTexture(GL_TEXTURE1);
+                            glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+                            glActiveTexture(GL_TEXTURE0);
+                            glClientActiveTexture(GL_TEXTURE0);
+                            directTextureUnit1Enabled = false;
+                        }
+#endif
                     }
                 } else if (texture.enabled) {
                     // The previous physical draw already published this exact
                     // compact texture/sampler/TEV state. Preserve accounting
                     // without touching vitaGL or re-running source generation.
-                    if (texture.tevSimple) {
+                    if (directTevClass == PreparedTevClass::Simple ||
+                        directTevClass == PreparedTevClass::TwoTexture) {
                         ++geometryTevSimpleDraws;
+                        if (directTevClass == PreparedTevClass::TwoTexture) ++geometryTevTwoTextureDraws;
                     } else {
                         ++geometryTevFallbackDraws;
                     }
@@ -5142,6 +6047,22 @@ void RenderWorkerMain() {
 #endif
 
                 if (issueDirectDraw) {
+#if MKW_VITA_DIRECT_STATE_PREP
+                    if (activeSlot->preparedStateValid && i < activeSlot->preparedDraws.size()) {
+                        const PreparedDrawCpu& prepared = activeSlot->preparedDraws[i];
+                        const u16 runEnd = prepared.batchEndDraw;
+                        if (prepared.concatPrimitive && runEnd >= i &&
+                            runEnd < packet.geometry.drawCount && prepared.batchVertexCount != 0u) {
+                            directVertexCount = prepared.batchVertexCount;
+                            if (runEnd != i) {
+                                directSkipActive = true;
+                                directSkipDrawUntil = runEnd;
+                                directMergedDraws += static_cast<uint64_t>(runEnd - i);
+                            }
+                        }
+                    } else
+#endif
+                    {
                     const bool concatPrimitive =
                         draw.primitive == GX_QUADS || draw.primitive == GX_TRIANGLES ||
                         draw.primitive == GX_LINES || draw.primitive == GX_POINTS;
@@ -5181,6 +6102,7 @@ void RenderWorkerMain() {
                             directSkipDrawUntil = runEnd;
                             directMergedDraws += static_cast<uint64_t>(runEnd - i);
                         }
+                    }
                     }
                 }
 #endif
@@ -5234,6 +6156,15 @@ void RenderWorkerMain() {
 #else
 #if defined(MKW_VITA_VITAGL_SPEEDHACK)
             glBindBuffer(GL_ARRAY_BUFFER, 0);
+#endif
+#if MKW_VITA_DIRECT_TEV_TWO_TEXTURE
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, 0);
+            glDisable(GL_TEXTURE_2D);
+            glClientActiveTexture(GL_TEXTURE1);
+            glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+            glActiveTexture(GL_TEXTURE0);
+            glClientActiveTexture(GL_TEXTURE0);
 #endif
             glBindTexture(GL_TEXTURE_2D, 0);
             glDisable(GL_TEXTURE_2D);
@@ -5544,8 +6475,10 @@ void RenderWorkerMain() {
             RT_LOGF(RT_TAG_GX,
                     "perf_summary serial=%llu draws=%u vertices=%u presented=%llu physical=%llu merged=%llu "
                     "raw_ok=%llu raw_fail=%llu dropped=%u transform_fail=%llu render_us=%llu swap_us=%llu "
+                    "prep=%llu/%llu/%llu/%llu/%u/%u/%u prep_tex=%u/%u/%u/%u texprep=%llu/%llu "
+                    "texcache=%llu/%llu/%llu/%llu/%llu live=%llu/%u evict=%llu/%llu/%llu invalidate=%llu "
                     "direct_upload_us=%llu direct_upload=%u/%u/%llu state_skip=%llu/%llu/%llu "
-                    "tev_chain=%llu/%llu/%llu tev_draw=%llu/%llu "
+                    "tev_chain=%llu/%llu/%llu/%llu tev_draw=%llu/%llu/%llu "
                     "efb=%llu/%llu sampled=%llu efb_us=%llu ring_write=%u\n",
                     static_cast<unsigned long long>(serial),
                     static_cast<unsigned>(packet.geometry.drawCount),
@@ -5559,6 +6492,26 @@ void RenderWorkerMain() {
                     static_cast<unsigned long long>(geometryTransformFailures),
                     static_cast<unsigned long long>(swapEndUs - frameRenderBeginUs),
                     static_cast<unsigned long long>(swapEndUs - swapBeginUs),
+                    static_cast<unsigned long long>(directPrepUs),
+                    static_cast<unsigned long long>(directPrepVertexUs),
+                    static_cast<unsigned long long>(directPrepTextureUs),
+                    static_cast<unsigned long long>(directPrepStateUs),
+                    directPrepTextures, directPrepStateRuns, directPrepFailures,
+                    directPrepTextureReuses, directPrepTextureCapacitySkips,
+                    directPrepTextureBudgetSkips, directPrepTextureDecodeFailures,
+                    static_cast<unsigned long long>(textureCounters.preparedHits),
+                    static_cast<unsigned long long>(textureCounters.synchronousDecodes),
+                    static_cast<unsigned long long>(textureCounters.cacheHits),
+                    static_cast<unsigned long long>(textureCounters.cacheMisses),
+                    static_cast<unsigned long long>(textureCounters.uploads),
+                    static_cast<unsigned long long>(textureCounters.uploadFailures),
+                    static_cast<unsigned long long>(textureCounters.bytesUploaded),
+                    static_cast<unsigned long long>(g_textureCacheBytes),
+                    TextureCacheLiveEntries(),
+                    static_cast<unsigned long long>(textureCounters.budgetEvictions),
+                    static_cast<unsigned long long>(textureCounters.entryEvictions),
+                    static_cast<unsigned long long>(textureCounters.evictedBytes),
+                    static_cast<unsigned long long>(packet.counters.textureInvalidateAllCalls),
                     static_cast<unsigned long long>(directFrameUploadUs),
                     directUploadChunks, directUploadRetries,
                     static_cast<unsigned long long>(directUploadRetryWaitUs),
@@ -5568,8 +6521,10 @@ void RenderWorkerMain() {
                     static_cast<unsigned long long>(packet.counters.textureStateTevChainCollapsed),
                     static_cast<unsigned long long>(packet.counters.textureStateTevChainUnsupported),
                     static_cast<unsigned long long>(packet.counters.textureStateTevChainMultiTexture),
+                    static_cast<unsigned long long>(packet.counters.textureStateTevChainTwoTextureNative),
                     static_cast<unsigned long long>(geometryTevSimpleDraws),
                     static_cast<unsigned long long>(geometryTevFallbackDraws),
+                    static_cast<unsigned long long>(geometryTevTwoTextureDraws),
                     static_cast<unsigned long long>(efbCopiesExecuted),
                     static_cast<unsigned long long>(efbCopyFailures),
                     static_cast<unsigned long long>(efbTexturesSampled),
@@ -5618,6 +6573,16 @@ void RenderWorkerMain() {
 
         {
             std::lock_guard<std::mutex> lock(g_renderMutex);
+#if MKW_VITA_DIRECT_WORKER_TIMING && !defined(MKW_VITA_AURORA_RENDERER)
+            const uint64_t workerCompletedUs = sceKernelGetProcessTimeWide();
+            g_lastWorkerRenderUs.store(swapEndUs - frameRenderBeginUs, std::memory_order_relaxed);
+            g_lastWorkerSwapUs.store(swapEndUs - swapBeginUs, std::memory_order_relaxed);
+            g_lastWorkerCompletedUs.store(workerCompletedUs, std::memory_order_relaxed);
+            g_lastWorkerTimingSerial.store(serial, std::memory_order_release);
+#endif
+#if MKW_VITA_DIRECT_PREP_WORKER && !defined(MKW_VITA_AURORA_RENDERER)
+            g_activePreparedSlot = nullptr;
+#endif
             activeSlot->state = FrameQueueSlotState::Free;
             g_completedSerial = serial;
             g_stats.framesCompleted = g_completedSerial;
@@ -5712,6 +6677,17 @@ bool EnsureRenderWorker() {
     g_renderStarted = true;
     g_renderIdle.wait(lock, [] { return g_renderInitDone; });
     if (g_renderInitOk) {
+#if MKW_VITA_DIRECT_PREP_WORKER && !defined(MKW_VITA_AURORA_RENDERER)
+        if (!g_prepStarted) {
+            g_prepStop = false;
+            if (g_prepThread.start(HostThreadRole::GraphicsPrep, kPrepWorkerStack, PrepWorkerMain)) {
+                g_prepStarted = true;
+                RT_LOGF(RT_TAG_GX, "direct_prep worker_started affinity=USER_2\n");
+            } else {
+                RT_LOGF(RT_TAG_GX, "direct_prep worker_start_failed fallback=synchronous\n");
+            }
+        }
+#endif
         return true;
     }
     lock.unlock();
@@ -5728,6 +6704,7 @@ void SubmitFrame() {
     g_lastProducerSubmitUs = producerEnterUs;
     const uint64_t priorWaitCalls = g_guestWaitRenderCallsSinceSubmit;
     const uint64_t priorWaitUs = g_guestWaitRenderUsSinceSubmit;
+    const uint64_t priorWaitSleepUs = g_guestWaitSleepUsSinceSubmit;
     const uint64_t priorWaitCallbackCalls = g_waitCallbackCallsSinceSubmit;
     const uint64_t priorWaitCallbackUs = g_waitCallbackUsSinceSubmit;
     const uint64_t priorWaitCallbackMaxUs = g_waitCallbackMaxUsSinceSubmit;
@@ -5742,6 +6719,7 @@ void SubmitFrame() {
     const auto priorWaitUsByReason = g_renderWaitUsByReason;
     g_guestWaitRenderCallsSinceSubmit = 0;
     g_guestWaitRenderUsSinceSubmit = 0;
+    g_guestWaitSleepUsSinceSubmit = 0;
     g_waitCallbackCallsSinceSubmit = 0;
     g_waitCallbackUsSinceSubmit = 0;
     g_waitCallbackMaxUsSinceSubmit = 0;
@@ -5749,6 +6727,14 @@ void SubmitFrame() {
     g_renderWaitUsByReason.fill(0);
     const uint32_t producerDraws = g_gx.geometry.drawCount;
     const uint32_t producerVertices = g_gx.geometry.vertexCount;
+#if MKW_VITA_DIRECT_WORKER_TIMING && !defined(MKW_VITA_AURORA_RENDERER)
+    const uint64_t priorWorkerSerial = g_lastWorkerTimingSerial.load(std::memory_order_acquire);
+    const uint64_t priorWorkerRenderUs = g_lastWorkerRenderUs.load(std::memory_order_relaxed);
+    const uint64_t priorWorkerSwapUs = g_lastWorkerSwapUs.load(std::memory_order_relaxed);
+    const uint64_t priorWorkerCompletedUs = g_lastWorkerCompletedUs.load(std::memory_order_relaxed);
+    const uint64_t priorWorkerAgeUs = priorWorkerCompletedUs != 0 && producerEnterUs >= priorWorkerCompletedUs
+        ? producerEnterUs - priorWorkerCompletedUs : 0;
+#endif
 
     const auto AccumulateFrameStats = [](const FrameCounters& frame) {
         g_stats.drawCalls += frame.drawCalls;
@@ -5875,11 +6861,20 @@ void SubmitFrame() {
     ++g_submittedSerial;
     const uint64_t submittedSerial = g_submittedSerial;
     queueSlot->serial = submittedSerial;
+#if MKW_VITA_DIRECT_PREP_WORKER && !defined(MKW_VITA_AURORA_RENDERER)
+    queueSlot->state = g_prepStarted ? FrameQueueSlotState::PrepQueued : FrameQueueSlotState::Ready;
+#else
     queueSlot->state = FrameQueueSlotState::Ready;
+#endif
     if (requiresFrameBarrier) g_frameBarrierSerial = submittedSerial;
     g_stats.framesSubmitted = g_submittedSerial;
     lock.unlock();
+#if MKW_VITA_DIRECT_PREP_WORKER && !defined(MKW_VITA_AURORA_RENDERER)
+    if (g_prepStarted) g_prepWake.notify_one();
+    else g_renderWake.notify_one();
+#else
     g_renderWake.notify_one();
+#endif
 
 #if !defined(MKW_VITA_PORTING_PROBE)
     GuestStallWatchdog::RecordFrame(submittedSerial, packetCopyEndUs, producerIntervalUs,
@@ -5897,8 +6892,11 @@ void SubmitFrame() {
     if (producerPeriodic || producerVerbose || producerCritical) {
         RT_LOGF(RT_TAG_GX,
                 "producer_frame=%llu interval_us=%llu queue_wait_us=%llu packet_copy_us=%llu "
-                "prior_wait_calls=%llu prior_wait_us=%llu wait_gx=%llu/%llu wait_worker=%llu/%llu "
+                "prior_wait_calls=%llu prior_wait_us=%llu wait_sleep_us=%llu wait_gx=%llu/%llu wait_worker=%llu/%llu "
                 "wait_service=%llu/%llu/%llu "
+#if MKW_VITA_DIRECT_WORKER_TIMING && !defined(MKW_VITA_AURORA_RENDERER)
+                "worker=%llu/%llu/%llu/%llu "
+#endif
                 "draws=%u vertices=%u efb_cmds=%u "
                 "requested_draws=%llu begin_cap=%llu raw_cap=%llu dropped=%u "
                 "efb_calls=%llu efb_recorded=%llu efb_cap_fail=%llu efb_destroy=%llu\n",
@@ -5908,6 +6906,7 @@ void SubmitFrame() {
                 static_cast<unsigned long long>(packetCopyEndUs - packetCopyBeginUs),
                 static_cast<unsigned long long>(priorWaitCalls),
                 static_cast<unsigned long long>(priorWaitUs),
+                static_cast<unsigned long long>(priorWaitSleepUs),
                 static_cast<unsigned long long>(priorWaitCallsByReason[static_cast<size_t>(RenderWaitReason::DrawDone)]),
                 static_cast<unsigned long long>(priorWaitUsByReason[static_cast<size_t>(RenderWaitReason::DrawDone)]),
                 static_cast<unsigned long long>(priorWaitCallsByReason[static_cast<size_t>(RenderWaitReason::FrameWorker)]),
@@ -5915,6 +6914,12 @@ void SubmitFrame() {
                 static_cast<unsigned long long>(priorWaitCallbackCalls),
                 static_cast<unsigned long long>(priorWaitCallbackUs),
                 static_cast<unsigned long long>(priorWaitCallbackMaxUs),
+#if MKW_VITA_DIRECT_WORKER_TIMING && !defined(MKW_VITA_AURORA_RENDERER)
+                static_cast<unsigned long long>(priorWorkerSerial),
+                static_cast<unsigned long long>(priorWorkerRenderUs),
+                static_cast<unsigned long long>(priorWorkerSwapUs),
+                static_cast<unsigned long long>(priorWorkerAgeUs),
+#endif
                 producerDraws, producerVertices,
                 static_cast<unsigned>(pendingFrame.geometry.efbCommandCount),
                 static_cast<unsigned long long>(pendingFrame.counters.drawCalls),
@@ -5940,7 +6945,7 @@ void SubmitFrame() {
 #endif
 #if MKW_VITA_AUDIO_WAIT_PROFILE
         RT_LOGF(RT_TAG_GX,
-                "audio_wait_parts serial=%llu polls=%llu ticks=%llu reentries=%llu blocks=%llu capped=%llu "
+                "audio_wait_parts serial=%llu polls=%llu ticks=%llu reentries=%llu blocks=%llu capped=%llu budget=%u "
                 "join_us=%llu/%llu/%llu sink_us=%llu/%llu/%llu "
                 "ai_us=%llu/%llu/%llu ax_us=%llu/%llu/%llu "
                 "backlog_us=%llu/%llu callback=0x%08X dma=%u/%u\n",
@@ -5950,6 +6955,7 @@ void SubmitFrame() {
                 static_cast<unsigned long long>(priorAudio.reentries),
                 static_cast<unsigned long long>(priorAudio.blocks),
                 static_cast<unsigned long long>(priorAudio.capped),
+                static_cast<unsigned>(priorAudio.blockBudget),
                 static_cast<unsigned long long>(priorAudio.calls[0]),
                 static_cast<unsigned long long>(priorAudio.totalUs[0]),
                 static_cast<unsigned long long>(priorAudio.maxUs[0]),
@@ -5987,6 +6993,7 @@ void SubmitFrame() {
 
 void WaitRender(RenderWaitReason reason) {
     const uint64_t waitBeginUs = sceKernelGetProcessTimeWide();
+    uint64_t callbackTotalUs = 0;
     std::unique_lock<std::mutex> lock(g_renderMutex);
     const uint64_t serial = g_submittedSerial;
     while (g_completedSerial < serial) {
@@ -5996,6 +7003,7 @@ void WaitRender(RenderWaitReason reason) {
                 const uint64_t callbackBeginUs = sceKernelGetProcessTimeWide();
                 g_waitCallback();
                 const uint64_t callbackUs = sceKernelGetProcessTimeWide() - callbackBeginUs;
+                callbackTotalUs += callbackUs;
                 ++g_waitCallbackCallsSinceSubmit;
                 g_waitCallbackUsSinceSubmit += callbackUs;
                 g_waitCallbackMaxUsSinceSubmit =
@@ -6008,6 +7016,7 @@ void WaitRender(RenderWaitReason reason) {
     const uint64_t waitedUs = waitEndUs - waitBeginUs;
     ++g_guestWaitRenderCallsSinceSubmit;
     g_guestWaitRenderUsSinceSubmit += waitedUs;
+    g_guestWaitSleepUsSinceSubmit += waitedUs > callbackTotalUs ? waitedUs - callbackTotalUs : 0;
     const size_t reasonIndex = static_cast<size_t>(reason);
     ++g_renderWaitCallsByReason[reasonIndex];
     g_renderWaitUsByReason[reasonIndex] += waitedUs;
@@ -6101,8 +7110,18 @@ void Shutdown() noexcept {
             return;
         }
         g_renderStop = true;
+#if MKW_VITA_DIRECT_PREP_WORKER && !defined(MKW_VITA_AURORA_RENDERER)
+        g_prepStop = true;
+#endif
     }
     g_renderWake.notify_all();
+#if MKW_VITA_DIRECT_PREP_WORKER && !defined(MKW_VITA_AURORA_RENDERER)
+    g_prepWake.notify_all();
+    if (g_prepStarted) {
+        g_prepThread.join();
+        g_prepStarted = false;
+    }
+#endif
     g_renderThread.join();
     std::lock_guard<std::mutex> lock(g_renderMutex);
     g_renderStarted = false;

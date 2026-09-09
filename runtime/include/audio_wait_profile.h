@@ -8,6 +8,7 @@
 // wrapper, not scheduler/VI audio polls. Reset at every producer submission.
 struct AudioWaitProfile {
     uint64_t polls = 0, ticks = 0, reentries = 0, blocks = 0, capped = 0;
+    uint32_t blockBudget = 0;
     std::array<uint64_t, 4> calls{}, totalUs{}, maxUs{}; // join, sink, AI, AX
     uint64_t backlogMaxUs = 0, backlogLastUs = 0;
     uint32_t callback = 0, length = 0, sampleRate = 0;

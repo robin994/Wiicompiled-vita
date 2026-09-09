@@ -634,8 +634,74 @@ P5.9 offline PASS: compile, link, VELF/FSELF, package, verify/unzip,
 - ELF 219550236 byte
 - SHA-256 `94ae8a1c757c6b81a44ca20e57aa64b805b24f17675ae44d4e2a5d80e3bc4696`.
 
+## P6.7 hardware result / P6.8-MT three-core renderer split (2026-09-08)
+
+P6.7 hardware confirms the THP restuff recovery: standard turbojpeg fails on the
+Nintendo entropy stream, while repeated `restuffed_decode` + native decode succeeds
+at 608x464 and the final run has no `jpeg_pixels code=11`. Geometry capacity is also
+clean. Worker timing, however, proves the THP phase still spends ~0.78-0.94 s on
+USER_1 despite only 15-16 physical draws; serial 480 has 111 us VBO upload, 223 us
+swap and zero EFB, so render-thread CPU/texture work must be split from submission.
+
+Adopted architectural policy: USER_0 guest/HLE, USER_1 VitaGL/GXM only, USER_2 CPU
+graphics preparation + native audio. `MKW_VITA_DIRECT_PREP_WORKER=1` adds a USER_2
+frame-prep stage and moves THP YUV420->RGBA conversion off USER_1. The audio output
+thread is now explicitly pinned to USER_2 too. Prepared results are generation-
+validated, per-frame memory is bounded to two RGBA buffers, and synchronous decode
+remains a correctness fallback. No GL/GXM API runs on the prep worker.
+
+Profile: `full-content-p6_8-mt-thp-prep`.
+
+- VPK 41224387 bytes, SHA-256
+  `a70dd685c799d7ffd4487b6324205f1d4a92acf217be9cc089386593621cc5ca`;
+- ELF 218523256 bytes, SHA-256
+  `689d92abfa00c49d55bf9ced153893cbc3bdd71f8e0df6c07dcc4b43840c23ca`.
+
+Compile/link/VELF/FSELF/package/verify/unzip, graphics-check, diff-check and no-Aurora
+audit PASS. Prep OFF also graphics-checks, preserving the P6.7 A/B. Next: hardware
+measure `direct_prep` and `texprep`; then move vertex transform/texgen and generic GX
+texture decode to USER_2. USER_1-only texture allocation/upload needs a persistent
+streaming/subimage path if it remains the next dominant cost.
+
 Hardware acceptance: marker `native_audioout=1 audio_pacing=1`; ascoltare se i
 click diminuiscono e raccogliere `vita_audioout stats`. La P5.9 non e una fix
 FPS: se gli underrun restano alti, tornare immediatamente allo stall guest
 TaskThread/THP/scheduler invece di aumentare la FIFO o introdurre time-stretch
 speculativo.
+
+## 2026-09-08 — pivot renderer nativo GX HLE -> vitaGL, P6.4a-P6.7
+
+Il target 60 FPS non e piu usato come criterio intermedio: l'obiettivo operativo e
+prima una build corretta e giocabile a 30 FPS. Aurora non e piu il renderer della
+linea P6; le entry point GX restano come compatibility/HLE ABI del codice PPC
+ricompilato, ma il frame viene consumato direttamente dal renderer MKW VitaGL.
+
+L'ultimo log hardware P6.4 conferma che il direct renderer supera il vecchio
+overflow 8192/49152 dopo P6.1b e raggiunge G3D/THP senza un fault GXM osservabile.
+Rimangono due classi di stall: producer/guest multi-secondo con wait GPU quasi zero,
+e `wait_gx` durante il quale USER_0 esegue centinaia di millisecondi di HLE audio.
+Per evitare di confondere questi costi sono state implementate le seguenti fasi:
+
+1. **P6.4a worker timing**: `MKW_VITA_DIRECT_WORKER_TIMING=1`, summary 60 frame,
+   `worker=serial/render/swap/age` pubblicato da USER_1 e `wait_sleep_us` su USER_0.
+2. **P6.5 THP recovery**: fallback bounded di JPEG byte re-stuff dopo il fallimento
+   standard turbojpeg; marker `turbojpeg_standard_fail/restuffed_decode/restuffed_fail`.
+3. **P6.6 audio wait budget**: un solo blocco AI DMA per iterazione di render-wait,
+   senza scartare backlog/callback guest; polling normale resta a quattro blocchi.
+4. **P6.7 two-texture TEV**: primo subset esatto a due stage/texture con TEXCOORD0
+   condivisa, unit0 MODULATE/REPLACE e unit1 MODULATE. Le altre firme restano fallback
+   e sono telemetrizzate; nessuna espansione indiscriminata a TEX0..TEX7.
+
+Build P6.7 offline PASS: compile/link, VELF/FSELF, package, verify/unzip,
+`graphics-check`, `git diff --check`. Audit ELF: zero marker del renderer Aurora.
+
+- VPK `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_7-direct-tev-two-texture.vpk`
+- bytes `41224294`
+- SHA-256 `ed2c3746a1144315dc492be72b61959e553ad01804412336fc9766b6ca039eeb`
+- ELF bytes `218442188`
+- ELF SHA-256 `b9c092164ecec9ce4eca7077da50389c6112955989b506f26ef9f5747b65f83e`
+
+Hardware P6.7 ancora pendente. Il prossimo log deve decidere tre cose prima di
+aggiungere altra GX generica: tempo reale USER_1, successo/fallimento del re-stuff
+THP, e copertura `tev_chain`/`tev_draw` del subset nativo. Solo le firme MKW residue
+giustificano nuovi shader/multitexture path.

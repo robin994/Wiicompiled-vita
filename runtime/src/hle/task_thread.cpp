@@ -5,6 +5,14 @@
 #include "runtime_log.h"
 #include "guest_stall_watchdog.h"
 
+#ifndef MKW_VITA_GUEST_IO_PROFILE
+#define MKW_VITA_GUEST_IO_PROFILE 0
+#endif
+
+#if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
+#include <psp2/kernel/processmgr.h>
+#endif
+
 namespace {
 
 constexpr uint32_t kTaskMessageQueueOffset = 0x0Cu;
@@ -201,6 +209,9 @@ extern "C" void TaskThread_run_HLE_80242d7c(CpuContext* ctx) {
             GuestStallWatchdog::RecordTaskThread(taskThread, job, callback, arg);
 
             if (callback != 0) {
+#if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
+                const uint64_t callbackBeginUs = sceKernelGetProcessTimeWide();
+#endif
                 CpuContextScope scope(cpu);
                 if (callback == 0x80529D68u) {
                     RunMovieManagerPrepareAsync(arg, cpu);
@@ -208,13 +219,35 @@ extern "C" void TaskThread_run_HLE_80242d7c(CpuContext* ctx) {
                     cpu->gpr[3] = arg;
                     InvokeIndirectCpu(callback, cpu);
                 }
+#if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
+                const uint64_t callbackUs = sceKernelGetProcessTimeWide() - callbackBeginUs;
+                if (callbackUs >= 100000u) {
+                    RT_LOGF(RT_TAG_HLE,
+                            "task_callback_profile callback=0x%08X arg=0x%08X job=0x%08X elapsed_us=%llu\n",
+                            callback, arg, job,
+                            static_cast<unsigned long long>(callbackUs));
+                }
+#endif
             }
 
             const uint32_t currentJob = Memory::Read32(taskThread + kTaskCurrentJobOffset);
             if (currentJob != 0 && onDone != 0) {
+#if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
+                const uint32_t onDoneArg = Memory::Read32(currentJob + kJobArgOffset);
+                const uint64_t onDoneBeginUs = sceKernelGetProcessTimeWide();
+#endif
                 CpuContextScope scope(cpu);
                 cpu->gpr[3] = Memory::Read32(currentJob + kJobArgOffset);
                 InvokeIndirectCpu(onDone, cpu);
+#if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
+                const uint64_t onDoneUs = sceKernelGetProcessTimeWide() - onDoneBeginUs;
+                if (onDoneUs >= 100000u) {
+                    RT_LOGF(RT_TAG_HLE,
+                            "task_done_profile callback=0x%08X arg=0x%08X job=0x%08X elapsed_us=%llu\n",
+                            onDone, onDoneArg, currentJob,
+                            static_cast<unsigned long long>(onDoneUs));
+                }
+#endif
             }
 
             if (Memory::Contains(taskThread + kTaskDoneQueueOffset, 4)) {

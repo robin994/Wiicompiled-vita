@@ -15,6 +15,14 @@ extern "C" void GxNotifyGuestRamDmaWrite(uint32_t addr, uint32_t size);
 #include "runtime_log.h"
 #include "runtime_product.h"
 
+#ifndef MKW_VITA_GUEST_IO_PROFILE
+#define MKW_VITA_GUEST_IO_PROFILE 0
+#endif
+
+#if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
+#include <psp2/kernel/processmgr.h>
+#endif
+
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -327,6 +335,29 @@ void DropHostFileCache() {
 
 bool DvdReadIntoGuest(const DVDFileEntry& entry, uint32_t fileOffset, uint32_t length,
                       uint32_t guestDest, const char** why) {
+#if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
+    const uint64_t profileBeginUs = sceKernelGetProcessTimeWide();
+    uint64_t profileOpenUs = 0;
+    uint64_t profileSeekUs = 0;
+    uint64_t profileReadUs = 0;
+    uint64_t profileCopyUs = 0;
+    uint64_t profileNotifyUs = 0;
+    const char* profileMode = "direct";
+    auto logProfile = [&](bool ok) {
+        const uint64_t totalUs = sceKernelGetProcessTimeWide() - profileBeginUs;
+        if (totalUs < 20000u && length < (1024u * 1024u)) return;
+        const std::string pathText = HostPathText(entry.hostPath);
+        RT_LOGF(RT_TAG_DVD,
+                "dvd_read_profile ok=%u mode=%s bytes=%u offset=%u guest=0x%08X total_us=%llu open_us=%llu seek_us=%llu read_us=%llu copy_us=%llu notify_us=%llu path=%s\n",
+                static_cast<unsigned>(ok), profileMode, length, fileOffset, guestDest,
+                static_cast<unsigned long long>(totalUs),
+                static_cast<unsigned long long>(profileOpenUs),
+                static_cast<unsigned long long>(profileSeekUs),
+                static_cast<unsigned long long>(profileReadUs),
+                static_cast<unsigned long long>(profileCopyUs),
+                static_cast<unsigned long long>(profileNotifyUs), pathText.c_str());
+    };
+#endif
     if (length == 0) {
         return true;
     }
@@ -336,34 +367,82 @@ bool DvdReadIntoGuest(const DVDFileEntry& entry, uint32_t fileOffset, uint32_t l
     }
     uint8_t* host = Memory::GetPointer(guestDest, length);
     if (host == nullptr) {
+#if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
+        profileMode = "fallback";
+        const uint64_t readBeginUs = sceKernelGetProcessTimeWide();
+#endif
         std::vector<uint8_t> tmp;
         DvdReadContract::HostReadFailure f;
         if (!DvdReadContract::ReadExact(entry.hostPath, fileOffset, length, tmp, f)) {
+#if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
+            profileReadUs = sceKernelGetProcessTimeWide() - readBeginUs;
+            logProfile(false);
+#endif
             *why = DvdReadContract::Describe(f);
             return false;
         }
+#if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
+        profileReadUs = sceKernelGetProcessTimeWide() - readBeginUs;
+        const uint64_t copyBeginUs = sceKernelGetProcessTimeWide();
+#endif
         CopyToGuestAsDma(guestDest, tmp.data(), tmp.size());
+#if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
+        profileCopyUs = sceKernelGetProcessTimeWide() - copyBeginUs;
+        logProfile(true);
+#endif
         return true;
     }
+#if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
+    const uint64_t openBeginUs = sceKernelGetProcessTimeWide();
+#endif
     FILE* file = AcquireHostFile(entry);
+#if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
+    profileOpenUs = sceKernelGetProcessTimeWide() - openBeginUs;
+#endif
     if (file == nullptr) {
+#if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
+        logProfile(false);
+#endif
         *why = "cannot open host file";
         return false;
     }
+#if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
+    const uint64_t seekBeginUs = sceKernelGetProcessTimeWide();
+#endif
     if (std::fseek(file, static_cast<long>(fileOffset), SEEK_SET) != 0) {
+#if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
+        profileSeekUs = sceKernelGetProcessTimeWide() - seekBeginUs;
+        logProfile(false);
+#endif
         *why = "seek failed";
         return false;
     }
+#if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
+    profileSeekUs = sceKernelGetProcessTimeWide() - seekBeginUs;
+    const uint64_t readBeginUs = sceKernelGetProcessTimeWide();
+#endif
     size_t done = 0;
     while (done < length) {
         const size_t n = std::fread(host + done, 1, length - done, file);
         if (n == 0) {
+#if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
+            profileReadUs = sceKernelGetProcessTimeWide() - readBeginUs;
+            logProfile(false);
+#endif
             *why = std::feof(file) ? "short read" : "read error";
             return false;
         }
         done += n;
     }
+#if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
+    profileReadUs = sceKernelGetProcessTimeWide() - readBeginUs;
+    const uint64_t notifyBeginUs = sceKernelGetProcessTimeWide();
+#endif
     GxNotifyGuestRamDmaWrite(guestDest, length);
+#if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
+    profileNotifyUs = sceKernelGetProcessTimeWide() - notifyBeginUs;
+    logProfile(true);
+#endif
     return true;
 }
 

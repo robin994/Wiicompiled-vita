@@ -14,6 +14,10 @@
 
 namespace {
 
+#ifndef MKW_VITA_THP_UNESCAPED_FIX
+#define MKW_VITA_THP_UNESCAPED_FIX 0
+#endif
+
 constexpr uint32_t kThpFrameScanCap = 768u * 1024u;
 constexpr uint32_t kThpMaxDimension = 2048u;
 
@@ -24,6 +28,9 @@ constexpr uint32_t kThpErrDecode = 11u;
 
 thread_local tjhandle t_tj = nullptr;
 thread_local std::vector<uint8_t> t_plane[3];
+#if MKW_VITA_THP_UNESCAPED_FIX
+thread_local std::vector<uint8_t> t_restuffedJpeg;
+#endif
 
 uint64_t g_thpNativeFrames = 0;
 
@@ -50,6 +57,72 @@ uint32_t ScanJpegSize(const uint8_t* data, uint32_t span) noexcept {
     }
     return 0u;
 }
+
+#if MKW_VITA_THP_UNESCAPED_FIX
+bool FindSosScanStart(const uint8_t* data, uint32_t span, uint32_t& scanStart) noexcept {
+    if (!data || span < 4u || data[0] != 0xFFu || data[1] != 0xD8u) return false;
+    uint32_t p = 2u;
+    while (p + 3u < span) {
+        while (p < span && data[p] != 0xFFu) ++p;
+        while (p < span && data[p] == 0xFFu) ++p;
+        if (p >= span) return false;
+        const uint8_t marker = data[p++];
+        if (marker == 0xD9u) return false;
+        if (marker == 0xD8u || marker == 0x01u || (marker >= 0xD0u && marker <= 0xD7u)) {
+            continue;
+        }
+        if (p + 1u >= span) return false;
+        const uint32_t length = (static_cast<uint32_t>(data[p]) << 8u) | data[p + 1u];
+        if (length < 2u || p + length > span) return false;
+        if (marker == 0xDAu) {
+            scanStart = p + length;
+            return scanStart < span;
+        }
+        p += length;
+    }
+    return false;
+}
+
+// Nintendo THP feeds its MJPEG entropy stream to the SDK decoder already
+// unescaped. libjpeg-turbo expects standard JPEG byte stuffing, so on the
+// fallback path convert every entropy 0xFF to 0xFF 0x00. A raw 0xFF 0xD9 can
+// therefore occur inside THP entropy; try successive EOI candidates until the
+// JPEG decoder reports a complete image rather than trusting the first pair.
+bool TryDecodeRestuffedThp(tjhandle tj, const uint8_t* src, uint32_t span,
+                           unsigned char* planes[3], int width, int strides[3], int height,
+                           uint32_t& decodedSourceBytes, uint32_t& candidateOrdinal) {
+    uint32_t scanStart = 0;
+    if (!FindSosScanStart(src, span, scanStart)) return false;
+
+    constexpr uint32_t kMaxEoiCandidates = 64u;
+    uint32_t candidate = 0;
+    for (uint32_t eoi = scanStart; eoi + 1u < span && candidate < kMaxEoiCandidates; ++eoi) {
+        if (src[eoi] != 0xFFu || src[eoi + 1u] != 0xD9u) continue;
+        ++candidate;
+
+        t_restuffedJpeg.clear();
+        t_restuffedJpeg.reserve(static_cast<size_t>(scanStart) +
+                                static_cast<size_t>(eoi - scanStart) * 2u + 2u);
+        t_restuffedJpeg.insert(t_restuffedJpeg.end(), src, src + scanStart);
+        for (uint32_t p = scanStart; p < eoi; ++p) {
+            const uint8_t value = src[p];
+            t_restuffedJpeg.push_back(value);
+            if (value == 0xFFu) t_restuffedJpeg.push_back(0x00u);
+        }
+        t_restuffedJpeg.push_back(0xFFu);
+        t_restuffedJpeg.push_back(0xD9u);
+
+        if (tjDecompressToYUVPlanes(tj, t_restuffedJpeg.data(), t_restuffedJpeg.size(),
+                                    planes, width, strides, height, TJFLAG_FASTDCT) == 0) {
+            decodedSourceBytes = eoi + 2u;
+            candidateOrdinal = candidate;
+            return true;
+        }
+    }
+    candidateOrdinal = candidate;
+    return false;
+}
+#endif
 
 void TileI8Plane(const uint8_t* linear, uint32_t linStride, uint32_t width,
                  uint32_t height, uint8_t* dstTiled) noexcept {
@@ -154,8 +227,42 @@ void NativeThpVideoDecode(CpuContext* ctx) {
     // cheaper on the Vita's Cortex-A9 while remaining more than adequate for a
     // 960x544 display; avoid spending guest-core time on the accurate DCT path.
     phase="jpeg_pixels";
-    if (tjDecompressToYUVPlanes(tj, src, jpegSize, planes, width, strides, height,
-                                TJFLAG_FASTDCT) != 0) {
+    bool decoded = tjDecompressToYUVPlanes(tj, src, jpegSize, planes, width, strides, height,
+                                           TJFLAG_FASTDCT) == 0;
+#if MKW_VITA_THP_UNESCAPED_FIX
+    if (!decoded) {
+        static thread_local uint64_t restuffAttempts = 0;
+        static thread_local uint64_t restuffSuccesses = 0;
+        const uint64_t attempt = ++restuffAttempts;
+        if (attempt <= 4u || (attempt & (attempt - 1u)) == 0u) {
+            RT_LOGF(RT_TAG_HLE,
+                    "thp: turbojpeg_standard_fail n=%llu jpeg=%u span=%u error=%s\n",
+                    static_cast<unsigned long long>(attempt), jpegSize, span,
+                    tjGetErrorStr2(tj));
+        }
+        uint32_t decodedSourceBytes = 0;
+        uint32_t candidateOrdinal = 0;
+        decoded = TryDecodeRestuffedThp(tj, src, span, planes, width, strides, height,
+                                        decodedSourceBytes, candidateOrdinal);
+        if (decoded) {
+            const uint64_t success = ++restuffSuccesses;
+            if (success <= 8u || (success & (success - 1u)) == 0u) {
+                RT_LOGF(RT_TAG_HLE,
+                        "thp: restuffed_decode n=%llu %dx%d source=%u candidate=%u packed=%u\n",
+                        static_cast<unsigned long long>(success), width, height,
+                        decodedSourceBytes, candidateOrdinal,
+                        static_cast<unsigned>(t_restuffedJpeg.size()));
+            }
+            jpegSize = decodedSourceBytes;
+        } else if (attempt <= 4u || (attempt & (attempt - 1u)) == 0u) {
+            RT_LOGF(RT_TAG_HLE,
+                    "thp: restuffed_fail n=%llu candidates=%u error=%s\n",
+                    static_cast<unsigned long long>(attempt), candidateOrdinal,
+                    tjGetErrorStr2(tj));
+        }
+    }
+#endif
+    if (!decoded) {
         ctx->gpr[3] = kThpErrDecode;
         return;
     }

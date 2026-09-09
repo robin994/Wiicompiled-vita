@@ -2989,3 +2989,209 @@ fresh log (archive the old append-mode runtime.log first). Compare the same scen
 and configuration with Aurora: producer/wait time, physical/merged draws, upload,
 EFB time/failures, dropped vertices and visual output. In particular, the extra
 EFB synchronizations and CPU format conversion must be measured, not assumed free.
+
+## Direct renderer P6.4a-P6.7 — worker timing, THP recovery, bounded wait audio and two-texture TEV (2026-09-08)
+
+The latest hardware run validates the architectural direction rather than Aurora:
+the no-Aurora `direct-vitagl` renderer reaches the G3D/THP portion of the game,
+the P6.1b 12,288-draw / 73,728-vertex packet no longer reports the old
+`frame_upload_failed`/capacity failure, and no renderer/GXM crash marker was seen.
+The same run still reports `thp: decode_error ... phase=jpeg_pixels code=11` and
+shows that a large fraction of apparent `wait_gx` time is USER_0 VI/alarm/audio
+service rather than USER_1 rendering. P6.4 also needs more frequent TEV summaries:
+the interesting hardware window was shorter than the old 300-frame interval.
+
+P6.4a adds `MKW_VITA_DIRECT_WORKER_TIMING=1` and a 60-frame performance summary.
+USER_1 now publishes completed serial, direct render time, swap time and completion
+timestamp independently. USER_0 logs those fields as `worker=serial/render/swap/age`
+and additionally records `wait_sleep_us`, separating time actually blocked for the
+renderer from time spent executing the render-wait callback.
+
+P6.5 adds `MKW_VITA_THP_UNESCAPED_FIX=1`. The normal libjpeg-turbo path remains
+first. If it rejects the THP MJPEG entropy stream, the fallback finds SOS, re-adds
+JPEG 0x00 stuffing after entropy 0xFF bytes and tries bounded EOI candidates before
+returning error 11. New markers are `thp: turbojpeg_standard_fail`,
+`thp: restuffed_decode` and `thp: restuffed_fail`. Movies are not disabled and the
+guest Y/U/V tiled-plane contract is unchanged. Hardware validation of this recovery
+path is still required.
+
+P6.6 adds `MKW_VITA_AUDIO_WAIT_BLOCK_BUDGET`. Normal scheduler/audio polling retains
+the historical four-DMA-block catch-up bound, while the render-wait profile uses a
+budget of one block per callback. Unconsumed accumulator time remains pending, so
+no AI/AX/THP callback or guest audio backlog is dropped; USER_0 simply rechecks the
+USER_1 completion condition between small service quanta. `audio_wait_parts` now
+reports `budget=1` for this profile.
+
+P6.7 adds the first native multitexture TEV subset without expanding the vertex
+packet to eight texcoords. It recognizes exactly two sampled, classified stages
+sharing `GX_TEXCOORD0`, with stage 0 `MODULATE` or `REPLACE` and stage 1 `MODULATE`.
+The renderer snapshots both textures/revisions/guest generations and maps the second
+stage to VitaGL texture unit 1, preserving unit-0 output as the fixed-function input
+to the second MODULATE. All other multi-texture chains remain explicit fallback and
+are counted. Direct summaries now expose
+`tev_chain=collapsed/unsupported/multitexture/two_texture_native` and
+`tev_draw=simple/fallback/two_texture`.
+
+Final offline profile: `full-content-p6_7-direct-tev-two-texture`. Manifest confirms
+full content, native THP, clip-W, queue2, direct EFB/state cache/batcher, 60-frame
+summary, native SceAudioOut+pacing, P5 timing/cache/IRQ profilers, no hot shard and
+`MKW_VITA_AURORA_RENDERER=0`.
+
+- VPK: `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_7-direct-tev-two-texture.vpk`
+- VPK bytes: `41224294`
+- VPK SHA-256: `ed2c3746a1144315dc492be72b61959e553ad01804412336fc9766b6ca039eeb`
+- ELF: `build/vita/mkwii_runtime/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_7-direct-tev-two-texture.elf`
+- ELF bytes: `218442188`
+- ELF SHA-256: `b9c092164ecec9ce4eca7077da50389c6112955989b506f26ef9f5747b65f83e`
+- source HEAD recorded by manifest: `dd3385bae06c27bac426196d141eea7f5cb8dfb1`
+
+Offline validation: ARM32 compile/link, VELF/FSELF, VPK package, verify/unzip,
+`graphics-check` and `git diff --check` PASS. The only graphics-check diagnostic is
+the pre-existing GXVert enum-conversion warning. Binary string audit reports zero
+`AuroraPacketRenderer` and zero `aurora::vita::gfx` implementation names in the ELF.
+P6.7 is now **hardware tested**. The fresh run confirms all of the important
+correctness probes: the final P6.7 session has no `frame_upload_failed`, positive
+`begin_cap`/`raw_cap`, dropped geometry, fatal marker or SceGxm crash. More
+importantly, P6.5 is hardware validated: the stock turbojpeg call rejects Nintendo
+THP entropy with marker errors, while `restuffed_decode` succeeds repeatedly for
+608x464 frames through at least decode 32 and the old `jpeg_pixels code=11` does
+not recur in the final run.
+
+P6.4a also changes the USER_1 diagnosis. During active THP playback serial 480 has
+only 16 logical / 15 physical draws, zero EFB work, 111 us of direct VBO upload and
+223 us swap, but USER_1 still reports ~808 ms render time. Similar frames report
+~780-939 ms. This is real render-worker time, not merely USER_0 wait servicing.
+The same summary reports `tev_chain=0/12/0/0` and `tev_draw=0/15/0`, so the current
+THP-phase cost is not explained by the P6.7 two-texture path. The CPU-side THP
+YUV420->RGBA conversion still occurred synchronously inside `ResolveTexture` on
+USER_1 and became the first work item selected for multicore extraction.
+
+## P6.8-MT — three-core renderer pipeline / THP CPU prep (2026-09-08)
+
+New architectural rule: USER_1 owns VitaGL/GXM only. CPU graphics preparation must
+be moved off the render lane wherever it is independent of the GL context. The
+current Vita lanes are now intentionally:
+
+- USER_0: statically recompiled PPC + HLE producer;
+- USER_1: VitaGL/GXM submission, EFB and swap;
+- USER_2: graphics CPU preparation plus the native SceAudioOut worker.
+
+`HostThreadRole::GraphicsPrep` is pinned to USER_2. The native audio output worker,
+previously a raw unpinned `std::thread`, now explicitly applies the existing Audio
+USER_2 affinity as well so it cannot migrate onto guest/render cores.
+
+Flag `MKW_VITA_DIRECT_PREP_WORKER=1` adds a queue stage
+`Packing -> PrepQueued -> Prepping -> Ready -> Busy`. A dedicated USER_2 prep
+worker currently handles only the high-confidence hotspot: THP YUV420->RGBA CPU
+conversion. It performs no VitaGL/GXM call. Each frame slot can retain at most two
+prepared RGBA textures (bounded memory); extra/invalid sources fall back to the
+existing synchronous path. Guest write generation is checked before and after CPU
+conversion, and USER_1 revalidates again before upload.
+
+On a texture-cache miss USER_1 first looks for the exact prepared source snapshot;
+if present it uploads the prepared RGBA bytes directly. Otherwise it uses the old
+synchronous decoder. New telemetry:
+
+- `direct_prep worker_started affinity=USER_2`;
+- `direct_prep serial=... prep_us=... texture_us=... textures=... failures=...`;
+- direct `perf_summary` fields `prep=total/texture/count/fail` and
+  `texprep=prepared_hits/synchronous_decodes`;
+- startup marker `direct_prep_worker=1`.
+
+This is intentionally the first multicore milestone, not the final split. After
+hardware validation, P6.9 should move full-frame vertex transform/material/texgen
+preparation onto USER_2 as a per-slot prepared vertex stream, followed by generic
+GX texture/CMPR decode and state/TEV classification. VitaGL object creation,
+texture upload, draw submission, EFB operations and swap remain USER_1-only.
+
+P6.8-MT offline artifact:
+
+- VPK: `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_8-mt-thp-prep.vpk`
+- VPK bytes: `41224387`
+- VPK SHA-256: `a70dd685c799d7ffd4487b6324205f1d4a92acf217be9cc089386593621cc5ca`
+- ELF: `build/vita/mkwii_runtime/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_8-mt-thp-prep.elf`
+- ELF bytes: `218523256`
+- ELF SHA-256: `689d92abfa00c49d55bf9ced153893cbc3bdd71f8e0df6c07dcc4b43840c23ca`
+- manifest HEAD: `dd3385bae06c27bac426196d141eea7f5cb8dfb1`.
+
+Offline validation: compile/link, VELF/FSELF, package, verify/unzip, direct
+`graphics-check`, `git diff --check` PASS. The same direct backend also passes
+`graphics-check` with `MKW_VITA_DIRECT_PREP_WORKER=0`, preserving a clean P6.7 A/B.
+Binary audit remains zero `AuroraPacketRenderer` and zero `aurora::vita::gfx`.
+
+Next hardware acceptance: verify `direct_prep_worker=1` and
+`direct_prep worker_started affinity=USER_2`; during the same THP scene require
+`textures>0`, `prepared_hits>0`, no source-race/failure explosion, and compare the
+P6.7 USER_1 baseline (~0.78-0.94 s) against P6.8 worker render time. If USER_1
+remains hundreds of milliseconds while USER_2 prep succeeds, instrument/replace
+the remaining USER_1-only texture allocation/upload path (persistent streaming
+texture + subimage update) before attributing more CPU work to VitaGL.
+
+## P6.9-P6.12 — USER_2 full prep pipeline and direct texture anti-thrash (2026-09-09)
+
+P6.9-P6.11 complete the intended three-core split while preserving USER_1 as the
+only VitaGL/GXM owner:
+
+- P6.9: full-frame matrix transform, material override, TEX0 generation and
+  clip-W happen on USER_2; USER_1 receives a ready-to-upload vertex stream;
+- P6.10: USER_2 also decodes bounded generic GX textures (I4/I8/IA4/IA8,
+  RGB565/RGB5A3/RGBA8/CMPR/RGBA8_PC) and second TEV textures;
+- P6.11: USER_2 preclassifies TEV state and native batch/run bounds, including
+  primitive, contiguity, renderStateId and EFB boundaries.
+
+P6.11 is now **hardware tested**. User log SHA-256
+`2262870c3b36e2107f15a2352a7af0a44acb25edb19fa02f3d5fc11ddb6eb511`
+confirms `direct_prep_worker=1`, `direct_vertex_prep=1`,
+`direct_texture_prep=1`, `direct_state_prep=1`. P6.9/P6.11 themselves are cheap:
+the 178-draw/2656-vertex scene reports vertex prep ~1.9 ms and state prep ~65 us.
+The remaining blocker is texture churn: USER_2 repeatedly spends ~180 ms preparing
+the maximum eight textures while USER_1 still performs 138 synchronous decodes;
+the same frame reaches ~3.90 s `render_us`. Smaller recurring scenes show the same
+fixed eight-texture preparation behavior and failure count scaling with additional
+texture states, so the bottleneck is not vertex/state classification.
+
+Code inspection found a direct-backend regression relative to the already
+validated Aurora texture policy. The direct cache included `dataRevision` and
+`textureGlobalEpoch` in every match even for guest RAM with a valid
+`sourceGeneration`. `GXInvalidateTexAll` increments that epoch, therefore unchanged
+tracked pixel sources were needlessly decoded/uploaded again. Aurora already treats
+the guest-write generation as the content revision and ignores object/global
+revision churn for tracked memory.
+
+P6.12 (`MKW_VITA_DIRECT_TEXTURE_CACHE_ANTITHRASH=1`) ports that semantic rule to
+direct-vitaGL and adds two bounded anti-thrash measures:
+
+- tracked sources match on guest-write generation instead of false GX object/global
+  invalidations; untracked sources retain the conservative revision+epoch path;
+- direct cache metadata capacity grows 32 -> 256 entries while the GPU byte budget
+  remains exactly 12 MiB;
+- each recycled frame slot can reuse a previously decoded RGBA buffer when its
+  tracked source generation still matches. The active USER_2 preparation budget is
+  unchanged: max eight textures and 4 MiB per frame slot.
+
+New telemetry separates `reuse`, `cap_skip`, `budget_skip`, `decode_fail`, cache
+hits/misses/uploads, live cache bytes/entries, budget-vs-entry evictions and
+`invalidate_all`. P6.12 ON and OFF `graphics-check` both PASS, preserving a clean
+P6.11 A/B. Full compile/link/VELF/FSELF/package/verify/unzip and `git diff --check`
+PASS; binary string audit remains zero `AuroraPacketRenderer` and zero
+`aurora::vita::gfx`.
+
+P6.12 hardware artifact:
+
+- VPK: `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_12-texture-antithrash.vpk`
+- VPK bytes: `41225841`
+- VPK SHA-256: `95cb1cb123b74d30eda905709f211c489d149f1ea38ebb05e830a975db8ab6da`
+- ELF: `build/vita/mkwii_runtime/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_12-texture-antithrash.elf`
+- ELF bytes: `218662296`
+- ELF SHA-256: `b19538bea6eb06be4e553d90121b693dba36dff6fa100e53617f189859dc843d`
+- manifest HEAD: `dd3385bae06c27bac426196d141eea7f5cb8dfb1`.
+
+Hardware acceptance for P6.12: startup must report
+`direct_texture_cache_antithrash=1 texture_cache_cap=256 texture_cache_budget=12582912`.
+After slot warm-up, `direct_prep ... reuse=` should become non-zero in repeated
+scenes and `texture_us` should fall from the P6.11 ~180 ms plateau. In
+`perf_summary`, `texprep` synchronous decodes should fall drastically from 138 in
+the 178-draw scene and cache hits should dominate. If `budgetEvictions` is high but
+`entryEvictions` remains low, the real limiter is the unchanged 12 MiB byte budget;
+do not enlarge it without hardware memory evidence. If misses remain high with low
+evictions, inspect guest-write generation granularity before changing vitaGL.

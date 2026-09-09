@@ -222,3 +222,113 @@ dimostra starvation; alta `drop_oldest` dimostra burst/catch-up. Entrambi alti
 confermano che il vero blocker resta il guest multi-secondo. Dopo il test P5.9,
 la priorita performance torna all'attribution TaskThread/THP/scheduler e alla
 P5.7 AI-child attribution; packet swap rimane secondario.
+
+## 2026-09-08 — P6.7 hardware / P6.8-MT
+
+P6.7 final hardware run: `restuffed_decode` successfully recovers Nintendo THP
+MJPEG repeatedly (608x464, through at least n=32), with no final-run `jpeg_pixels
+code=11`, geometry overflow or GXM/fatal marker. USER_1 timing is nevertheless
+~779-939 ms in the THP scene; serial 480 is 808221 us render with only 15 physical
+draws, 111 us direct upload, 223 us swap and zero EFB. TEV reports 12 unsupported
+chains and no native two-texture hit in that frame.
+
+P6.8-MT therefore begins the required three-core pipeline rather than further
+single-thread micro-optimization. USER_0 remains the guest producer, USER_1 remains
+the sole VitaGL/GXM owner, and a new GraphicsPrep worker is pinned to USER_2. The
+first offload is THP YUV420->RGBA CPU conversion; its result is attached to the
+frame slot and consumed by `ResolveTexture` on USER_1. The native audio output
+thread is explicitly pinned to USER_2 as well. Source generations are validated
+around preprocessing; memory is bounded; fallback stays synchronous.
+
+P6.8-MT VPK: `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_8-mt-thp-prep.vpk`,
+41224387 bytes, SHA-256
+`a70dd685c799d7ffd4487b6324205f1d4a92acf217be9cc089386593621cc5ca`.
+ELF: 218523256 bytes, SHA-256
+`689d92abfa00c49d55bf9ced153893cbc3bdd71f8e0df6c07dcc4b43840c23ca`.
+Offline compile/link/package/unzip/graphics-check/diff-check/no-Aurora audit PASS;
+prep-worker OFF syntax/graphics A/B also PASS. Hardware validation pending.
+
+## 2026-09-08 — direct-vitaGL P6.4 hardware e P6.4a-P6.7 offline
+
+Il runtime hardware P6.4 conferma il renderer `direct-vitagl` senza Aurora nella
+linea attiva. La capacity P6.1b non mostra piu il precedente fallimento
+49,152/8,192; nelle scene osservate `begin_cap=0`, `raw_cap=0`, `dropped=0` e non
+compare `frame_upload_failed`. Non sono stati osservati marker fatal/SceGxm nel
+run analizzato.
+
+Il timing precedente non separava pero USER_1 da USER_0: alcuni producer frame
+~1-1.6 s avevano quasi zero wait renderer, mentre altri `wait_gx` ~1 s includevano
+~0.5-0.9 s di `Audio_HLE_PollDeferredForRenderWait`, soprattutto callback
+`0x80551F00` (THP AudioMixCallback). In parallelo il filmato continuava a riportare
+`thp: decode_error phase=jpeg_pixels code=11`.
+
+Per il prossimo hardware run sono ora compilate insieme:
+
+- P6.4a: USER_1 direct worker timing + `wait_sleep_us`, summary ogni 60 frame;
+- P6.5: fallback libjpeg-turbo con re-stuff del THP entropy scan;
+- P6.6: render-wait audio budget=1, backlog/callback preservati;
+- P6.7: primo TEV fixed-function a due texture/TEXCOORD0, con fallback misurato.
+
+Artefatto finale non ancora hardware-tested:
+
+- VPK `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_7-direct-tev-two-texture.vpk`
+  41224294 byte, SHA-256
+  `ed2c3746a1144315dc492be72b61959e553ad01804412336fc9766b6ca039eeb`;
+- ELF 218442188 byte, SHA-256
+  `b9c092164ecec9ce4eca7077da50389c6112955989b506f26ef9f5747b65f83e`;
+- manifest HEAD `dd3385bae06c27bac426196d141eea7f5cb8dfb1`.
+
+Offline PASS: build/link/VELF/FSELF/package/verify/unzip, `graphics-check` e
+`git diff --check`. String audit ELF: zero `AuroraPacketRenderer`, zero
+`aurora::vita::gfx`. Il prossimo log deve cercare `worker=`, `wait_sleep_us`,
+`audio_wait_parts ... budget=1`, `tev_chain`, `tev_draw` e
+`thp: restuffed_decode`; un eventuale `restuffed_fail` va corretto prima di
+considerare risolto il video. Target intermedio ufficiale: correttezza + 30 FPS
+giocabili; 60 FPS resta non dimostrato.
+
+## 2026-09-09 — P6.11 hardware e P6.12 texture anti-thrash
+
+Il nuovo hardware log P6.11 (SHA-256
+`2262870c3b36e2107f15a2352a7af0a44acb25edb19fa02f3d5fc11ddb6eb511`)
+conferma l'intera pipeline USER_2: vertex, generic texture e state/TEV prep sono
+attivi insieme. Il risultato separa bene i costi: nei frame da 178 draw / 2656
+vertici, vertex prep e ~1.8-1.9 ms e state prep ~65 us, mentre texture prep rimane
+~180 ms e raggiunge sempre il cap di otto sorgenti. USER_1 continua poi con fino a
+138 decode sincroni e ~3.90 s render. THP restuffed/native decode continua invece a
+riuscire; non e il decoder JPEG il nuovo blocker principale.
+
+L'ispezione del direct texture cache ha trovato la causa di churn piu concreta:
+`TextureCacheMatches` trattava `dataRevision` e `textureGlobalEpoch` come revisione
+dei pixel anche quando `sourceGeneration` traccia gia le scritture guest. Questo
+contraddice `FoldTextureRevision` nel backend Aurora, che correttamente usa la
+generation per guest RAM tracciata e non forza decode/upload soltanto per
+`GXInvalidateTexAll` o ricostruzione del GXTexObj.
+
+P6.12 introduce `MKW_VITA_DIRECT_TEXTURE_CACHE_ANTITHRASH=1`:
+
+- identita contenuto tracked = source generation; untracked conserva revision+epoch;
+- 256 cache metadata entries invece di 32, con budget GPU **immutato a 12 MiB**;
+- riuso dei RGBA USER_2 gia decodificati quando lo stesso frame slot viene riciclato
+  e la source generation e invariata;
+- active prep ancora bounded a 8 texture / 4 MiB per slot;
+- telemetria `prep_tex`, `texcache`, cache live bytes/entries, budget/entry eviction
+  e `invalidate`.
+
+A/B `graphics-check` P6.12 ON/OFF PASS. Full build/link/VELF/FSELF/package,
+verify/unzip e `git diff --check` PASS; no-Aurora string audit PASS.
+
+Artefatto P6.12 da hardware-testare:
+
+- VPK `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_12-texture-antithrash.vpk`
+  41225841 byte, SHA-256
+  `95cb1cb123b74d30eda905709f211c489d149f1ea38ebb05e830a975db8ab6da`;
+- ELF 218662296 byte, SHA-256
+  `b19538bea6eb06be4e553d90121b693dba36dff6fa100e53617f189859dc843d`;
+- manifest HEAD `dd3385bae06c27bac426196d141eea7f5cb8dfb1`.
+
+Acceptance: richiedere marker `direct_texture_cache_antithrash=1`, poi verificare
+che `reuse` salga, `texture_us` scenda dal plateau ~180 ms, `synchronousDecodes`
+crolli rispetto a 138 e cache hit domini. `budgetEvictions` alte con
+`entryEvictions` basse significheranno pressione reale dei 12 MiB; non aumentare il
+budget alla cieca. Miss alti senza eviction richiedono invece profiling della
+granularita `sourceGeneration`.

@@ -1,5 +1,6 @@
 #include "audio_backend.h"
 #include "runtime_log.h"
+#include "wiicompiled_vita/host_thread.h"
 
 #include <algorithm>
 #include <array>
@@ -63,6 +64,7 @@ VitaAudioSinkState& NativeSink() {
 }
 
 void NativeAudioWorker(int port) {
+    WiiCompiledVita::ConfigureCurrentThread(WiiCompiledVita::HostThreadRole::Audio);
     auto& state = NativeSink();
     bool playbackStarted = false;
     bool previousWasSilence = false;

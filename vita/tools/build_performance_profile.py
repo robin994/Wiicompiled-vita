@@ -31,7 +31,13 @@ BASE = dict(
     MKW_VITA_AUDIO_WAIT_PROFILE=0, MKW_VITA_AUDIO_AI_PROFILE=0,
     MKW_VITA_NATIVE_AUDIOOUT=0, MKW_VITA_AUDIO_PACING=0, MKW_VITA_DIRECT_BATCHER=0,
     MKW_VITA_DIRECT_EFB=0, MKW_VITA_DIRECT_STATE_CACHE=0,
-    MKW_VITA_DIRECT_TEV_SPECIALIZE=0,
+    MKW_VITA_DIRECT_TEV_SPECIALIZE=0, MKW_VITA_DIRECT_TEV_TWO_TEXTURE=0,
+    MKW_VITA_DIRECT_PREP_WORKER=0,
+    MKW_VITA_DIRECT_VERTEX_PREP=0, MKW_VITA_DIRECT_TEXTURE_PREP=0,
+    MKW_VITA_DIRECT_STATE_PREP=0, MKW_VITA_DIRECT_TEXTURE_CACHE_ANTITHRASH=0,
+    MKW_VITA_GUEST_IO_PROFILE=0,
+    MKW_VITA_DIRECT_WORKER_TIMING=0,
+    MKW_VITA_THP_UNESCAPED_FIX=0, MKW_VITA_AUDIO_WAIT_BLOCK_BUDGET=4,
     MKW_VITA_AURORA_RENDERER=1,
 )
 PROFILES = {
@@ -119,6 +125,46 @@ PROFILES["full-content-p6_3-direct-state-cache"] = (
 
 PROFILES["full-content-p6_4-direct-tev-specialize"] = (
     PROFILES["full-content-p6_3-direct-state-cache"] | dict(MKW_VITA_DIRECT_TEV_SPECIALIZE=1))
+
+PROFILES["full-content-p6_4a-direct-worker-timing"] = (
+    PROFILES["full-content-p6_4-direct-tev-specialize"] |
+    dict(MKW_VITA_DIRECT_WORKER_TIMING=1, MKW_VITA_PERF_SUMMARY_INTERVAL=60))
+
+PROFILES["full-content-p6_5-thp-unescaped"] = (
+    PROFILES["full-content-p6_4a-direct-worker-timing"] |
+    dict(MKW_VITA_THP_UNESCAPED_FIX=1))
+
+PROFILES["full-content-p6_6-audio-wait-budget"] = (
+    PROFILES["full-content-p6_5-thp-unescaped"] |
+    dict(MKW_VITA_AUDIO_WAIT_BLOCK_BUDGET=1))
+
+PROFILES["full-content-p6_7-direct-tev-two-texture"] = (
+    PROFILES["full-content-p6_6-audio-wait-budget"] |
+    dict(MKW_VITA_DIRECT_TEV_TWO_TEXTURE=1))
+
+PROFILES["full-content-p6_8-mt-thp-prep"] = (
+    PROFILES["full-content-p6_7-direct-tev-two-texture"] |
+    dict(MKW_VITA_DIRECT_PREP_WORKER=1))
+
+PROFILES["full-content-p6_9-mt-vertex-prep"] = (
+    PROFILES["full-content-p6_8-mt-thp-prep"] |
+    dict(MKW_VITA_DIRECT_VERTEX_PREP=1))
+
+PROFILES["full-content-p6_10-mt-texture-prep"] = (
+    PROFILES["full-content-p6_9-mt-vertex-prep"] |
+    dict(MKW_VITA_DIRECT_TEXTURE_PREP=1))
+
+PROFILES["full-content-p6_11-mt-state-prep"] = (
+    PROFILES["full-content-p6_10-mt-texture-prep"] |
+    dict(MKW_VITA_DIRECT_STATE_PREP=1))
+
+PROFILES["full-content-p6_12-texture-antithrash"] = (
+    PROFILES["full-content-p6_11-mt-state-prep"] |
+    dict(MKW_VITA_DIRECT_TEXTURE_CACHE_ANTITHRASH=1))
+
+PROFILES["full-content-p6_13-guest-io-profile"] = (
+    PROFILES["full-content-p6_12-texture-antithrash"] |
+    dict(MKW_VITA_GUEST_IO_PROFILE=1))
 
 def sha(path):
     with path.open("rb") as stream:

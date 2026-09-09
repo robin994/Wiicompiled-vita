@@ -22,6 +22,7 @@ enum class HostThreadRole : uint8_t {
     Guest,
     Render,
     Audio,
+    GraphicsPrep,
     Background,
 };
 
@@ -32,6 +33,8 @@ inline int AffinityMaskForRole(HostThreadRole role) noexcept {
     case HostThreadRole::Render:
         return SCE_KERNEL_CPU_MASK_USER_1;
     case HostThreadRole::Audio:
+        return SCE_KERNEL_CPU_MASK_USER_2;
+    case HostThreadRole::GraphicsPrep:
         return SCE_KERNEL_CPU_MASK_USER_2;
     case HostThreadRole::Background:
         // Background work may use whichever helper core is not busy with the

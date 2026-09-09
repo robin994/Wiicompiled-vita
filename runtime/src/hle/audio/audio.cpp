@@ -33,6 +33,9 @@ constexpr uint32_t kAIDmaCallbackAddr = 0x80386480u;
 // Max completed 3 ms DMA blocks delivered per tick. Draining several at once catches up
 // backlog from a long frame without letting a large stall spiral into an unbounded loop.
 constexpr int kMaxBlocksPerTick = 4;
+#ifndef MKW_VITA_AUDIO_WAIT_BLOCK_BUDGET
+#define MKW_VITA_AUDIO_WAIT_BLOCK_BUDGET 4
+#endif
 
 struct AIDmaState {
     std::mutex mutex;
@@ -396,11 +399,17 @@ PPC_NATIVE_OVERRIDE(8015D57C, DSPAssertTask_8015d57c, uint32_t, (uint32_t taskPt
 
 // Each delivered block runs the AI DMA callback and deferred AX task callbacks before the
 // next block, preserving the SoundThread/DSP interleave order real hardware provides.
-void Audio_HLE_Tick(CpuContext* ctx, uint32_t deltaMicros)
+// A render-wait pump may use a smaller block budget so USER_0 rechecks USER_1
+// frequently; unconsumed accumulator time is retained and no guest callback is dropped.
+void Audio_HLE_TickBudgeted(CpuContext* ctx, uint32_t deltaMicros, int blockBudget)
 {
+    blockBudget = std::clamp(blockBudget, 1, kMaxBlocksPerTick);
 #if defined(MKW_TARGET_VITA) && MKW_VITA_AUDIO_WAIT_PROFILE
     AudioWaitProfile* profile = g_profileRenderWaitAudio ? &g_audioWaitProfile : nullptr;
-    if (profile) ++profile->ticks;
+    if (profile) {
+        ++profile->ticks;
+        profile->blockBudget = static_cast<uint32_t>(blockBudget);
+    }
 #endif
     uint32_t startAddr = 0;
     uint32_t length = 0;
@@ -562,7 +571,7 @@ void Audio_HLE_Tick(CpuContext* ctx, uint32_t deltaMicros)
 #if defined(MKW_TARGET_VITA) && MKW_VITA_AUDIO_WAIT_PROFILE
         if (profile) ++profile->blocks;
 #endif
-        if (++blocksCompleted >= kMaxBlocksPerTick) {
+        if (++blocksCompleted >= blockBudget) {
 #if defined(MKW_TARGET_VITA) && MKW_VITA_AUDIO_WAIT_PROFILE
             if (profile) ++profile->capped;
 #endif
@@ -588,6 +597,11 @@ void Audio_HLE_Tick(CpuContext* ctx, uint32_t deltaMicros)
         g_ai.tickActive = false;
         activeTickReset.armed = false;
     }
+}
+
+void Audio_HLE_Tick(CpuContext* ctx, uint32_t deltaMicros)
+{
+    Audio_HLE_TickBudgeted(ctx, deltaMicros, kMaxBlocksPerTick);
 }
 
 namespace {
@@ -635,7 +649,8 @@ void Audio_HLE_PollDeferred()
 
     OS_HLE_BeginDeferredGuestCallbacks();
     try {
-        Audio_HLE_Tick(cpu, static_cast<uint32_t>(ConsumeAudioPollDeltaMicros()));
+        Audio_HLE_TickBudgeted(cpu, static_cast<uint32_t>(ConsumeAudioPollDeltaMicros()),
+                               kMaxBlocksPerTick);
     } catch (...) {
         OS_HLE_EndDeferredGuestCallbacks();
         throw;
@@ -651,7 +666,22 @@ void Audio_HLE_PollDeferredForRenderWait() {
         ~Scope() { g_profileRenderWaitAudio = previous; }
     } scope;
     ++g_audioWaitProfile.polls;
-    Audio_HLE_PollDeferred();
+    if (!OS_HLE_InterruptsEnabled()) {
+        return;
+    }
+
+    GuestInterruptCallbackContext interrupt;
+    CpuContext* cpu = interrupt.get();
+    OS_HLE_BeginDeferredGuestCallbacks();
+    try {
+        Audio_HLE_TickBudgeted(
+            cpu, static_cast<uint32_t>(ConsumeAudioPollDeltaMicros()),
+            MKW_VITA_AUDIO_WAIT_BLOCK_BUDGET);
+    } catch (...) {
+        OS_HLE_EndDeferredGuestCallbacks();
+        throw;
+    }
+    OS_HLE_EndDeferredGuestCallbacks();
 }
 
 AudioWaitProfile Audio_HLE_TakeWaitProfile() noexcept {
