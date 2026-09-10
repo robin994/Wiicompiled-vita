@@ -31,11 +31,24 @@ std::map<uint32_t, uint32_t> g_efbCopyDestinations;
 uint32_t g_largestEfbCopyDestination = 0;
 
 #if defined(MKW_TARGET_VITA)
+bool IsSlowGxProducerSnapshot(const GxCpuPerfSnapshot& snapshot) {
+    if (snapshot.preFirstBeginUs >= 500000u || snapshot.tailAfterLastBeginUs >= 500000u) {
+        return true;
+    }
+    for (uint32_t i = 0; i < snapshot.gxBeginCallerCount; ++i) {
+        if (snapshot.gxBeginCallers[i].maxGapUs >= 500000u) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void LogGxBeginHot(const GxCpuPerfSnapshot& snapshot, int frame) {
+    const bool forceSlowLog = IsSlowGxProducerSnapshot(snapshot);
 #if !MKW_VITA_PERF_LOG
-    (void)snapshot;
-    (void)frame;
-    return;
+    if (!forceSlowLog) {
+        return;
+    }
 #else
     bool hasLongGap = false;
     for (uint32_t i = 0; i < snapshot.gxBeginCallerCount; ++i) {
@@ -44,9 +57,10 @@ void LogGxBeginHot(const GxCpuPerfSnapshot& snapshot, int frame) {
     // High-draw menu frames used to emit 6-8 unbuffered stderr lines every frame,
     // which perturbed the very producer timing we are trying to measure on Vita.
     // Sample routine frames, but always retain transition stalls and very large frames.
-    if (frame > 8 && (frame % 30) != 0 && snapshot.gxBeginCalls < 1000 && !hasLongGap) {
+    if (!forceSlowLog && frame > 8 && (frame % 30) != 0 && snapshot.gxBeginCalls < 1000 && !hasLongGap) {
         return;
     }
+#endif
     RT_LOGF(RT_TAG_GX,
             "gx_phase frame=%d prebegin_us=%llu tail_us=%llu begins=%u\n",
             frame, static_cast<unsigned long long>(snapshot.preFirstBeginUs),
@@ -110,7 +124,6 @@ void LogGxBeginHot(const GxCpuPerfSnapshot& snapshot, int frame) {
                 static_cast<unsigned long long>(caller.gapUs),
                 static_cast<unsigned long long>(caller.maxGapUs), caller.count);
     }
-#endif
 }
 #endif
 
@@ -231,7 +244,9 @@ extern "C" void GX__CopyDisp_8016fc38(uint32_t da, uint32_t c) {
     const auto copyUs = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now() - copyBegin).count();
     const GxCpuPerfSnapshot cpuPerf = GX_HLE_TakeCpuPerfSnapshot();
-    if ((MKW_VITA_PERF_LOG && (g_gxFrameCount <= 8 || (g_gxFrameCount % 30) == 0)) ||
+    const bool slowProducerFrame = IsSlowGxProducerSnapshot(cpuPerf);
+    if (slowProducerFrame ||
+        (MKW_VITA_PERF_LOG && (g_gxFrameCount <= 8 || (g_gxFrameCount % 30) == 0)) ||
         (!MKW_VITA_PERF_LOG && (g_gxFrameCount % MKW_VITA_PERF_SUMMARY_INTERVAL) == 0)) {
         RT_LOGF(RT_TAG_GX,
                 "gx_cpu_perf frame=%d lyt_calls=%llu lyt_us=%llu lyt_direct=%llu lyt_packet=%llu lyt_faithful=%llu "

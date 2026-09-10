@@ -52,3 +52,4 @@ inline void Stop() noexcept {}
 #endif
 
 } // namespace GuestHotProfiler
+

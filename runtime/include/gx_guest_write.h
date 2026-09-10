@@ -12,6 +12,10 @@
 #include <cstddef>
 #include <cstdint>
 
+#ifndef MKW_VITA_GUEST_WRITE_HIERARCHY
+#define MKW_VITA_GUEST_WRITE_HIERARCHY 0
+#endif
+
 // Canonical MEM1/MEM2 physical address for any of the guest's cached, uncached
 // or physical aliases. Lives here rather than in the GX HLE so the tracking
 // table, its notifiers and the GX caches all agree on one address space.
@@ -45,6 +49,17 @@ namespace GxGuestWrite {
 inline constexpr uint32_t kGranuleShift = 16; // 64 KiB per granule
 inline constexpr uint64_t kTrackedSpan = static_cast<uint64_t>(Memory::kMem2PhysicalEnd);
 inline constexpr size_t kGranuleCount = static_cast<size_t>(kTrackedSpan >> kGranuleShift);
+#if MKW_VITA_GUEST_WRITE_HIERARCHY
+// P6.26: large GX arrays were validating hundreds of 64 KiB counters per raw-mesh
+// cache hit. Keep the exact 64 KiB map for small/edge ranges and add a 1 MiB
+// summary level for aligned interiors. Any write touching a 1 MiB block bumps its
+// summary counter, so consumers retain the same conservative invalidation contract.
+inline constexpr uint32_t kSuperGranuleShift = 20; // 1 MiB
+inline constexpr size_t kGranulesPerSuper = size_t{1} << (kSuperGranuleShift - kGranuleShift);
+inline constexpr size_t kSuperGranuleCount =
+    static_cast<size_t>((kTrackedSpan + ((uint64_t{1} << kSuperGranuleShift) - 1u)) >>
+                        kSuperGranuleShift);
+#endif
 
 // Folded value used for "this range is not covered by the granule map", which
 // forces the consumer to recompute its digest on every call.
@@ -55,6 +70,9 @@ inline constexpr uint64_t kUntracked = ~0ull;
 // relaxed ordering is enough, every access is a plain load or a lock-xadd on
 // x86 and a missed-by-a-hair ordering only delays a re-digest by one call.
 inline std::array<std::atomic<uint32_t>, kGranuleCount> g_generations{};
+#if MKW_VITA_GUEST_WRITE_HIERARCHY
+inline std::array<std::atomic<uint32_t>, kSuperGranuleCount> g_superGenerations{};
+#endif
 
 // Monotone fold of every granule counter covering [addr, addr + nbytes).
 // Counters only ever increase, so the sum changes whenever any covered granule
@@ -71,9 +89,30 @@ inline uint64_t GenerationForRange(uint32_t addr, uint32_t nbytes) noexcept {
     const size_t firstGranule = static_cast<size_t>(start >> kGranuleShift);
     const size_t lastGranule = static_cast<size_t>((end - 1) >> kGranuleShift);
     uint64_t folded = 0;
+#if MKW_VITA_GUEST_WRITE_HIERARCHY
+    size_t granule = firstGranule;
+    // Preserve 64 KiB precision until the next 1 MiB boundary.
+    while (granule <= lastGranule && (granule % kGranulesPerSuper) != 0u) {
+        folded += g_generations[granule].load(std::memory_order_relaxed);
+        ++granule;
+    }
+    // Fold complete 1 MiB spans through one atomic load each.
+    while (granule <= lastGranule &&
+           kGranulesPerSuper - 1u <= lastGranule - granule) {
+        folded += g_superGenerations[granule / kGranulesPerSuper].load(
+            std::memory_order_relaxed);
+        granule += kGranulesPerSuper;
+    }
+    // Tail smaller than a complete 1 MiB block keeps 64 KiB precision.
+    while (granule <= lastGranule) {
+        folded += g_generations[granule].load(std::memory_order_relaxed);
+        ++granule;
+    }
+#else
     for (size_t granule = firstGranule; granule <= lastGranule; ++granule) {
         folded += g_generations[granule].load(std::memory_order_relaxed);
     }
+#endif
     // Never collide with the "untracked" sentinel.
     return folded == kUntracked ? folded - 1u : folded;
 }
@@ -96,6 +135,13 @@ inline void NotifyWrite(uint32_t addr, uint32_t size) noexcept {
     for (size_t granule = firstGranule; granule <= lastGranule; ++granule) {
         g_generations[granule].fetch_add(1u, std::memory_order_relaxed);
     }
+#if MKW_VITA_GUEST_WRITE_HIERARCHY
+    const size_t firstSuper = static_cast<size_t>(start >> kSuperGranuleShift);
+    const size_t lastSuper = static_cast<size_t>((clampedEnd - 1) >> kSuperGranuleShift);
+    for (size_t super = firstSuper; super <= lastSuper; ++super) {
+        g_superGenerations[super].fetch_add(1u, std::memory_order_relaxed);
+    }
+#endif
 }
 
 // The skip contract shared by every consumer: a stored digest may be trusted

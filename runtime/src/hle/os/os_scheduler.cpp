@@ -12,6 +12,14 @@
 #include "os_internal.h"
 #include "guest_stall_watchdog.h"
 
+#ifndef MKW_VITA_THP_ASYNC_WORKER
+#define MKW_VITA_THP_ASYNC_WORKER 0
+#endif
+
+#if defined(MKW_TARGET_VITA) && MKW_VITA_THP_ASYNC_WORKER
+bool THP_HLE_ProcessPendingCompletions(CpuContext* cpu) noexcept;
+#endif
+
 namespace {
 void LinkMutexToThread(uint32_t threadPtr, uint32_t mutexPtr)
 {
@@ -135,6 +143,9 @@ extern "C" void SelectThread_801a9c08(CpuContext* ctx)
 
     GuestStallWatchdog::RecordSchedulerTick(1u);
     ProcessSleepTimers(cpu);
+#if defined(MKW_TARGET_VITA) && MKW_VITA_THP_ASYNC_WORKER
+    THP_HLE_ProcessPendingCompletions(cpu);
+#endif
 
     // Read scheduler state
     const uint32_t idleFlag = ::Memory::Read32(kSchedulerIdleFlagAddr);
@@ -237,6 +248,9 @@ extern "C" void SelectThread_801a9c08(CpuContext* ctx)
                 // hardware each interrupt is independent; here we service every
                 // due source once, then reschedule.
                 ProcessSleepTimers(cpu);
+#if defined(MKW_TARGET_VITA) && MKW_VITA_THP_ASYNC_WORKER
+                THP_HLE_ProcessPendingCompletions(cpu);
+#endif
                 Audio_HLE_Poll(cpu);
                 const bool audioSetPending = ::Memory::Read32(kSchedulerPendingFlagAddr) != 0;
                 if (audioSetPending) {

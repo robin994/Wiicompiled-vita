@@ -3195,3 +3195,75 @@ the 178-draw scene and cache hits should dominate. If `budgetEvictions` is high 
 `entryEvictions` remains low, the real limiter is the unchanged 12 MiB byte budget;
 do not enlarge it without hardware memory evidence. If misses remain high with low
 evictions, inspect guest-write generation granularity before changing vitaGL.
+
+## P6.16 regression / P6.17 producer-hot baseline (2026-09-09)
+
+Hardware P6.16 exposed a branch-integration regression: the artifact enabled direct_present_30hz=1/direct_decoupled_present=1 but omitted the validated P6.14 mainline flags fullscreen_present=1, dvd_host_buffering=1 and direct_efb_batch_sync=1. The same log also showed the runtime forcing ARM 333 -> 444 MHz instead of the intended 500 MHz hardware-test target.
+
+P6.17 restores the P6.14/P6.15 full-screen mainline and layers the P6.16 producer instrumentation/NEON/audio work on top. The runtime now requests 500 MHz first and falls back to 444 MHz only if the platform rejects the overclock call. P6.17 also activates selective -O2 for the 17 translated shards identified by guest_hot_pc and long task_callback_profile callbacks from the P6.16 hardware log.
+
+The P6.16 hardware log shows producer stalls dominated by task/DVD work rather than presentation alone: callback 0x80540038 reaches about 1.5-2.6 s, revo_kart.brsar reads reach about 0.68 s, and a heavy frame reports about 423 ms producer interval vs about 81 ms renderer work. P6.17 therefore preserves host DVD buffering and optimizes the translated callback/hot shards instead of treating the renderer as the only bottleneck.
+
+## P6.32 — direct-vitaGL 3D visibility + cumulative performance stack (2026-09-10)
+
+P6.32 combines the complete P6.31 performance/correctness stack with the historical
+perspective-geometry visibility probe that previously exposed otherwise invisible
+3D models. The old probe existed only inside the removed Aurora packet-renderer
+branch, so enabling `MKW_VITA_PERF_FORCE_3D_SOLID` alone had no effect on the active
+direct-vitaGL backend. The probe is now implemented in the direct path as well.
+
+For perspective draws only, the render-worker/prep copy forces RGBA to opaque white,
+disables texturing, culling, blending and alpha rejection, and with
+`MKW_VITA_PERF_SOLID_KEEP_DEPTH=0` neutralizes Z and disables depth testing/writes.
+The override is applied before the frame VBO upload in both synchronous and USER_2
+prepared-vertex paths. Full content remains enabled: EFB, billboards, light textures,
+THP, audio, clip-W and the direct TEV/texture pipeline are not globally skipped.
+The state cache keys distinguish solid-probe from normal state, and native batching
+is prevented from crossing a perspective/orthographic boundary so HUD/UI draws
+cannot inherit the 3D diagnostic state.
+
+Profile: `full-content-p6_32-direct-3d-visible`, inherited from
+`full-content-p6_31-arc-oracle-cache`, with only
+`MKW_VITA_PERF_FORCE_3D_SOLID=1` and `MKW_VITA_PERF_SOLID_KEEP_DEPTH=0` added.
+The same 17 measured translated hot shards remain `-O2`.
+
+Offline validation PASS: direct `graphics-check`, ARM32 compile/link, VELF/FSELF,
+VPK package/verify, `unzip -t`, `git diff --check`; FSELF magic is `SCE\0` and the
+final ELF contains zero `AuroraPacketRenderer` and zero `aurora::vita::gfx` refs.
+This build is NOT hardware-validated yet.
+
+- VPK: `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_32-direct-3d-visible.vpk`
+- VPK bytes: `44338675`
+- VPK SHA-256: `d3dcb1e5e8aeaa566960d0db2a45931a2dcd68f4fb93edf4db6d518ae449852e`
+
+Hardware acceptance: startup must report `perf_force_3d_solid=1`,
+`perf_solid_keep_depth=0`, `clip_w=1`, and once perspective geometry is submitted
+`direct_visibility_probe active=1`. Verify that track/karts/3D scene geometry becomes
+visible (expected diagnostic appearance: opaque white/flat), while menus/HUD remain
+normal. If geometry is visible, the next step is to restore depth first and then
+materials/textures incrementally while keeping the P6.31 performance stack. If it
+remains absent, inspect transform/clipping/raster submission rather than texture or
+lighting, because those variables are bypassed by this probe.
+
+
+## P6.34 — direct-vitaGL GX depth fix after P6.33 regression (2026-09-10)
+
+Hardware P6.33 regressed from the P6.32 white-silhouette visibility proof: perspective geometry was still decoded, transformed and submitted (the hardware log reached 1432 draws / 10452 vertices with raw_fail=0 and transform_fail=0), but no 3D silhouette remained visible. The regression was downstream of geometry decode.
+
+Root cause: P6.33 introduced MKW_VITA_DIRECT_GX_DEPTH_RANGE with the wrong convention. GX perspective projection produces post-divide depth in [0,1], while direct vitaGL/OpenGL homogeneous clipping expects [-1,1]. P6.33 applied z_gl = 2*z_gx + 1, which maps [0,1] to [1,3]. With MKW_VITA_CLIP_W=1 the renderer then restores clip-space Z by multiplying by W, so most perspective vertices exceed +W and are clipped before normal depth testing. P6.34 corrects the conversion to z_gl = 2*z_gx - 1.
+
+The existing P6.33 real-texture compatibility path remains enabled: exact simple/two-texture TEV subsets stay native, while unsupported perspective TEV chains use the decoded texture with GX_REPLACE and disable only approximate alpha/blend equations. Normal GX depth and culling are retained; the P6.32 force-white/depth-off/cull-off diagnostic probe is not enabled. The compatibility log now records depth_map=gx01_to_gl_m11. Aurora remains disabled.
+
+P6.34 also fixes a direct-state batching edge case: when DIRECT_3D_TEXTURED_COMPAT is enabled, prepared/native batches are now forced to stop at perspective/orthographic boundaries. This prevents a perspective fallback TEV/raster state from leaking into adjacent HUD/UI geometry (or vice versa) when primitive, raster and texture IDs otherwise match.
+
+Profile: full-content-p6_34-direct-3d-depthfix, inherited from P6.33. Three historical P6.17 hot-shard paths no longer exist in the current generated shard set, so P6.34 overrides the hot-shard list with the 14 still-present measured shards rather than mutating the historical P6.17 profile.
+
+The proposed explicit shader/state prewarm is intentionally not mixed into this correctness fix. Direct-vitaGL delegates fixed-function program realization to vitaGL, and the current hardware log does not yet contain a stable 20-50-signature GX/TEV census. First validate corrected 3D visibility/materials; then collect real fixed-function signatures and prewarm only those during boot/loading, avoiding combinatorial warmup and state leakage.
+
+Offline validation PASS: ARM32 compile/link, VELF/FSELF, VPK package, unzip -t. FSELF magic is SCE\0, the final ELF contains depth_map=gx01_to_gl_m11, and contains no AuroraPacketRenderer or aurora::vita::gfx references.
+
+- VPK: build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_34-direct-3d-depthfix.vpk
+- VPK bytes: 43817033
+- VPK SHA-256: 7e4f4938382011f35bfc0008e78552d68ff2ee7878651173412b1e5c9d3de64e
+
+Hardware acceptance: startup must report perf_force_3d_solid=0, direct_3d_textured_compat=1, direct_gx_depth_range=1 and clip_w=1. When the first unsupported perspective material is encountered, expect direct_3d_textured_compat ... depth_map=gx01_to_gl_m11. The critical visual test is character/vehicle/track perspective geometry: it should return as textured geometry rather than disappearing. If geometry is visible but faces are selectively missing, investigate GX-vs-GL front-face/cull semantics next; if geometry is visible but materials are wrong, continue TEV coverage. Do not reintroduce Aurora.

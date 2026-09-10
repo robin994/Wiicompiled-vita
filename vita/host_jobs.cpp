@@ -31,7 +31,7 @@ HostJobSystem::~HostJobSystem() {
     stop();
 }
 
-bool HostJobSystem::start() {
+bool HostJobSystem::start(HostThreadRole role) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (running_.load(std::memory_order_relaxed)) {
         return true;
@@ -42,7 +42,7 @@ bool HostJobSystem::start() {
     writeIndex_ = 0;
     queued_ = 0;
 
-    if (!worker_.start(HostThreadRole::Background, kWorkerStackSize, [this] { workerMain(); })) {
+    if (!worker_.start(role, kWorkerStackSize, [this] { workerMain(); })) {
         return false;
     }
     running_.store(true, std::memory_order_release);

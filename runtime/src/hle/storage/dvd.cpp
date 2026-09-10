@@ -21,13 +21,31 @@ extern "C" void GxNotifyGuestRamDmaWrite(uint32_t addr, uint32_t size);
 #ifndef MKW_VITA_DVD_HOST_BUFFERING
 #define MKW_VITA_DVD_HOST_BUFFERING 0
 #endif
+#ifndef MKW_VITA_DVD_ASYNC_HOST
+#define MKW_VITA_DVD_ASYNC_HOST 0
+#endif
+#ifndef MKW_VITA_BRSAR_PREFETCH
+#define MKW_VITA_BRSAR_PREFETCH 0
+#endif
+#ifndef MKW_VITA_BRSAR_PREFETCH_PHYCONT
+#define MKW_VITA_BRSAR_PREFETCH_PHYCONT 0
+#endif
 
-#if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
+#if defined(MKW_TARGET_VITA) && (MKW_VITA_GUEST_IO_PROFILE || MKW_VITA_DVD_ASYNC_HOST || MKW_VITA_BRSAR_PREFETCH)
 #include <psp2/kernel/processmgr.h>
+#endif
+#if defined(MKW_TARGET_VITA) && (MKW_VITA_DVD_ASYNC_HOST || MKW_VITA_BRSAR_PREFETCH)
+#include "wiicompiled_vita/host_jobs.h"
+#include <psp2/io/fcntl.h>
+#endif
+#if defined(MKW_TARGET_VITA) && MKW_VITA_BRSAR_PREFETCH
+#include <psp2/kernel/sysmem.h>
 #endif
 
 #include <array>
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <cstdlib>
 #include <cstdio>
@@ -37,6 +55,8 @@ extern "C" void GxNotifyGuestRamDmaWrite(uint32_t addr, uint32_t size);
 #include <vector>
 #include <string>
 #include <map>
+#include <memory>
+#include <new>
 #include <unordered_set>
 #include <filesystem>
 #include <iostream>
@@ -207,6 +227,11 @@ struct PendingDvdCallback {
     bool     lowLevel    = false;
     int32_t  finalState  = DVD_STATE_END;
     uint32_t transferred = 0;
+    // Host-async reads write guest RAM before the guest callback is published.
+    // Defer GX/display-list invalidation to USER_0 together with command-block
+    // completion so renderer-side guest caches are never mutated by the I/O worker.
+    uint32_t dmaAddr = 0;
+    uint32_t dmaSize = 0;
 };
 
 std::mutex g_pendingDvdMutex;
@@ -260,6 +285,9 @@ void DispatchDvdCallbackNow(const PendingDvdCallback& cb) {
 }
 
 void PublishDvdCompletionState(const PendingDvdCallback& cb) {
+    if (cb.dmaSize != 0) {
+        GxNotifyGuestRamDmaWrite(cb.dmaAddr, cb.dmaSize);
+    }
     if (cb.block != 0) {
         try {
             Memory::Write32(cb.block + DVD_CB_OFFSET_TRANSFERRED, cb.transferred);
@@ -268,6 +296,15 @@ void PublishDvdCompletionState(const PendingDvdCallback& cb) {
         }
     }
     CompleteDvdCancelState();
+}
+
+void QueueDvdCompletionFromHostWorker(PendingDvdCallback cb) {
+    // Never inspect guest scheduler state or dispatch translated code from a
+    // host worker. USER_0 drains this queue from the normal OS alarm/status
+    // service and publishes both cache invalidation and the callback there.
+    std::lock_guard<std::mutex> lock(g_pendingDvdMutex);
+    g_pendingDvd.push_back(cb);
+    g_pendingDvdCount.fetch_add(1, std::memory_order_release);
 }
 
 void QueueDvdCompletion(PendingDvdCallback cb) {
@@ -352,6 +389,177 @@ void DropHostFileCache() {
     }
 }
 
+#if defined(MKW_TARGET_VITA) && MKW_VITA_BRSAR_PREFETCH
+namespace {
+constexpr uint32_t kBrsarWarmOffset = 6699712u;
+constexpr uint32_t kBrsarWarmBytes = 2437024u;
+constexpr uint32_t kBrsarLargeOffset = 9178144u;
+constexpr uint32_t kBrsarLargeBytes = 7044512u;
+constexpr uint32_t kBrsarCacheBytes = kBrsarWarmBytes + kBrsarLargeBytes;
+constexpr uint32_t kBrsarCacheAllocGranularity = MKW_VITA_BRSAR_PREFETCH_PHYCONT
+    ? (1024u * 1024u) : (256u * 1024u);
+constexpr uint32_t kBrsarCacheAllocBytes =
+    (kBrsarCacheBytes + kBrsarCacheAllocGranularity - 1u) & ~(kBrsarCacheAllocGranularity - 1u);
+constexpr SceKernelMemBlockType kBrsarCacheMemType = MKW_VITA_BRSAR_PREFETCH_PHYCONT
+    ? static_cast<SceKernelMemBlockType>(SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_PHYCONT_RW)
+    : static_cast<SceKernelMemBlockType>(SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW);
+constexpr const char* kBrsarCachePoolName = MKW_VITA_BRSAR_PREFETCH_PHYCONT ? "phycont" : "cdram";
+
+struct BrsarPrefetchState {
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::atomic<uint32_t> stage{0}; // 0 idle, 1 running, 2 warm ready, 3 all ready, 4 failed
+    const DVDFileEntry* entry = nullptr;
+    SceUID block = -1;
+    uint8_t* base = nullptr;
+};
+
+BrsarPrefetchState g_brsarPrefetch;
+
+bool IsBrsarEntry(const DVDFileEntry& entry) {
+    return entry.size >= static_cast<uint64_t>(kBrsarLargeOffset) + kBrsarLargeBytes &&
+           (entry.dvdPath == "/sound/revo_kart.brsar" ||
+            HostPathText(entry.hostPath).find("revo_kart.brsar") != std::string::npos);
+}
+
+bool PreadExact(SceUID fd, uint8_t* dst, uint32_t bytes, uint32_t offset) noexcept {
+    uint32_t done = 0;
+    while (done < bytes) {
+        const int got = sceIoPread(fd, dst + done, bytes - done,
+                                   static_cast<SceOff>(offset) + done);
+        if (got <= 0) return false;
+        done += static_cast<uint32_t>(got);
+    }
+    return true;
+}
+
+void BrsarPrefetchWorker(void* raw) noexcept {
+    const DVDFileEntry* entry = static_cast<const DVDFileEntry*>(raw);
+    const uint64_t beginUs = sceKernelGetProcessTimeWide();
+    if (entry == nullptr) {
+        g_brsarPrefetch.stage.store(4u, std::memory_order_release);
+        g_brsarPrefetch.cv.notify_all();
+        return;
+    }
+
+    const SceUID block = sceKernelAllocMemBlock("MKWBrsarPrefetch",
+        kBrsarCacheMemType, kBrsarCacheAllocBytes, nullptr);
+    void* baseVoid = nullptr;
+    if (block < 0 || sceKernelGetMemBlockBase(block, &baseVoid) < 0 || baseVoid == nullptr) {
+        if (block >= 0) sceKernelFreeMemBlock(block);
+        RT_LOGF(RT_TAG_DVD, "brsar_prefetch alloc_failed rc=0x%08X bytes=%u pool=%s\n",
+                static_cast<uint32_t>(block), kBrsarCacheAllocBytes, kBrsarCachePoolName);
+        g_brsarPrefetch.stage.store(4u, std::memory_order_release);
+        g_brsarPrefetch.cv.notify_all();
+        return;
+    }
+    uint8_t* base = static_cast<uint8_t*>(baseVoid);
+    {
+        std::lock_guard<std::mutex> lock(g_brsarPrefetch.mutex);
+        g_brsarPrefetch.block = block;
+        g_brsarPrefetch.base = base;
+    }
+
+    const std::string path = HostPathText(entry->hostPath);
+    const SceUID fd = sceIoOpen(path.c_str(), SCE_O_RDONLY, 0);
+    if (fd < 0) {
+        RT_LOGF(RT_TAG_DVD, "brsar_prefetch open_failed rc=0x%08X path=%s\n",
+                static_cast<uint32_t>(fd), path.c_str());
+        g_brsarPrefetch.stage.store(4u, std::memory_order_release);
+        g_brsarPrefetch.cv.notify_all();
+        return;
+    }
+
+    const uint64_t warmBeginUs = sceKernelGetProcessTimeWide();
+    if (!PreadExact(fd, base, kBrsarWarmBytes, kBrsarWarmOffset)) {
+        sceIoClose(fd);
+        g_brsarPrefetch.stage.store(4u, std::memory_order_release);
+        g_brsarPrefetch.cv.notify_all();
+        RT_LOGF(RT_TAG_DVD, "brsar_prefetch warm_failed offset=%u bytes=%u\n",
+                kBrsarWarmOffset, kBrsarWarmBytes);
+        return;
+    }
+    const uint64_t warmUs = sceKernelGetProcessTimeWide() - warmBeginUs;
+    g_brsarPrefetch.stage.store(2u, std::memory_order_release);
+    g_brsarPrefetch.cv.notify_all();
+
+    const uint64_t largeBeginUs = sceKernelGetProcessTimeWide();
+    const bool largeOk = PreadExact(fd, base + kBrsarWarmBytes, kBrsarLargeBytes, kBrsarLargeOffset);
+    const uint64_t largeUs = sceKernelGetProcessTimeWide() - largeBeginUs;
+    sceIoClose(fd);
+    g_brsarPrefetch.stage.store(largeOk ? 3u : 4u, std::memory_order_release);
+    g_brsarPrefetch.cv.notify_all();
+    RT_LOGF(RT_TAG_DVD,
+            "brsar_prefetch_profile ok=%u warm_us=%llu large_us=%llu total_us=%llu cache_bytes=%u alloc_bytes=%u pool=%s\n",
+            static_cast<unsigned>(largeOk), static_cast<unsigned long long>(warmUs),
+            static_cast<unsigned long long>(largeUs),
+            static_cast<unsigned long long>(sceKernelGetProcessTimeWide() - beginUs),
+            kBrsarCacheBytes, kBrsarCacheAllocBytes, kBrsarCachePoolName);
+}
+
+void MaybeStartBrsarPrefetch(const DVDFileEntry& entry) {
+    if (!IsBrsarEntry(entry)) return;
+    uint32_t expected = 0u;
+    if (!g_brsarPrefetch.stage.compare_exchange_strong(expected, 1u,
+            std::memory_order_acq_rel, std::memory_order_relaxed)) return;
+    g_brsarPrefetch.entry = &entry;
+    auto& jobs = WiiCompiledVita::BackgroundJobs();
+    if ((!jobs.running() && !jobs.start(WiiCompiledVita::HostThreadRole::Io)) ||
+        !jobs.submit(&BrsarPrefetchWorker, const_cast<DVDFileEntry*>(&entry))) {
+        g_brsarPrefetch.stage.store(0u, std::memory_order_release);
+        RT_LOGF(RT_TAG_DVD, "brsar_prefetch submit_failed\n");
+    } else {
+        RT_LOGF(RT_TAG_DVD, "brsar_prefetch queued warm=%u/%u large=%u/%u\n",
+                kBrsarWarmOffset, kBrsarWarmBytes, kBrsarLargeOffset, kBrsarLargeBytes);
+    }
+}
+
+bool TryServeBrsarPrefetch(const DVDFileEntry& entry, uint32_t fileOffset, uint32_t length,
+                           uint8_t* guestHost, uint32_t guestDest) {
+    if (!IsBrsarEntry(entry) || guestHost == nullptr || length == 0u) return false;
+    uint32_t cacheOffset = 0;
+    uint32_t requiredStage = 0;
+    uint32_t waitMs = 0;
+    if (fileOffset >= kBrsarWarmOffset &&
+        static_cast<uint64_t>(fileOffset) + length <= static_cast<uint64_t>(kBrsarWarmOffset) + kBrsarWarmBytes) {
+        cacheOffset = fileOffset - kBrsarWarmOffset;
+        requiredStage = 2u;
+        waitMs = 400u;
+    } else if (fileOffset >= kBrsarLargeOffset &&
+        static_cast<uint64_t>(fileOffset) + length <= static_cast<uint64_t>(kBrsarLargeOffset) + kBrsarLargeBytes) {
+        cacheOffset = kBrsarWarmBytes + (fileOffset - kBrsarLargeOffset);
+        requiredStage = 3u;
+        waitMs = 900u;
+    } else {
+        return false;
+    }
+
+    MaybeStartBrsarPrefetch(entry);
+    const uint64_t waitBeginUs = sceKernelGetProcessTimeWide();
+    {
+        std::unique_lock<std::mutex> lock(g_brsarPrefetch.mutex);
+        g_brsarPrefetch.cv.wait_for(lock, std::chrono::milliseconds(waitMs), [&] {
+            const uint32_t stage = g_brsarPrefetch.stage.load(std::memory_order_acquire);
+            return stage >= requiredStage || stage == 4u;
+        });
+    }
+    const uint64_t waitUs = sceKernelGetProcessTimeWide() - waitBeginUs;
+    const uint32_t stage = g_brsarPrefetch.stage.load(std::memory_order_acquire);
+    if (stage < requiredStage || stage == 4u || g_brsarPrefetch.base == nullptr) return false;
+
+    const uint64_t copyBeginUs = sceKernelGetProcessTimeWide();
+    std::memcpy(guestHost, g_brsarPrefetch.base + cacheOffset, length);
+    const uint64_t copyUs = sceKernelGetProcessTimeWide() - copyBeginUs;
+    GxNotifyGuestRamDmaWrite(guestDest, length);
+    RT_LOGF(RT_TAG_DVD,
+            "brsar_prefetch_hit bytes=%u offset=%u guest=0x%08X wait_us=%llu copy_us=%llu stage=%u\n",
+            length, fileOffset, guestDest, static_cast<unsigned long long>(waitUs),
+            static_cast<unsigned long long>(copyUs), stage);
+    return true;
+}
+} // namespace
+#endif
+
 bool DvdReadIntoGuest(const DVDFileEntry& entry, uint32_t fileOffset, uint32_t length,
                       uint32_t guestDest, const char** why) {
 #if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
@@ -411,6 +619,11 @@ bool DvdReadIntoGuest(const DVDFileEntry& entry, uint32_t fileOffset, uint32_t l
 #endif
         return true;
     }
+#if defined(MKW_TARGET_VITA) && MKW_VITA_BRSAR_PREFETCH
+    if (TryServeBrsarPrefetch(entry, fileOffset, length, host, guestDest)) {
+        return true;
+    }
+#endif
 #if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_IO_PROFILE
     const uint64_t openBeginUs = sceKernelGetProcessTimeWide();
 #endif
@@ -471,8 +684,170 @@ bool DvdReadIntoGuest(const DVDFileEntry& entry, uint32_t fileOffset, uint32_t l
     profileNotifyUs = sceKernelGetProcessTimeWide() - notifyBeginUs;
     logProfile(true);
 #endif
+#if defined(MKW_TARGET_VITA) && MKW_VITA_BRSAR_PREFETCH
+    // The initial 64/453408 BRSAR reads are the earliest reliable signal that
+    // the audio archive is live. Start warming the later 2.4/7.0 MiB ranges
+    // only after the current synchronous read completes to avoid competing with it.
+    if (IsBrsarEntry(entry) && fileOffset < kBrsarWarmOffset) {
+        MaybeStartBrsarPrefetch(entry);
+    }
+#endif
     return true;
 }
+
+#if defined(MKW_TARGET_VITA) && MKW_VITA_DVD_ASYNC_HOST
+bool DvdReadIntoGuestNativePread(const DVDFileEntry& entry, uint32_t fileOffset,
+                                uint32_t length, uint32_t guestDest,
+                                const char** why) {
+#if MKW_VITA_GUEST_IO_PROFILE
+    const uint64_t profileBeginUs = sceKernelGetProcessTimeWide();
+    uint64_t profileOpenUs = 0;
+    uint64_t profileReadUs = 0;
+#endif
+    if (length == 0) {
+        return true;
+    }
+    if (!Memory::Contains(guestDest, length)) {
+        *why = "DVD async destination is outside guest memory";
+        return false;
+    }
+    uint8_t* host = Memory::GetPointer(guestDest, length);
+    if (host == nullptr) {
+        *why = "DVD async destination has no direct host mapping";
+        return false;
+    }
+
+    const std::string pathText = HostPathText(entry.hostPath);
+#if MKW_VITA_GUEST_IO_PROFILE
+    const uint64_t openBeginUs = sceKernelGetProcessTimeWide();
+#endif
+    const SceUID fd = sceIoOpen(pathText.c_str(), SCE_O_RDONLY, 0);
+#if MKW_VITA_GUEST_IO_PROFILE
+    profileOpenUs = sceKernelGetProcessTimeWide() - openBeginUs;
+#endif
+    if (fd < 0) {
+        *why = "sceIoOpen failed";
+        return false;
+    }
+
+#if MKW_VITA_GUEST_IO_PROFILE
+    const uint64_t readBeginUs = sceKernelGetProcessTimeWide();
+#endif
+    uint32_t done = 0;
+    while (done < length) {
+        const int got = sceIoPread(fd, host + done, length - done,
+                                   static_cast<SceOff>(fileOffset) + done);
+        if (got <= 0) {
+            sceIoClose(fd);
+            *why = got == 0 ? "short sceIoPread" : "sceIoPread failed";
+#if MKW_VITA_GUEST_IO_PROFILE
+            profileReadUs = sceKernelGetProcessTimeWide() - readBeginUs;
+            RT_LOGF(RT_TAG_DVD,
+                    "dvd_async_read_profile ok=0 bytes=%u offset=%u guest=0x%08X total_us=%llu open_us=%llu read_us=%llu path=%s\n",
+                    length, fileOffset, guestDest,
+                    static_cast<unsigned long long>(sceKernelGetProcessTimeWide() - profileBeginUs),
+                    static_cast<unsigned long long>(profileOpenUs),
+                    static_cast<unsigned long long>(profileReadUs), pathText.c_str());
+#endif
+            return false;
+        }
+        done += static_cast<uint32_t>(got);
+    }
+#if MKW_VITA_GUEST_IO_PROFILE
+    profileReadUs = sceKernelGetProcessTimeWide() - readBeginUs;
+#endif
+    sceIoClose(fd);
+
+#if MKW_VITA_GUEST_IO_PROFILE
+    RT_LOGF(RT_TAG_DVD,
+            "dvd_async_read_profile ok=1 bytes=%u offset=%u guest=0x%08X total_us=%llu open_us=%llu read_us=%llu path=%s\n",
+            length, fileOffset, guestDest,
+            static_cast<unsigned long long>(sceKernelGetProcessTimeWide() - profileBeginUs),
+            static_cast<unsigned long long>(profileOpenUs),
+            static_cast<unsigned long long>(profileReadUs), pathText.c_str());
+#endif
+    return true;
+}
+
+struct AsyncDvdReadJob {
+    const DVDFileEntry* entry = nullptr;
+    uint32_t fileOffset = 0;
+    uint32_t length = 0;
+    uint32_t guestDest = 0;
+    uint32_t callbackPtr = 0;
+    uint32_t block = 0;
+};
+
+void AsyncDvdReadWorker(void* raw) noexcept {
+    std::unique_ptr<AsyncDvdReadJob> job(static_cast<AsyncDvdReadJob*>(raw));
+    if (!job || job->entry == nullptr) {
+        return;
+    }
+
+    const char* why = nullptr;
+    const bool ok = DvdReadIntoGuestNativePread(*job->entry, job->fileOffset,
+                                                job->length, job->guestDest, &why);
+    if (!ok) {
+        RT_LOGF(RT_TAG_DVD,
+                "dvd_async_worker read_failed block=0x%08X guest=0x%08X bytes=%u why=%s\n",
+                job->block, job->guestDest, job->length, why ? why : "unknown");
+    }
+
+    PendingDvdCallback completion{};
+    completion.callbackPtr = job->callbackPtr;
+    completion.result = ok ? static_cast<int32_t>(job->length) : kDvdFatalError;
+    completion.block = job->block;
+    completion.lowLevel = false;
+    completion.finalState = ok ? DVD_STATE_END : DVD_STATE_FATAL_ERROR;
+    completion.transferred = ok ? job->length : 0u;
+    completion.dmaAddr = ok ? job->guestDest : 0u;
+    completion.dmaSize = ok ? job->length : 0u;
+    QueueDvdCompletionFromHostWorker(completion);
+}
+
+bool SubmitAsyncDvdRead(const DVDFileEntry& entry, uint32_t fileOffset,
+                        uint32_t length, uint32_t guestDest,
+                        uint32_t callbackPtr, uint32_t block) {
+    if (length != 0) {
+        if (!Memory::Contains(guestDest, length) || Memory::GetPointer(guestDest, length) == nullptr) {
+            return false;
+        }
+    }
+
+    auto& jobs = WiiCompiledVita::BackgroundJobs();
+    if (!jobs.running() && !jobs.start(WiiCompiledVita::HostThreadRole::Io)) {
+        RT_LOGF(RT_TAG_DVD, "dvd_async_worker start_failed; falling back to synchronous HLE\n");
+        return false;
+    }
+
+    auto job = std::unique_ptr<AsyncDvdReadJob>(new (std::nothrow) AsyncDvdReadJob{});
+    if (!job) {
+        return false;
+    }
+    job->entry = &entry;
+    job->fileOffset = fileOffset;
+    job->length = length;
+    job->guestDest = guestDest;
+    job->callbackPtr = callbackPtr;
+    job->block = block;
+
+    if (block != 0) {
+        try {
+            Memory::Write32(block + DVD_CB_OFFSET_TRANSFERRED, 0u);
+            Memory::Write32(block + DVD_CB_OFFSET_STATE, DVD_STATE_BUSY);
+        } catch (const Memory::AccessViolation&) {
+            return false;
+        }
+    }
+
+    AsyncDvdReadJob* rawJob = job.release();
+    if (!jobs.submit(&AsyncDvdReadWorker, rawJob)) {
+        delete rawJob;
+        return false;
+    }
+    return true;
+}
+#endif
 
 } // namespace
 
@@ -1340,6 +1715,32 @@ extern "C" int32_t DVD__ReadAsyncPrio_HLE_8015e74c(uint32_t fileInfoPtr,
                                                    uint32_t callbackPtr,
                                                    int32_t prio)
 {
+#if defined(MKW_TARGET_VITA) && MKW_VITA_DVD_ASYNC_HOST
+    if (offset >= 0 && length >= 0) {
+        try {
+            const uint32_t startWords = Memory::Read32(fileInfoPtr + DVD_FILEINFO_OFFSET_ADDR);
+            const uint64_t startBytes = static_cast<uint64_t>(startWords) * 4ull;
+            if (const PublishedExtent* extent = FindPublishedExtentForByteOffset(startBytes)) {
+                const DVDFileEntry& entry = g_fileEntries[extent->entryIndex];
+                const uint64_t extentBias = startBytes - extent->startBytes;
+                const uint64_t requestedOffset = extentBias + static_cast<uint32_t>(offset);
+                if (requestedOffset < entry.size) {
+                    const uint32_t fileOffset = static_cast<uint32_t>(requestedOffset);
+                    uint32_t readLength = static_cast<uint32_t>(length);
+                    if (readLength > entry.size - fileOffset) {
+                        readLength = entry.size - fileOffset;
+                    }
+                    if (SubmitAsyncDvdRead(entry, fileOffset, readLength, bufferPtr,
+                                           callbackPtr, fileInfoPtr)) {
+                        return 1;
+                    }
+                }
+            }
+        } catch (const Memory::AccessViolation&) {
+            // Preserve the established synchronous error/fatal behavior below.
+        }
+    }
+#endif
     const int32_t bytesRead = DVDReadPrio_8015E834(fileInfoPtr, bufferPtr, length, offset, prio);
 
     InvokeDvdCallback(callbackPtr, bytesRead, fileInfoPtr);
@@ -1360,6 +1761,20 @@ extern "C" int32_t DVD__ReadAbsAsyncPrio_HLE_801628cc(uint32_t cmdBlockPtr,
                                                       int32_t prio)
 {
     (void)prio;
+#if defined(MKW_TARGET_VITA) && MKW_VITA_DVD_ASYNC_HOST
+    if (length >= 0) {
+        AbsReadResult readInfo;
+        const uint32_t requestedLength = static_cast<uint32_t>(length);
+        const uint32_t absoluteOffset = static_cast<uint32_t>(offset);
+        if (ResolveAbsRead(absoluteOffset, requestedLength, readInfo) &&
+            (requestedLength == 0 || readInfo.readLength == requestedLength) &&
+            (requestedLength == 0 || Memory::Contains(bufferPtr, requestedLength)) &&
+            SubmitAsyncDvdRead(*readInfo.entry, readInfo.fileOffset, readInfo.readLength,
+                               bufferPtr, callbackPtr, cmdBlockPtr)) {
+            return 1;
+        }
+    }
+#endif
     int32_t bytesRead = -1;
     {
         AbsReadResult readInfo;

@@ -259,3 +259,4 @@ extern "C" void MTX__PSVECCrossProduct_8019accc(uint32_t aAddr, uint32_t bAddr,
 }
 PPC_NATIVE_OVERRIDE_VOID(8019accc, MTX__PSVECCrossProduct_8019accc,
                          (uint32_t a, uint32_t b, uint32_t out), (a, b, out));
+

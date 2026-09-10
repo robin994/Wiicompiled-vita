@@ -114,22 +114,28 @@ void ConfigurePerformanceClocks() noexcept {
     const int beforeGpu = scePowerGetGpuClockFrequency();
     const int beforeXbar = scePowerGetGpuXbarClockFrequency();
 
-    // Never lower a clock already raised by the user's overclock setup (500 MHz
-    // ARM is common in hardware testing). Stock systems are still raised to the
-    // established safe floor. Calling the stock setter with an overclock value
-    // can reject it, so preserve a higher observed value by simply not touching it.
-    const int armResult = beforeArm < 444 ? scePowerSetArmClockFrequency(444) : 0;
+    // Request the 500 MHz hardware-test target first. Overclock-enabled systems
+    // accept it; stock firmware may reject it, in which case retain the established
+    // 444 MHz fallback rather than leaving USER_0 at the 333 MHz boot clock.
+    int armResult = 0;
+    int armFallbackResult = 0;
+    if (beforeArm < 500) {
+        armResult = scePowerSetArmClockFrequency(500);
+        if (armResult < 0 || scePowerGetArmClockFrequency() < 500) {
+            armFallbackResult = scePowerSetArmClockFrequency(444);
+        }
+    }
     const int busResult = beforeBus < 222 ? scePowerSetBusClockFrequency(222) : 0;
     const int gpuResult = beforeGpu < 222 ? scePowerSetGpuClockFrequency(222) : 0;
     const int xbarResult = beforeXbar < 166 ? scePowerSetGpuXbarClockFrequency(166) : 0;
 
     std::fprintf(stderr,
-                 "[PERF] clocks before=%d/%d/%d/%d set_rc=%d/%d/%d/%d after=%d/%d/%d/%d MHz preserve_high=%d\n",
+                 "[PERF] clocks before=%d/%d/%d/%d arm500_rc=%d arm444_rc=%d other_rc=%d/%d/%d after=%d/%d/%d/%d MHz target_arm=500 preserve_high=%d\n",
                  beforeArm, beforeBus, beforeGpu, beforeXbar,
-                 armResult, busResult, gpuResult, xbarResult,
+                 armResult, armFallbackResult, busResult, gpuResult, xbarResult,
                  scePowerGetArmClockFrequency(), scePowerGetBusClockFrequency(),
                  scePowerGetGpuClockFrequency(), scePowerGetGpuXbarClockFrequency(),
-                 beforeArm > 444 ? 1 : 0);
+                 beforeArm >= 500 ? 1 : 0);
     std::fflush(stderr);
 }
 

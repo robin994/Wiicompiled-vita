@@ -22,6 +22,7 @@ enum class HostThreadRole : uint8_t {
     Guest,
     Render,
     Audio,
+    Io,
     GraphicsPrep,
     Background,
 };
@@ -33,6 +34,12 @@ inline int AffinityMaskForRole(HostThreadRole role) noexcept {
     case HostThreadRole::Render:
         return SCE_KERNEL_CPU_MASK_USER_1;
     case HostThreadRole::Audio:
+        return SCE_KERNEL_CPU_MASK_USER_2;
+    case HostThreadRole::Io:
+        // Blocking storage calls should never occupy USER_0 or USER_1.  USER_2
+        // already hosts audio/prep work, but an I/O thread sleeps in the kernel
+        // for most of a large read so those runnable workers can still use the
+        // core while storage is outstanding.
         return SCE_KERNEL_CPU_MASK_USER_2;
     case HostThreadRole::GraphicsPrep:
         return SCE_KERNEL_CPU_MASK_USER_2;

@@ -3,19 +3,41 @@
 #include "hle_stubs.h"
 #include "memory.h"
 #include "abi_bridge.h"
+#include "fiber_manager.h"
 #include "ppc_runtime.h"
 #include "runtime_log.h"
 
+#if defined(MKW_TARGET_VITA)
+#include "wiicompiled_vita/host_jobs.h"
+#include <psp2/kernel/processmgr.h>
+#include <psp2/kernel/threadmgr.h>
+#endif
+
 #include <turbojpeg.h>
 
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <mutex>
+#include <new>
 #include <vector>
+
+#if defined(MKW_TARGET_VITA)
+extern "C" void OSSleepThread_HLE_801aa9b8(CpuContext* ctx);
+void OS_HLE_WakeupThreadNoReschedule(CpuContext* ctx, uint32_t waitQueue);
+#endif
 
 namespace {
 
 #ifndef MKW_VITA_THP_UNESCAPED_FIX
 #define MKW_VITA_THP_UNESCAPED_FIX 0
+#endif
+
+#ifndef MKW_VITA_THP_ASYNC_WORKER
+#define MKW_VITA_THP_ASYNC_WORKER 0
 #endif
 
 constexpr uint32_t kThpFrameScanCap = 768u * 1024u;
@@ -32,7 +54,73 @@ thread_local std::vector<uint8_t> t_plane[3];
 thread_local std::vector<uint8_t> t_restuffedJpeg;
 #endif
 
-uint64_t g_thpNativeFrames = 0;
+std::atomic<uint64_t> g_thpNativeFrames{0};
+
+#if defined(MKW_TARGET_VITA) && MKW_VITA_THP_ASYNC_WORKER
+struct ThpAsyncJob {
+    uint32_t srcAddr = 0;
+    uint32_t dstYAddr = 0;
+    uint32_t dstUAddr = 0;
+    uint32_t dstVAddr = 0;
+    uint32_t waitQueue = 0;
+    std::atomic<bool> workerComplete{false};
+    std::atomic<bool> published{false};
+    uint32_t result = kThpErrDecode;
+    uint64_t workerUs = 0;
+};
+
+constexpr size_t kThpAsyncSlots = 4;
+std::array<ThpAsyncJob*, kThpAsyncSlots> g_thpAsyncJobs{};
+std::mutex g_thpAsyncMutex;
+WiiCompiledVita::HostJobSystem g_thpHostJobs;
+std::atomic<bool> g_thpWorkerStarted{false};
+
+struct ThpWaitFrame {
+    bool valid = false;
+    uint32_t oldStack = 0;
+    uint32_t newStack = 0;
+    uint32_t waitQueue = 0;
+};
+
+ThpWaitFrame InitializeThpWaitFrame(CpuContext* ctx) {
+    constexpr uint32_t kFrameSize = 0x40u;
+    constexpr uint32_t kWaitQueueOffset = 0x30u;
+    ThpWaitFrame frame;
+    frame.oldStack = ctx->gpr[1];
+    frame.newStack = frame.oldStack - kFrameSize;
+    if (frame.oldStack < kFrameSize || !Memory::Contains(frame.newStack, kFrameSize)) {
+        return frame;
+    }
+    Memory::Write32(frame.newStack, frame.oldStack);
+    Memory::Write32(frame.newStack + 4u, 0);
+    Memory::Write32(frame.newStack + kWaitQueueOffset, 0);
+    Memory::Write32(frame.newStack + kWaitQueueOffset + 4u, 0);
+    frame.waitQueue = frame.newStack + kWaitQueueOffset;
+    frame.valid = true;
+    return frame;
+}
+
+bool RegisterThpAsyncJob(ThpAsyncJob* job) {
+    std::lock_guard<std::mutex> lock(g_thpAsyncMutex);
+    for (ThpAsyncJob*& slot : g_thpAsyncJobs) {
+        if (slot == nullptr) {
+            slot = job;
+            return true;
+        }
+    }
+    return false;
+}
+
+void RemoveThpAsyncJob(ThpAsyncJob* job) {
+    std::lock_guard<std::mutex> lock(g_thpAsyncMutex);
+    for (ThpAsyncJob*& slot : g_thpAsyncJobs) {
+        if (slot == job) {
+            slot = nullptr;
+            return;
+        }
+    }
+}
+#endif
 
 tjhandle AcquireDecoder() noexcept {
     if (t_tj == nullptr) {
@@ -149,8 +237,10 @@ uint32_t TiledPlaneBytes(uint32_t width, uint32_t height) noexcept {
     return ((width + 7u) / 8u) * ((height + 3u) / 4u) * 32u;
 }
 
-void NativeThpVideoDecode(CpuContext* ctx) {
+void NativeThpVideoDecodeSync(CpuContext* ctx) {
     static thread_local uint64_t calls=0, failures=0;
+    static thread_local uint64_t totalUs=0, maxUs=0;
+    const auto callBegin = std::chrono::steady_clock::now();
     const char* phase="arguments";
     const uint64_t call=++calls;
     if (call<=2) RT_LOGF(RT_TAG_HLE,"thp: decode_enter n=%llu src=0x%08X\n",
@@ -227,6 +317,7 @@ void NativeThpVideoDecode(CpuContext* ctx) {
     // cheaper on the Vita's Cortex-A9 while remaining more than adequate for a
     // 960x544 display; avoid spending guest-core time on the accurate DCT path.
     phase="jpeg_pixels";
+    const auto jpegBegin = std::chrono::steady_clock::now();
     bool decoded = tjDecompressToYUVPlanes(tj, src, jpegSize, planes, width, strides, height,
                                            TJFLAG_FASTDCT) == 0;
 #if MKW_VITA_THP_UNESCAPED_FIX
@@ -267,8 +358,10 @@ void NativeThpVideoDecode(CpuContext* ctx) {
         return;
     }
 
+    const auto jpegEnd = std::chrono::steady_clock::now();
     const uint32_t dstAddr[3] = {dstYAddr, dstUAddr, dstVAddr};
     phase="guest_planes";
+    const auto tileBegin = std::chrono::steady_clock::now();
     for (int c = 0; c < 3; ++c) {
         const uint32_t need = TiledPlaneBytes(planeW[c], planeH[c]);
         uint8_t* dst = Memory::GetPointer(dstAddr[c], need);
@@ -279,17 +372,155 @@ void NativeThpVideoDecode(CpuContext* ctx) {
         TileI8Plane(t_plane[c].data(), planeW[c], planeW[c], planeH[c], dst);
     }
 
-    ++g_thpNativeFrames;
-    if (g_thpNativeFrames <= 8u || (g_thpNativeFrames & (g_thpNativeFrames - 1u)) == 0u) {
-        RT_LOGF(RT_TAG_HLE, "thp: native decode n=%llu %dx%d subsamp=%d jpeg=%u\n",
-                static_cast<unsigned long long>(g_thpNativeFrames), width, height, subsamp,
-                jpegSize);
+    const auto callEnd = std::chrono::steady_clock::now();
+    const uint64_t callUs = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+        callEnd - callBegin).count());
+    const uint64_t jpegUs = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+        jpegEnd - jpegBegin).count());
+    const uint64_t tileUs = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+        callEnd - tileBegin).count());
+    totalUs += callUs;
+    maxUs = std::max(maxUs, callUs);
+    const uint64_t nativeFrame = g_thpNativeFrames.fetch_add(1u, std::memory_order_relaxed) + 1u;
+    if (nativeFrame <= 8u || (nativeFrame & (nativeFrame - 1u)) == 0u) {
+        RT_LOGF(RT_TAG_HLE,
+                "thp: native decode n=%llu %dx%d subsamp=%d jpeg=%u total_us=%llu jpeg_us=%llu tile_us=%llu avg_us=%llu max_us=%llu\n",
+                static_cast<unsigned long long>(nativeFrame), width, height, subsamp,
+                jpegSize, static_cast<unsigned long long>(callUs),
+                static_cast<unsigned long long>(jpegUs), static_cast<unsigned long long>(tileUs),
+                static_cast<unsigned long long>(totalUs / calls),
+                static_cast<unsigned long long>(maxUs));
     }
 
     ctx->gpr[3] = kThpErrNone;
 }
 
+#if defined(MKW_TARGET_VITA) && MKW_VITA_THP_ASYNC_WORKER
+void ThpAsyncWorker(void* raw) noexcept {
+    auto* job = static_cast<ThpAsyncJob*>(raw);
+    if (!job) return;
+
+    const auto begin = std::chrono::steady_clock::now();
+    CpuContext workerCpu{};
+    workerCpu.gpr[3] = job->srcAddr;
+    workerCpu.gpr[4] = job->dstYAddr;
+    workerCpu.gpr[5] = job->dstUAddr;
+    workerCpu.gpr[6] = job->dstVAddr;
+    NativeThpVideoDecodeSync(&workerCpu);
+    job->result = workerCpu.gpr[3];
+    job->workerUs = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - begin).count());
+    // Final access from USER_2. Once this release is visible, USER_0 may publish
+    // the guest wake and eventually destroy the job after the sleeping fiber resumes.
+    job->workerComplete.store(true, std::memory_order_release);
+}
+
+bool StartThpAsyncWorker() {
+    if (g_thpWorkerStarted.load(std::memory_order_acquire)) return true;
+    if (!g_thpHostJobs.start(WiiCompiledVita::HostThreadRole::GraphicsPrep)) return false;
+    g_thpWorkerStarted.store(true, std::memory_order_release);
+    RT_LOGF(RT_TAG_HLE, "thp: async worker_started affinity=USER_2 slots=%u\n",
+            static_cast<unsigned>(kThpAsyncSlots));
+    return true;
+}
+
+bool TryQueueAsyncThp(CpuContext* ctx, const ThpWaitFrame& frame, ThpAsyncJob*& outJob) {
+    outJob = nullptr;
+    if (!frame.valid || !StartThpAsyncWorker()) return false;
+    auto* job = new (std::nothrow) ThpAsyncJob{};
+    if (!job) return false;
+    job->srcAddr = ctx->gpr[3];
+    job->dstYAddr = ctx->gpr[4];
+    job->dstUAddr = ctx->gpr[5];
+    job->dstVAddr = ctx->gpr[6];
+    job->waitQueue = frame.waitQueue;
+    if (!RegisterThpAsyncJob(job)) {
+        delete job;
+        return false;
+    }
+    if (!g_thpHostJobs.submit(&ThpAsyncWorker, job)) {
+        RemoveThpAsyncJob(job);
+        delete job;
+        return false;
+    }
+    outJob = job;
+    return true;
+}
+
+void CompleteThpJobWithoutScheduler(ThpAsyncJob* job) {
+    while (!job->workerComplete.load(std::memory_order_acquire)) {
+        sceKernelDelayThread(100);
+    }
+    RemoveThpAsyncJob(job);
+    job->published.store(true, std::memory_order_release);
+}
+#endif
+
+void NativeThpVideoDecode(CpuContext* ctx) {
+#if defined(MKW_TARGET_VITA) && MKW_VITA_THP_ASYNC_WORKER
+    if (ctx != nullptr) {
+        const ThpWaitFrame frame = InitializeThpWaitFrame(ctx);
+        ThpAsyncJob* job = nullptr;
+        if (TryQueueAsyncThp(ctx, frame, job)) {
+            const uint64_t queueBeginUs = sceKernelGetProcessTimeWide();
+            ctx->gpr[1] = frame.newStack;
+            ctx->gpr[3] = frame.waitQueue;
+            OSSleepThread_HLE_801aa9b8(ctx);
+            ctx->gpr[1] = frame.oldStack;
+
+            // Normally the scheduler completion pump set published and woke this
+            // private queue. If the guest scheduler could not park the fiber, wait
+            // for the helper here as a correctness fallback rather than racing it.
+            if (!job->published.load(std::memory_order_acquire)) {
+                CompleteThpJobWithoutScheduler(job);
+            }
+            ctx->gpr[3] = job->result;
+            const uint64_t elapsedUs = sceKernelGetProcessTimeWide() - queueBeginUs;
+            static uint64_t asyncReturns = 0;
+            const uint64_t n = ++asyncReturns;
+            if (n <= 8u || (n & (n - 1u)) == 0u) {
+                RT_LOGF(RT_TAG_HLE,
+                        "thp: async return n=%llu result=%u worker_us=%llu fiber_wait_us=%llu overlap_us=%lld\n",
+                        static_cast<unsigned long long>(n), job->result,
+                        static_cast<unsigned long long>(job->workerUs),
+                        static_cast<unsigned long long>(elapsedUs),
+                        static_cast<long long>(elapsedUs) - static_cast<long long>(job->workerUs));
+            }
+            delete job;
+            return;
+        }
+    }
+#endif
+    NativeThpVideoDecodeSync(ctx);
+}
+
 }  // namespace
+
+#if defined(MKW_TARGET_VITA) && MKW_VITA_THP_ASYNC_WORKER
+bool THP_HLE_ProcessPendingCompletions(CpuContext* cpu) noexcept {
+    std::array<ThpAsyncJob*, kThpAsyncSlots> completed{};
+    size_t count = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_thpAsyncMutex);
+        for (ThpAsyncJob*& slot : g_thpAsyncJobs) {
+            if (slot == nullptr ||
+                !slot->workerComplete.load(std::memory_order_acquire) ||
+                slot->published.load(std::memory_order_relaxed)) {
+                continue;
+            }
+            completed[count++] = slot;
+            slot = nullptr;
+        }
+    }
+
+    for (size_t i = 0; i < count; ++i) {
+        ThpAsyncJob* job = completed[i];
+        job->published.store(true, std::memory_order_release);
+        OS_HLE_WakeupThreadNoReschedule(cpu, job->waitQueue);
+    }
+    return count != 0;
+}
+#endif
 
 PPC_NATIVE_OVERRIDE_VOID(801B3BAC, NativeThpVideoDecode, (CpuContext* ctx), (ctx));
 

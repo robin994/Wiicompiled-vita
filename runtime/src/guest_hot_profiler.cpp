@@ -130,3 +130,4 @@ void Stop() noexcept {
 } // namespace GuestHotProfiler
 
 #endif
+

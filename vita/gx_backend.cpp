@@ -34,6 +34,7 @@
 #include <psp2/io/fcntl.h>
 #include <psp2/gxm.h>
 #include <psp2/kernel/processmgr.h>
+#include <psp2/kernel/sysmem.h>
 
 #include <algorithm>
 #include <array>
@@ -103,6 +104,12 @@ static_assert(MKW_VITA_FRAME_QUEUE_DEPTH >= 1 && MKW_VITA_FRAME_QUEUE_DEPTH <= 2
 #ifndef MKW_VITA_DIRECT_TEV_TWO_TEXTURE
 #define MKW_VITA_DIRECT_TEV_TWO_TEXTURE 0
 #endif
+#ifndef MKW_VITA_DIRECT_3D_TEXTURED_COMPAT
+#define MKW_VITA_DIRECT_3D_TEXTURED_COMPAT 0
+#endif
+#ifndef MKW_VITA_DIRECT_GX_DEPTH_RANGE
+#define MKW_VITA_DIRECT_GX_DEPTH_RANGE 0
+#endif
 #ifndef MKW_VITA_DIRECT_PRESENT_30HZ
 #define MKW_VITA_DIRECT_PRESENT_30HZ 0
 #endif
@@ -136,6 +143,9 @@ static_assert(MKW_VITA_FRAME_QUEUE_DEPTH >= 1 && MKW_VITA_FRAME_QUEUE_DEPTH <= 2
 #ifndef MKW_VITA_DIRECT_EFB_BATCH_SYNC
 #define MKW_VITA_DIRECT_EFB_BATCH_SYNC 0
 #endif
+#ifndef MKW_VITA_EFB_DEFERRED_BARRIER
+#define MKW_VITA_EFB_DEFERRED_BARRIER 0
+#endif
 #ifndef MKW_VITA_RENDER_DECOUPLE
 #define MKW_VITA_RENDER_DECOUPLE 0
 #endif
@@ -147,6 +157,15 @@ static_assert(MKW_VITA_FRAME_QUEUE_DEPTH >= 1 && MKW_VITA_FRAME_QUEUE_DEPTH <= 2
 #endif
 #ifndef MKW_VITA_AUDIO_WAIT_BLOCK_BUDGET
 #define MKW_VITA_AUDIO_WAIT_BLOCK_BUDGET 4
+#endif
+#ifndef MKW_VITA_VGL_CDRAM_RESERVE_MB
+#define MKW_VITA_VGL_CDRAM_RESERVE_MB 0
+#endif
+#ifndef MKW_VITA_VGL_PHYCONT_RESERVE_MB
+#define MKW_VITA_VGL_PHYCONT_RESERVE_MB 0
+#endif
+#ifndef MKW_VITA_VGL_CIRCULAR_POOL_MB
+#define MKW_VITA_VGL_CIRCULAR_POOL_MB 0
 #endif
 
 #if defined(MKW_VITA_VITAGL_SPEEDHACK)
@@ -189,6 +208,23 @@ constexpr size_t kMaxPreparedTexturesPerFrame = MKW_VITA_DIRECT_TEXTURE_PREP ? 8
 constexpr size_t kPreparedTextureBudgetBytes = MKW_VITA_DIRECT_TEXTURE_PREP
     ? 4u * 1024u * 1024u : 2u * 1024u * 1024u;
 constexpr int kVitaGlUserRamReserve = 8 * 1024 * 1024;
+constexpr int kVitaGlCdramReserve = MKW_VITA_VGL_CDRAM_RESERVE_MB * 1024 * 1024;
+constexpr int kVitaGlPhycontReserve = MKW_VITA_VGL_PHYCONT_RESERVE_MB * 1024 * 1024;
+constexpr uint32_t kVitaGlCircularPoolBytes =
+    static_cast<uint32_t>(MKW_VITA_VGL_CIRCULAR_POOL_MB) * 1024u * 1024u;
+static_assert(kVitaGlCdramReserve >= 0 && kVitaGlPhycontReserve >= 0);
+static_assert(MKW_VITA_VGL_CIRCULAR_POOL_MB >= 0);
+
+void LogVitaFreeMemory(const char* phase) {
+    SceKernelFreeMemorySizeInfo info{};
+    info.size = sizeof(info);
+    if (sceKernelGetFreeMemorySize(&info) >= 0) {
+        RT_LOGF(RT_TAG_GX,
+                "memory_budget phase=%s user=%d cdram=%d phycont=%d reserve_cdram_mb=%d reserve_phycont_mb=%d\n",
+                phase, info.size_user, info.size_cdram, info.size_phycont,
+                MKW_VITA_VGL_CDRAM_RESERVE_MB, MKW_VITA_VGL_PHYCONT_RESERVE_MB);
+    }
+}
 // M12.6 hardware reached the first race frame with 6154 requested draws, at
 // least 36457 requested vertices and exactly 64 recorded EFB commands. Keep a
 // bounded full-frame packet with enough headroom to distinguish real renderer
@@ -1236,6 +1272,15 @@ FrameQueueSlot* FindPrepQueuedFrameSlotLocked() {
     FrameQueueSlot* best = nullptr;
     for (auto& slot : g_frameQueue) {
         if (slot.state != FrameQueueSlotState::PrepQueued) continue;
+#if MKW_VITA_EFB_DEFERRED_BARRIER
+        // CPU prep can resolve texture/EFB-backed state. Do not let an EFB
+        // packet observe resources before the immediately preceding serial has
+        // completed on USER_1, even though USER_0 was allowed to enqueue it.
+        if (slot.packet.geometry.efbCommandCount != 0 &&
+            slot.serial > g_completedSerial + 1u) {
+            continue;
+        }
+#endif
         if (!best || slot.serial < best->serial) best = &slot;
     }
     return best;
@@ -2439,6 +2484,14 @@ bool TransformVertex(const DrawTransform& transform, u8 pnMtxRef,
     output.x = clipX * invW;
     output.y = clipY * invW;
     output.z = clipZ * invW;
+#if MKW_VITA_DIRECT_GX_DEPTH_RANGE && !defined(MKW_VITA_AURORA_RENDERER)
+    // GX perspective projection produces post-divide Z in [0, 1], while
+    // OpenGL/vitaGL clips against [-1, 1]. Map the GX interval before clip-W
+    // is restored so near/far geometry survives homogeneous clipping on Vita.
+    if (transform.projectionType == GX_PERSPECTIVE) {
+        output.z = output.z * 2.0f - 1.0f;
+    }
+#endif
 #if MKW_VITA_CLIP_W
     output.clipW = clipW;
 #endif
@@ -4184,6 +4237,17 @@ void PrepareFrameCpuVertices(FrameQueueSlot& slot) {
                 !TransformTexCoord(texture, geometry.vertices[vertexIndex], output)) {
                 texGenFailed = true;
             }
+#if defined(MKW_VITA_PERF_FORCE_3D_SOLID) && MKW_VITA_PERF_FORCE_3D_SOLID
+            if (transform.projectionType == GX_PERSPECTIVE) {
+                output.r = 0xFF;
+                output.g = 0xFF;
+                output.b = 0xFF;
+                output.a = 0xFF;
+#if !MKW_VITA_PERF_SOLID_KEEP_DEPTH
+                output.z = 0.0f;
+#endif
+            }
+#endif
         }
 
         if (texture.enabled) {
@@ -4364,11 +4428,19 @@ void PrepareFrameCpuState(FrameQueueSlot& slot) {
             (draw.primitive == GX_QUADS || draw.primitive == GX_TRIANGLES ||
              draw.primitive == GX_LINES || draw.primitive == GX_POINTS) ? 1u : 0u;
 #if MKW_VITA_COMPACT_FRAME_STATE
-        if (draw.textureId >= geometry.textures.size()) {
+        if (draw.textureId >= geometry.textures.size()
+#if (defined(MKW_VITA_PERF_FORCE_3D_SOLID) && MKW_VITA_PERF_FORCE_3D_SOLID) || MKW_VITA_DIRECT_3D_TEXTURED_COMPAT
+            || draw.transformId >= geometry.transforms.size()
+#endif
+        ) {
             valid = false;
             break;
         }
         const DrawTextureState& texture = geometry.textures[draw.textureId];
+#if (defined(MKW_VITA_PERF_FORCE_3D_SOLID) && MKW_VITA_PERF_FORCE_3D_SOLID) || MKW_VITA_DIRECT_3D_TEXTURED_COMPAT
+        const bool statePerspective =
+            geometry.transforms[draw.transformId].projectionType == GX_PERSPECTIVE;
+#endif
 #else
         const DrawTextureState& texture = draw.texture;
 #endif
@@ -4397,6 +4469,13 @@ void PrepareFrameCpuState(FrameQueueSlot& slot) {
             }
 #if MKW_VITA_COMPACT_FRAME_STATE
             if (candidate.renderStateId != draw.renderStateId) break;
+#if (defined(MKW_VITA_PERF_FORCE_3D_SOLID) && MKW_VITA_PERF_FORCE_3D_SOLID) || MKW_VITA_DIRECT_3D_TEXTURED_COMPAT
+            if (candidate.transformId >= geometry.transforms.size() ||
+                (geometry.transforms[candidate.transformId].projectionType == GX_PERSPECTIVE) !=
+                    statePerspective) {
+                break;
+            }
+#endif
 #else
             break;
 #endif
@@ -4759,7 +4838,7 @@ void RenderWorkerMain() {
             "efb_readback_flip_y=%u efb_transfer_readback=%u efb_resident_copy=%u "
             "efb_native_res_copy=%u stream_safe_reuse=%u ui_quad_runs=%u "
             "texture_shared_headroom=%u texture_safe_retry=%u clip_w=%u "
-            "wait_timing_service=%u incremental_cache_eviction=%u fiber_irq_state=%u wait_service_profile=%u audio_wait_profile=%u audio_ai_profile=%u native_audioout=%u audio_pacing=%u direct_batcher=%u direct_efb=%u direct_state_cache=%u direct_tev_specialize=%u direct_tev_two_texture=%u direct_prep_worker=%u direct_vertex_prep=%u direct_texture_prep=%u direct_state_prep=%u direct_texture_cache_antithrash=%u texture_cache_cap=%u texture_cache_budget=%u guest_io_profile=%u fullscreen_present=%u dvd_host_buffering=%u direct_efb_batch_sync=%u render_decouple=%u render_target_hz=%u direct_worker_timing=%u audio_wait_block_budget=%u\n",
+            "wait_timing_service=%u incremental_cache_eviction=%u fiber_irq_state=%u wait_service_profile=%u audio_wait_profile=%u audio_ai_profile=%u native_audioout=%u audio_pacing=%u direct_batcher=%u direct_efb=%u direct_state_cache=%u direct_tev_specialize=%u direct_tev_two_texture=%u direct_3d_textured_compat=%u direct_gx_depth_range=%u direct_prep_worker=%u direct_vertex_prep=%u direct_texture_prep=%u direct_state_prep=%u direct_texture_cache_antithrash=%u texture_cache_cap=%u texture_cache_budget=%u guest_io_profile=%u fullscreen_present=%u dvd_host_buffering=%u direct_efb_batch_sync=%u render_decouple=%u render_target_hz=%u direct_worker_timing=%u audio_wait_block_budget=%u\n",
             static_cast<unsigned long long>(vglInitBeginUs), kRendererVariant, kVitaGlVariant,
             static_cast<unsigned>(kRenderTargetScenes), static_cast<unsigned>(kRenderTargetScenes),
             static_cast<unsigned>(kMaxFrameDraws), static_cast<unsigned>(kMaxFrameVertices),
@@ -4811,6 +4890,8 @@ void RenderWorkerMain() {
             static_cast<unsigned>(MKW_VITA_DIRECT_STATE_CACHE),
             static_cast<unsigned>(MKW_VITA_DIRECT_TEV_SPECIALIZE),
             static_cast<unsigned>(MKW_VITA_DIRECT_TEV_TWO_TEXTURE),
+            static_cast<unsigned>(MKW_VITA_DIRECT_3D_TEXTURED_COMPAT),
+            static_cast<unsigned>(MKW_VITA_DIRECT_GX_DEPTH_RANGE),
             static_cast<unsigned>(MKW_VITA_DIRECT_PREP_WORKER),
             static_cast<unsigned>(MKW_VITA_DIRECT_VERTEX_PREP),
             static_cast<unsigned>(MKW_VITA_DIRECT_TEXTURE_PREP),
@@ -4826,9 +4907,20 @@ void RenderWorkerMain() {
             static_cast<unsigned>(MKW_VITA_RENDER_TARGET_HZ),
             static_cast<unsigned>(MKW_VITA_DIRECT_WORKER_TIMING),
             static_cast<unsigned>(MKW_VITA_AUDIO_WAIT_BLOCK_BUDGET));
+    LogVitaFreeMemory("before-vgl");
+    if (kVitaGlCircularPoolBytes != 0) {
+        vglSetCircularPoolSize(kVitaGlCircularPoolBytes);
+        RT_LOGF(RT_TAG_GX,
+                "vitagl_circular_pool configured_mb=%u configured_bytes=%u library_default_mb=32\n",
+                static_cast<unsigned>(MKW_VITA_VGL_CIRCULAR_POOL_MB),
+                static_cast<unsigned>(kVitaGlCircularPoolBytes));
+    }
     const bool resolutionFallback =
-        vglInitExtended(0, kSurfaceWidth, kSurfaceHeight, kVitaGlUserRamReserve,
-                        SCE_GXM_MULTISAMPLE_NONE) == GL_TRUE;
+        vglInitWithCustomThreshold(0, kSurfaceWidth, kSurfaceHeight, kVitaGlUserRamReserve,
+                                   kVitaGlCdramReserve, kVitaGlPhycontReserve,
+                                   std::numeric_limits<int>::max(),
+                                   SCE_GXM_MULTISAMPLE_NONE) == GL_TRUE;
+    LogVitaFreeMemory("after-vgl");
     const uint64_t vglInitEndUs = sceKernelGetProcessTimeWide();
     RT_LOGF(RT_TAG_GX,
             "init_marker=vglInitExtended phase=end t_us=%llu elapsed_us=%llu fallback=%u renderer=%s vitagl=%s\n",
@@ -5255,6 +5347,10 @@ void RenderWorkerMain() {
         bool directRasterStateValid = false;
         bool directTextureStateValid = false;
         bool directRasterTrianglePrimitive = false;
+        bool directRasterSolidProbe = false;
+        bool directTextureSolidProbe = false;
+        bool directRaster3dCompatFallback = false;
+        bool directTexture3dCompatFallback = false;
         u16 directRasterStateId = 0;
         u16 directTextureStateId = 0;
 #endif
@@ -5324,7 +5420,16 @@ void RenderWorkerMain() {
                 directTextureStateValid = false;
 #endif
 #if MKW_VITA_DIRECT_EFB_BATCH_SYNC
-                if (!sourceSynchronized || synchronizedBoundary != command.afterDrawCount) {
+#if MKW_VITA_DIRECT_EFB_PREFLIGHT
+                const bool residentEfbExists = FindDirectEfb(command.destination) != nullptr;
+                const bool copyCanRun = command.type == EfbFrameCommandType::Copy &&
+                    CanAttemptDirectEfbCopy(command, scaleX, scaleY, presentLeft, presentTop);
+                const bool needsGpuSync = residentEfbExists || copyCanRun;
+#else
+                const bool needsGpuSync = true;
+#endif
+                if (needsGpuSync &&
+                    (!sourceSynchronized || synchronizedBoundary != command.afterDrawCount)) {
                     const uint64_t syncStart = sceKernelGetProcessTimeWide();
                     glFinish();
                     directEfbUs += sceKernelGetProcessTimeWide() - syncStart;
@@ -5540,6 +5645,18 @@ void RenderWorkerMain() {
                                            renderVertices[vertexIndex])) {
                         directTexGenFailed = true;
                     }
+#if defined(MKW_VITA_PERF_FORCE_3D_SOLID) && MKW_VITA_PERF_FORCE_3D_SOLID
+                    if (directTransform.projectionType == GX_PERSPECTIVE) {
+                        RenderVertex& solid = renderVertices[vertexIndex];
+                        solid.r = 0xFF;
+                        solid.g = 0xFF;
+                        solid.b = 0xFF;
+                        solid.a = 0xFF;
+#if !MKW_VITA_PERF_SOLID_KEEP_DEPTH
+                        solid.z = 0.0f;
+#endif
+                    }
+#endif
                 }
                 if (directTexture.enabled) {
                     if (directTexture.texGenMode == 0u) {
@@ -5681,6 +5798,12 @@ void RenderWorkerMain() {
                 const DrawRasterState& raster = draw.raster;
                 const DrawTextureState& texture = draw.texture;
 #endif
+                const bool directPerspective = transform.projectionType == GX_PERSPECTIVE;
+#if defined(MKW_VITA_PERF_FORCE_3D_SOLID) && MKW_VITA_PERF_FORCE_3D_SOLID
+                const bool forceSolidPerspective = directPerspective;
+#else
+                const bool forceSolidPerspective = false;
+#endif
 #if !defined(MKW_VITA_AURORA_RENDERER)
                 PreparedTevClass directTevClass = !texture.enabled
                     ? PreparedTevClass::Disabled
@@ -5692,6 +5815,14 @@ void RenderWorkerMain() {
                 if (activeSlot->preparedStateValid && i < activeSlot->preparedDraws.size()) {
                     directTevClass = activeSlot->preparedDraws[i].tevClass;
                 }
+#endif
+                if (forceSolidPerspective) directTevClass = PreparedTevClass::Disabled;
+#if MKW_VITA_DIRECT_3D_TEXTURED_COMPAT
+                const bool direct3dCompatFallback =
+                    directPerspective && texture.enabled &&
+                    directTevClass == PreparedTevClass::Fallback;
+#else
+                const bool direct3dCompatFallback = false;
 #endif
 #endif
                 const uint32_t endVertex = static_cast<uint32_t>(draw.firstVertex) + draw.vertexCount;
@@ -5709,7 +5840,7 @@ void RenderWorkerMain() {
                 }
 
                 const bool trianglePrimitive = IsTrianglePrimitive(draw.primitive);
-                if (trianglePrimitive && raster.cullMode == GX_CULL_ALL) {
+                if (trianglePrimitive && raster.cullMode == GX_CULL_ALL && !forceSolidPerspective) {
                     ++geometryCullAllSkipped;
                     continue;
                 }
@@ -5718,13 +5849,17 @@ void RenderWorkerMain() {
                 bool directApplyRasterState = true;
 #if MKW_VITA_DIRECT_STATE_CACHE && MKW_VITA_COMPACT_FRAME_STATE
                 if (directRasterStateValid && directRasterStateId == draw.rasterId &&
-                    directRasterTrianglePrimitive == trianglePrimitive) {
+                    directRasterTrianglePrimitive == trianglePrimitive &&
+                    directRasterSolidProbe == forceSolidPerspective &&
+                    directRaster3dCompatFallback == direct3dCompatFallback) {
                     directApplyRasterState = false;
                     ++directRasterStateSkips;
                 } else {
                     directRasterStateValid = true;
                     directRasterStateId = draw.rasterId;
                     directRasterTrianglePrimitive = trianglePrimitive;
+                    directRasterSolidProbe = forceSolidPerspective;
+                    directRaster3dCompatFallback = direct3dCompatFallback;
                 }
 #endif
 #endif
@@ -5825,6 +5960,21 @@ void RenderWorkerMain() {
 
                 const AlphaTestSelection alphaTest = SelectAlphaTest(raster);
 #if !defined(MKW_VITA_AURORA_RENDERER)
+#if MKW_VITA_DIRECT_3D_TEXTURED_COMPAT
+                if (direct3dCompatFallback && directApplyRasterState) {
+                    // Until the full TEV combiner is represented, do not let an
+                    // approximate material alpha/blend equation erase otherwise valid 3D.
+                    glDisable(GL_BLEND);
+                    glDisable(GL_ALPHA_TEST);
+                    static bool s_direct3dCompatLogged = false;
+                    if (!s_direct3dCompatLogged) {
+                        s_direct3dCompatLogged = true;
+                        RT_LOGF(RT_TAG_GX,
+                                "direct_3d_textured_compat active=1 fallback=texture_replace alpha=off blend=off depth=gx cull=gx depth_range=%u depth_map=gx01_to_gl_m11\n",
+                                static_cast<unsigned>(MKW_VITA_DIRECT_GX_DEPTH_RANGE));
+                    }
+                } else
+#endif
                 if (!alphaTest.exact) {
                     if (directApplyRasterState) glDisable(GL_ALPHA_TEST);
                     ++geometryAlphaCompareFallbackDraws;
@@ -5838,6 +5988,27 @@ void RenderWorkerMain() {
                 } else if (directApplyRasterState) {
                     glDisable(GL_ALPHA_TEST);
                 }
+#if defined(MKW_VITA_PERF_FORCE_3D_SOLID) && MKW_VITA_PERF_FORCE_3D_SOLID
+                if (forceSolidPerspective && directApplyRasterState) {
+#if !MKW_VITA_PERF_SOLID_KEEP_DEPTH
+                    glDisable(GL_DEPTH_TEST);
+                    glDepthFunc(GL_ALWAYS);
+                    glDepthMask(GL_FALSE);
+#endif
+                    glDisable(GL_CULL_FACE);
+                    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+                    glDisable(GL_BLEND);
+                    glDisable(GL_ALPHA_TEST);
+                    static bool s_directVisibilityProbeLogged = false;
+                    if (!s_directVisibilityProbeLogged) {
+                        s_directVisibilityProbeLogged = true;
+                        RT_LOGF(RT_TAG_GX,
+                                "direct_visibility_probe active=1 white=1 texture=0 cull=0 blend=0 alpha=always depth=%u z_neutral=%u\n",
+                                static_cast<unsigned>(MKW_VITA_PERF_SOLID_KEEP_DEPTH != 0),
+                                static_cast<unsigned>(MKW_VITA_PERF_SOLID_KEEP_DEPTH == 0));
+                    }
+                }
+#endif
 #else
                 if (raster.alphaComp0 != GX_ALWAYS ||
                     raster.alphaComp1 != GX_ALWAYS) {
@@ -5849,28 +6020,50 @@ void RenderWorkerMain() {
                 bool directApplyTextureState = true;
 #if MKW_VITA_DIRECT_STATE_CACHE && MKW_VITA_COMPACT_FRAME_STATE
                 bool directTextureSourceReusable = true;
+                if (!forceSolidPerspective) {
 #if MKW_VITA_DIRECT_EFB
-                const bool directTextureIsEfb =
-                    texture.enabled && FindDirectEfb(reinterpret_cast<uintptr_t>(texture.data));
-                if (texture.enabled && !directTextureIsEfb) {
-                    directTextureSourceReusable = TextureSourceStillMatches(texture);
-                }
+                    const bool directTextureIsEfb =
+                        texture.enabled && FindDirectEfb(reinterpret_cast<uintptr_t>(texture.data));
+                    if (texture.enabled && !directTextureIsEfb) {
+                        directTextureSourceReusable = TextureSourceStillMatches(texture);
+                    }
 #else
-                if (texture.enabled) {
-                    directTextureSourceReusable = TextureSourceStillMatches(texture);
-                }
+                    if (texture.enabled) {
+                        directTextureSourceReusable = TextureSourceStillMatches(texture);
+                    }
 #endif
+                }
                 if (directTextureStateValid && directTextureStateId == draw.textureId &&
+                    directTextureSolidProbe == forceSolidPerspective &&
+                    directTexture3dCompatFallback == direct3dCompatFallback &&
                     directTextureSourceReusable) {
                     directApplyTextureState = false;
                     ++directTextureStateSkips;
                 } else {
                     directTextureStateValid = true;
                     directTextureStateId = draw.textureId;
+                    directTextureSolidProbe = forceSolidPerspective;
+                    directTexture3dCompatFallback = direct3dCompatFallback;
                 }
 #endif
                 if (directApplyTextureState) {
-                    if (texture.enabled) {
+                    if (forceSolidPerspective) {
+                        glActiveTexture(GL_TEXTURE0);
+                        glBindTexture(GL_TEXTURE_2D, 0);
+                        glDisable(GL_TEXTURE_2D);
+#if MKW_VITA_DIRECT_TEV_TWO_TEXTURE
+                        if (directTextureUnit1Enabled) {
+                            glActiveTexture(GL_TEXTURE1);
+                            glBindTexture(GL_TEXTURE_2D, 0);
+                            glDisable(GL_TEXTURE_2D);
+                            glClientActiveTexture(GL_TEXTURE1);
+                            glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+                            glActiveTexture(GL_TEXTURE0);
+                            glClientActiveTexture(GL_TEXTURE0);
+                            directTextureUnit1Enabled = false;
+                        }
+#endif
+                    } else if (texture.enabled) {
                         if (traceGpu) {
                             RT_LOGF(RT_TAG_GX, "gpu_trace frame=%llu draw=%u phase=texture_begin\n",
                                     static_cast<unsigned long long>(serial), static_cast<unsigned>(i));
@@ -5905,7 +6098,17 @@ void RenderWorkerMain() {
                             glEnable(GL_TEXTURE_2D);
                             glBindTexture(GL_TEXTURE_2D, glTexture);
                             ApplyTextureSampler(texture);
-                            ApplyDirectTevMode(texture);
+#if MKW_VITA_DIRECT_3D_TEXTURED_COMPAT
+                            if (direct3dCompatFallback) {
+                                // Preserve the real decoded texture while bypassing only the
+                                // unsupported TEV equation. REPLACE also prevents stale/black
+                                // vertex colour from making the model disappear.
+                                ApplySimpleTevMode(static_cast<u8>(GX_REPLACE));
+                            } else
+#endif
+                            {
+                                ApplyDirectTevMode(texture);
+                            }
                             bool nativeTwoTextureApplied = false;
 #if MKW_VITA_DIRECT_TEV_TWO_TEXTURE
                             if (directTevClass == PreparedTevClass::TwoTexture && texture.secondEnabled) {
@@ -5992,7 +6195,7 @@ void RenderWorkerMain() {
                         }
 #endif
                     }
-                } else if (texture.enabled) {
+                } else if (texture.enabled && !forceSolidPerspective) {
                     // The previous physical draw already published this exact
                     // compact texture/sampler/TEV state. Preserve accounting
                     // without touching vitaGL or re-running source generation.
@@ -6428,6 +6631,13 @@ void RenderWorkerMain() {
                             if (candidate.renderStateId != draw.renderStateId) {
                                 break;
                             }
+#if (defined(MKW_VITA_PERF_FORCE_3D_SOLID) && MKW_VITA_PERF_FORCE_3D_SOLID) || MKW_VITA_DIRECT_3D_TEXTURED_COMPAT
+                            if (candidate.transformId >= packet.geometry.transforms.size() ||
+                                (packet.geometry.transforms[candidate.transformId].projectionType ==
+                                     GX_PERSPECTIVE) != directPerspective) {
+                                break;
+                            }
+#endif
 #else
                             break;
 #endif
@@ -6989,6 +7199,11 @@ void RenderWorkerMain() {
                     static_cast<unsigned long long>(sceKernelGetProcessTimeWide() - frameRenderBeginUs));
         }
         g_renderIdle.notify_all();
+#if MKW_VITA_EFB_DEFERRED_BARRIER && MKW_VITA_DIRECT_PREP_WORKER && !defined(MKW_VITA_AURORA_RENDERER)
+        // A deferred EFB packet may have become prep-eligible when this serial
+        // completed. Wake USER_2 so it re-evaluates the queue predicate.
+        g_prepWake.notify_one();
+#endif
     }
 
 #if defined(MKW_VITA_AURORA_RENDERER)
@@ -7160,7 +7375,9 @@ void SubmitFrame() {
     std::unique_lock<std::mutex> lock(g_renderMutex);
     const auto queueCanAccept = [requiresFrameBarrier] {
         if (g_frameBarrierSerial != 0 && g_completedSerial < g_frameBarrierSerial) return false;
+#if !MKW_VITA_EFB_DEFERRED_BARRIER
         if (requiresFrameBarrier && !AllFrameSlotsFreeLocked()) return false;
+#endif
         for (const auto& slot : g_frameQueue) {
             if (slot.state == FrameQueueSlotState::Free) return true;
         }

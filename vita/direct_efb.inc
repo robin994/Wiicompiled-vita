@@ -30,16 +30,56 @@ void DestroyDirectEfbCache() {
     for (auto& entry : g_directEfb) DestroyDirectEfb(entry.destination);
 }
 
+bool DirectEfbFormatSupported(uint32_t format) {
+    // Depth copies require a separate depth conversion implementation.
+    switch (format) {
+    case 0: case 1: case 2: case 3: case 4: case 5: case 6:
+    case 0x20: case 0x22: case 0x23: case 0x27: case 0x28:
+    case 0x29: case 0x2a: case 0x2b: case 0x2c: return true;
+    default: return false;
+    }
+}
+
+#if MKW_VITA_DIRECT_EFB_PREFLIGHT
+bool CanAttemptDirectEfbCopy(const EfbFrameCommand& command, float scaleX, float scaleY,
+                             float sourceLeft, float sourceTop) {
+    if (!DirectEfbFormatSupported(command.format)) return false;
+    const int x = std::clamp(int(std::lround((command.srcLeft - sourceLeft) * scaleX)), 0, DISPLAY_WIDTH);
+    const int y = std::clamp(int(std::lround((command.srcTop - sourceTop) * scaleY)), 0, DISPLAY_HEIGHT);
+    const int x1 = std::clamp(int(std::lround((command.srcLeft + command.srcWidth - sourceLeft) * scaleX)), x, DISPLAY_WIDTH);
+    const int y1 = std::clamp(int(std::lround((command.srcTop + command.srcHeight - sourceTop) * scaleY)), y, DISPLAY_HEIGHT);
+    const uint32_t sw = x1 - x, sh = y1 - y;
+    if (!sw || !sh || !command.dstWidth || !command.dstHeight || has_cached_mem) return false;
+    const auto& surface = gxm_color_surfaces[gxm_back_buffer_index];
+    if (sceGxmColorSurfaceGetFormat(&surface) != SCE_GXM_COLOR_FORMAT_U8U8U8U8_ABGR ||
+        sceGxmColorSurfaceGetType(&surface) != SCE_GXM_COLOR_SURFACE_LINEAR ||
+        sceGxmColorSurfaceGetScaleMode(&surface) != SCE_GXM_COLOR_SURFACE_SCALE_NONE) return false;
+    const auto* base = static_cast<const uint8_t*>(sceGxmColorSurfaceGetData(&surface));
+    const size_t sourcePitch = size_t(sceGxmColorSurfaceGetStrideInPixels(&surface)) * 4;
+    if (!base || sourcePitch < size_t(x1) * 4) return false;
+    auto* entry = FindDirectEfb(command.destination);
+    const size_t oldBytes = entry ? entry->bytes : 0;
+    uint32_t dw = std::min<uint32_t>(command.dstWidth, sw);
+    uint32_t dh = std::min<uint32_t>(command.dstHeight, sh);
+#if MKW_VITA_EFB_NATIVE_RES_COPY
+    const size_t nativeBytes = size_t((sw + 7u) & ~7u) * sh * 4;
+    if (nativeBytes <= kDirectEfbBudget - (g_directEfbBytes - oldBytes)) { dw = sw; dh = sh; }
+#endif
+    const size_t bytes = size_t((dw + 7u) & ~7u) * dh * 4;
+    if (bytes > kDirectEfbBudget - (g_directEfbBytes - oldBytes)) return false;
+    if (!entry) {
+        bool hasFreeEntry = false;
+        for (const auto& candidate : g_directEfb) { if (!candidate.destination) { hasFreeEntry = true; break; } }
+        if (!hasFreeEntry || !g_textureScratch || size_t(dw) * dh * 4 > kTextureScratchBytes) return false;
+    }
+    return true;
+}
+#endif
+
 bool CopyDirectEfb(const EfbFrameCommand& command, float scaleX, float scaleY,
                    float sourceLeft = 0.0f, float sourceTop = 0.0f,
                    bool gpuAlreadySynchronized = false) {
-    // Depth copies require a separate depth conversion implementation.
-    switch (command.format) {
-    case 0: case 1: case 2: case 3: case 4: case 5: case 6:
-    case 0x20: case 0x22: case 0x23: case 0x27: case 0x28:
-    case 0x29: case 0x2a: case 0x2b: case 0x2c: break;
-    default: return false;
-    }
+    if (!DirectEfbFormatSupported(command.format)) return false;
     const int x = std::clamp(int(std::lround((command.srcLeft - sourceLeft) * scaleX)), 0, DISPLAY_WIDTH);
     const int y = std::clamp(int(std::lround((command.srcTop - sourceTop) * scaleY)), 0, DISPLAY_HEIGHT);
     const int x1 = std::clamp(int(std::lround((command.srcLeft + command.srcWidth - sourceLeft) * scaleX)), x, DISPLAY_WIDTH);

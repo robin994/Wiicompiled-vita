@@ -8,6 +8,12 @@
 #include <cstdio>
 #include <cstdlib>
 
+#ifndef MKW_VITA_RFL_SHAPE_DL_BURST
+#define MKW_VITA_RFL_SHAPE_DL_BURST 0
+#endif
+
+extern "C" void GX_HLE_FIFO_WriteBurst(const uint8_t* data, uint32_t sizeBytes);
+
 namespace {
 uint32_t CanonicalVtxAttr(uint32_t attr) {
     return attr == GX_VA_NBT ? GX_VA_NRM : attr;
@@ -278,14 +284,51 @@ extern "C" void GX__Begin_8016f0f0(uint32_t t, uint32_t vf, uint32_t nv) {
     // HLE is entered after the guest BL, so CpuContext::lr identifies the
     // guest call site. Avoid CurrentTranslatedExecutionAddress(): nested
     // translated calls do not update that scope.
-    if (const CpuContext* cpu = TryGetCpuContext()) {
-        GX_HLE_RecordBeginCaller(cpu->lr);
-    } else {
-        GX_HLE_RecordBeginCaller(0);
-    }
+    CpuContext* cpu = TryGetCpuContext();
+    GX_HLE_RecordBeginCaller(cpu ? cpu->lr : 0u);
     if(IsDisplayListActive()){
         WriteDisplayListData((u8)(t|vf), 1);
         WriteDisplayListData((u16)nv, 2);
+#if defined(MKW_TARGET_VITA) && MKW_VITA_RFL_SHAPE_DL_BURST
+        // RFLiInitShapeRes (call site 0x800C23C0) records shape primitives by
+        // copying 2 or 3 indexed bytes per vertex into a GX display list. The
+        // translated loop performs one guest read + one FIFO HLE call per byte,
+        // which is catastrophically expensive on Vita. At this call site the
+        // translated locals are mirrored in the CpuContext before GXBegin:
+        // r29 = payload, r25 = vertex count, r31 selects 2/3-byte stride.
+        // WriteDisplayListBurst preserves the exact guest-visible DL bytes and
+        // cursor/count semantics; advancing r29 and clearing r25 makes the
+        // translated post-call loop take its existing zero-count exit path.
+        if (cpu != nullptr && cpu->lr == 0x800C23C0u && cpu->gpr[25] == nv && nv != 0u) {
+            const uint32_t stride = cpu->gpr[31] != 0u ? 2u : 3u;
+            const uint64_t byteCount64 = static_cast<uint64_t>(nv) * stride;
+            if (byteCount64 <= UINT32_MAX) {
+                const uint32_t byteCount = static_cast<uint32_t>(byteCount64);
+                const uint32_t src = cpu->gpr[29];
+                try {
+                    if (Memory::Contains(src, byteCount)) {
+                        if (const uint8_t* host = Memory::GetPointer(src, byteCount)) {
+                            GX_HLE_FIFO_WriteBurst(host, byteCount);
+                            cpu->gpr[29] = src + byteCount;
+                            cpu->gpr[25] = 0u;
+                            static thread_local uint32_t s_rflBurstCount = 0;
+                            static thread_local uint64_t s_rflBurstBytes = 0;
+                            ++s_rflBurstCount;
+                            s_rflBurstBytes += byteCount;
+                            if (s_rflBurstCount <= 8u || (s_rflBurstCount & 63u) == 0u) {
+                                RT_LOGF(RT_TAG_GX,
+                                        "rfl_shape_dl_burst n=%u bytes=%u total_bytes=%llu stride=%u src=0x%08X\n",
+                                        s_rflBurstCount, byteCount,
+                                        static_cast<unsigned long long>(s_rflBurstBytes), stride, src);
+                            }
+                        }
+                    }
+                } catch (const Memory::AccessViolation&) {
+                    // Fall through to the translated per-byte loop unchanged.
+                }
+            }
+        }
+#endif
         return;
     }
     ServiceDeferredTimingDuringGxWork();

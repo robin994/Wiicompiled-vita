@@ -79,9 +79,11 @@ void InstallAuroraHooks() {
     }
     aurora_set_guest_write_hooks(&GuestWriteGenerationHook, &GuestWriteNotifyHook);
     RT_LOGF(RT_TAG_GX,
-            "guest write tracking installed mem1_host=%p mem1_bytes=%llu mem2_host=%p mem2_bytes=%llu\n",
+            "guest write tracking installed mem1_host=%p mem1_bytes=%llu mem2_host=%p mem2_bytes=%llu hierarchy=%u granule_kb=64 supergranule_kb=%u\n",
             g_aliases[0].hostBase, static_cast<unsigned long long>(g_aliases[0].size),
-            g_aliases[1].hostBase, static_cast<unsigned long long>(g_aliases[1].size));
+            g_aliases[1].hostBase, static_cast<unsigned long long>(g_aliases[1].size),
+            static_cast<unsigned>(MKW_VITA_GUEST_WRITE_HIERARCHY),
+            static_cast<unsigned>(MKW_VITA_GUEST_WRITE_HIERARCHY ? 1024u : 0u));
 }
 
 } // namespace GxGuestWrite

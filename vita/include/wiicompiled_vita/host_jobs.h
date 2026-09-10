@@ -45,7 +45,7 @@ public:
     HostJobSystem& operator=(const HostJobSystem&) = delete;
     ~HostJobSystem();
 
-    bool start();
+    bool start(HostThreadRole role = HostThreadRole::Background);
     void stop() noexcept;
 
     bool submit(HostJobFunction function, void* context, HostJobFence* fence = nullptr) noexcept;
