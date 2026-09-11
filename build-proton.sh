@@ -642,6 +642,7 @@ if [ "$INSTALL" = "1" ]; then
     fi
     echo "Menu launchers written to ${XDG_DATA_HOME:-$HOME/.local/share}/applications/, named"
     echo "\"(Proton)\" to tell them apart from build-linux-native.sh's native launchers."
+    echo "Uninstall with ./uninstall-proton.sh (pass the same --install-dir= if you used one)."
 fi
 
 if [ "$APPIMAGE" = "1" ]; then

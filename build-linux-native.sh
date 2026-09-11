@@ -747,6 +747,7 @@ if [ "$INSTALL" = "1" ]; then
     echo "Menu launchers written to ${XDG_DATA_HOME:-$HOME/.local/share}/applications/."
     echo "The disc data and RetroRewind6 pack were copied to $INSTALL_DIR/{DATA,RetroRewind6};"
     echo "everything needed at runtime now lives under $INSTALL_DIR."
+    echo "Uninstall with ./uninstall-linux-native.sh (pass the same --install-dir= if you used one)."
 fi
 
 if [ "$APPIMAGE" = "1" ]; then
