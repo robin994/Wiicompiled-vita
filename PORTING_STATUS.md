@@ -3314,3 +3314,13 @@ Offline validation PASS: incremental ARM32 compile/link, VELF/FSELF, VPK package
 - VPK SHA-256: 050448ccb4eabb29779f3fbc374d85e6ac544cf023f6a7fdff69a7868c40b32b
 
 Hardware acceptance: repeat character select -> vehicle select -> race, verify no visual regression from the P6.35/P6.37 rescue state, and capture runtime.log through race entry. The next pass should target the dominant remaining producer/guest, texture-prep, EFB-sync or draw/state cost measured by the periodic summaries.
+
+## Upstream history sync — zydezu/Wiicompiled through 5722e79 (2026-09-11)
+
+The Vita fork was 58 commits behind upstream/main while carrying 19 local commits. The histories are reconciled with a non-squash merge, preserving the complete upstream DAG rather than cherry-picking or rebasing the Vita work. Local performance/report checkpoints remain first-parent work on main.
+
+Nine textual conflicts were reconciled in the Vita-specific integration seams: guest flat memory, PSQ fast access, guest fibers, KPAD/WPAD input, SC, VI and settings overlay. The upstream HostContext abstraction is retained and extended to Vita with the existing libco backend; Vita guest-memory accesses keep the checked/page-table path instead of attempting a 4 GiB flat reservation; desktop Wii Remote/SDL input remains available upstream while Vita keeps sceCtrl-based KPAD/Classic input. Newly added desktop/macOS runtime units are excluded from Makefile.vita source discovery.
+
+An upstream RuntimeConfig graphics-api table had no branch for MKW_TARGET_VITA; the Vita integration accepts only the portable "auto" selector because the hardware build remains fixed to direct vitaGL. Aurora renderer integration is not reintroduced.
+
+Offline merge validation PASS so far: git diff --check, Vita HLE syntax check, direct GX backend compile/link check, HostContext ARM32 compile and FiberManager ARM32 compile. The existing NAND enum-mismatch diagnostics remain warnings only. A full performance-profile VPK/hardware regression test remains the next validation step.

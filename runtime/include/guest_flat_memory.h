@@ -14,6 +14,7 @@ namespace GuestFlat {
 // Fixed base so the emitted access is `[reg + imm64-in-register]` with no load
 // of a global.
 inline constexpr uint64_t kGuestSpaceSize = 0x1'0000'0000ull;
+inline constexpr size_t kGuestPageSize = 0x1000;
 #if defined(MKW_TARGET_VITA)
 // A 32-bit Vita process cannot reserve a 4 GiB virtual window. Translated
 // memory helpers use the page-table backend instead, so no fixed guest base is
@@ -23,6 +24,12 @@ inline constexpr uintptr_t kFixedFlatGuestBase = 0;
 // 16 TiB: clear of the Windows ASan shadow (32 TiB) and of the usual image/heap
 // placement.
 inline constexpr uintptr_t kFixedFlatGuestBase = 0x0000'1000'0000'0000ull;
+#elif defined(__aarch64__) && defined(__APPLE__)
+// Keep this well above the low address ranges that Darwin's ASLR may use for
+// a PIE executable and its shared cache. Apple Silicon's user VA is wider
+// than Linux's 39-bit minimum, so this 512 GiB region is available while the
+// Linux AArch64 target retains its 64 GiB placement below.
+inline constexpr uintptr_t kFixedFlatGuestBase = 0x0000'0080'0000'0000ull;
 #elif defined(__aarch64__)
 // 64 GiB remains reachable on AArch64 kernels configured for 39-bit virtual addresses.
 inline constexpr uintptr_t kFixedFlatGuestBase = 0x0000'0010'0000'0000ull;
@@ -55,6 +62,24 @@ struct FaultCounters {
 // True once guest backing storage exists. On Vita this does not imply a flat
 // 4 GiB reservation; translated accesses use the checked page-table path.
 bool IsActive();
+
+// True when a host VM page covers more than one 4 KiB Wii page. In that
+// configuration, guest-view page protection cannot safely represent per-Wii-
+// page MMIO, deferred-read, or executable-write state, so general translated
+// accesses must use the checked Memory::* path.
+// Windows user mode and x86-64 always use a 4 KiB base page, so those builds
+// fold this to a compile-time false: it appears in every flat access and must
+// not become a hot-path load. Only AArch64, where the page size is a kernel
+// configuration (4/16/64 KiB), has to probe it at runtime.
+#if defined(MKW_TARGET_VITA)
+inline constexpr bool RequiresCheckedAccess() noexcept { return true; }
+#elif defined(_WIN32) || defined(__x86_64__)
+#define MKW_GUEST_FLAT_FIXED_PAGE_SIZE 1
+inline constexpr bool RequiresCheckedAccess() noexcept { return false; }
+#else
+extern bool g_requiresCheckedAccess;
+inline bool RequiresCheckedAccess() noexcept { return g_requiresCheckedAccess; }
+#endif
 
 // Reserves the 4 GiB space (once per process) and maps every requested region
 // into both views. Throws std::runtime_error with a precise diagnosis when the

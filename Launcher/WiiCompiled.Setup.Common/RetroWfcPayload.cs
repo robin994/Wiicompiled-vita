@@ -24,7 +24,7 @@ public static class RetroWfcPayload
     private static readonly TimeSpan RetroWfcDownloadTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan RetroWfcRetryDelay = TimeSpan.FromSeconds(1);
 
-    public const string CurrentRetroWfcPayloadUri = "http://nas.play.rwfc.net/payload?g=RMCPD00";
+    public const string CurrentRetroWfcPayloadUri = "https://rwfc.net/api/wfc/payload?g=RMCPD00";
     private static readonly string RetroWfcOfflinePayloadFile =
         Path.Combine("binary", "payload.RMCPD00.bin");
 
@@ -53,9 +53,22 @@ public static class RetroWfcPayload
 
         var root = Path.GetFullPath(stagedDirectory);
         var payload = Path.Combine(root, RetroWfcOfflinePayloadFile);
-        if (!File.Exists(payload))
+        try
+        {
+            if ((File.GetAttributes(payload) & FileAttributes.Directory) != 0)
+                throw new InvalidDataException(
+                    "The staged Retro-WFC payload directory does not contain binary\\payload.RMCPD00.bin.");
+        }
+        catch (FileNotFoundException)
+        {
             throw new InvalidDataException(
                 "The staged Retro-WFC payload directory does not contain binary\\payload.RMCPD00.bin.");
+        }
+        catch (DirectoryNotFoundException)
+        {
+            throw new InvalidDataException(
+                "The staged Retro-WFC payload directory does not contain binary\\payload.RMCPD00.bin.");
+        }
         ValidateRetroWfcPayloadFile(payload, signingKey);
         return root;
     }

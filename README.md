@@ -1,3 +1,4 @@
+<img width="4190" height="1232" alt="wiicomplogofinalfinalfinalev2MADEBY_INKWRECK_plzcredit" src="https://github.com/user-attachments/assets/df7a3f2e-5336-479a-b4c0-968dd578726d" />
 
 # WiiCompiled
 
@@ -46,19 +47,56 @@ Press **F10** while the game window has focus:
 - Internal resolution
 - FPS counter
 - Controller assignment for all four ports
-- Full per-controller button mapping
+- Full per-controller button mapping, including the bumpers
+- Dolphin-syntax input expressions and GCPadNew.ini import
+- Controller vibration on/off
 - Volume, instant mute, and the music ducking toggle
 
 Everything you change is saved to `Config.toml` on the spot and restored next launch.
 
 **Real controller support.** 
+
 Controllers are fed to the game as a GameCube controller.
-The port does NOT pretend to be a Wii Remote or Classic Controller.
 Mappings are positional (`south`, `east`, `west`, `north`) rather than Xbox-labelled, so the
 same config makes sense on Xbox, PlayStation, Nintendo and generic SDL pads alike, and extra
 inputs like paddles, touchpads and share buttons show up when the hardware reports them.
+Both button-binding slots also accept SDL triggers and stick directions. Selecting an analog
+input shows a threshold slider beneath it (1–100%, default 50%); reaching that amount of travel
+holds the chosen digital button. Each binding's threshold is saved independently in `Config.toml`
+(for example, `a = "right_trigger@35,south"`).
+
+**Keyboard and Mouse support.**
+
+Keyboard and mouse are also available through **F10 > Controller settings > Keyboard and mouse**
+for each port. Enabling this replaces that port's gamepad input. The default preset uses WASD
+for the main stick, left mouse for A (accelerate), Space for B (brake), right mouse for R
+(drift), middle mouse for Z (item), arrow keys for the D-pad (tricks), and Enter for Start.
+Keys and mouse buttons can be remapped, including both sticks and triggers; mouse movement
+is not used. These settings are saved in `keyboard_bindings.dat` and restored next launch.
+
+**Dolphin-compatible input expressions.**
+Each GameCube control can carry an expression in Dolphin's input syntax, with the same operators
+and the same functions.
+A Dolphin `GCPadNew.ini` can be imported directly from the F10 bar.
+
+**Vibration toggle.**
+Force feedback can be turned off for every port at once.
 The official Wii U / Switch GameCube adapter (WUP-028) works too; as with Dolphin, on Windows the
 adapter must be switched to the WinUSB driver once (Zadig).
+
+**Real Wii Remotes over Bluetooth.**
+Pair a Wii Remote with Windows (Settings > Bluetooth > Add device, press 1+2 or SYNC, leave the
+PIN empty)
+
+Known limitations of the Wii Remote path:
+- No IR pointer yet: menus are navigated with the D-pad and A (the game treats the remote as
+  pointing away from the screen).
+- Battery level is not reported to the game and the remote's speaker is not implemented.
+- Only the Wii Remote's own accelerometer is calibrated; the Nunchuk's uses SDL's fixed zero point.
+- The Classic Controller's L/R triggers reach the game as digital (full pull on click): SDL does not
+  expose their analog travel.
+- Turn the Wii Remote support off in that menu if you use a Mayflash DolphinBar, which already
+  presents the remote as a regular gamepad.
 
 ## Requirements
 
@@ -66,6 +104,8 @@ adapter must be switched to the WinUSB driver once (Zadig).
 - GPU: GTX 1650 / RX 6400 / Arc A310 or higher
 - CPU: Intel Core i5-8400 / AMD Ryzen 5 2600 (4c/6c, ~3.5GHz+) or higher
 - About 20 GB of free disk space during installation (Final game size ~5 GB)
+- macOS 14 (Sonoma) or later on Apple Silicon
+- On macOS, Apple Xcode Command Line Tools (Setup opens Apple's installer when they are missing)
 - A clean, unmodified **PAL `RMCP01`** disc image of Mario Kart Wii, dumped by you. ISO, GCM,
   GCZ, CISO, WBFS, WIA and RVZ are accepted.
 
@@ -85,6 +125,7 @@ For an easy experience, use [Wheel Wizard](https://github.com/TeamWheelWizard/Wh
 image under Settings, turn on **WiiCompiled (beta)**, and hit install from the Home page.
 Wheel Wizard downloads the setup tool from this repo and walks you through install, updates and
 launching. The backend itself is deliberately command-line only, Wheel Wizard is a wrapper around it.
+
 
 > [!CAUTION]
 > Only take builds from this repository's
@@ -124,7 +165,9 @@ The default test suite needs no binaries and no host C++ compiler, so you can ha
 translator without any game data around.
 
 For everything beyond that, feeding in your own `main.dol`/`StaticR.rel`, running the
-translation, generating the manifest and build graph, and compiling. see [`translator/README.md`](translator/README.md).
+translation, generating the manifest and build graph, and compiling, see [`translator/README.md`](translator/README.md).
+
+For a step-by-step guide on compiling both WiiCompiled and Retro Rewind from source on macOS (Apple Silicon), see the [macOS Build Guide](docs/building-macos.md).
 
 ## FAQ
 
@@ -173,7 +216,7 @@ AI coding tools were used during development of this project.
 All translated output is verified against real hardware behavior and most importantly, physics accuracy is proven synced across Wii, Dolphin, and WiiCompiled (see FAQ). 
 
 ## Credits
-
+- **inkwreck** - making the logo
 - **[aurora](https://github.com/encounter/aurora)** - the GX rendering/windowing backend this
   project's whole graphics layer sits on. MIT licensed.
 - **[Dawn](https://dawn.googlesource.com/dawn)** - Google's WebGPU implementation, powering

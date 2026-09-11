@@ -23,6 +23,10 @@
 #include <unordered_map>
 #include <vector>
 
+#if !defined(_WIN32)
+#include <unistd.h>
+#endif
+
 #if defined(_WIN32)
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -38,7 +42,12 @@
 #include <dbghelp.h>
 #else
 #include <signal.h>
+#if defined(__x86_64__)
+// Only the x86 POSIX fault path inspects ucontext_t to recover the page-fault
+// write bit. macOS deprecates ucontext and requires _XOPEN_SOURCE just to
+// include the header, while the arm64 handler does not use it at all.
 #include <ucontext.h>
+#endif
 #include <unistd.h>
 #endif
 
@@ -49,6 +58,7 @@
 #include "system_bridge.h"
 #include "ppc_runtime.h"
 #include "aurora_events.h"
+#include "wii_remote_input.h"
 #include "discord_presence.h"
 #include "fiber_manager.h"
 #include "hle_stubs.h"
@@ -1419,6 +1429,7 @@ static void TerminateHandler() {
     std::_Exit(EXIT_FAILURE);
 }
 
+// Runtime entry point: loads the configuration, brings up aurora and runs the game.
 int RuntimeMain(int argc, char** argv) {
     // Must run before the transcript duplicates stdout/stderr: it decides what
     // those descriptors are mirrored to now that the products are GUI-subsystem.
@@ -1501,9 +1512,21 @@ int RuntimeMain(int argc, char** argv) {
             const char* configName;
             AuroraBackend backend;
         };
+#if defined(__APPLE__)
+        static constexpr std::array<GraphicsBackendEntry, 2> kGraphicsBackends{{
+            {"auto", BACKEND_AUTO}, {"metal", BACKEND_METAL},
+        }};
+// only vulkan for linux
+#elif defined(__linux__)
+            static constexpr std::array<GraphicsBackendEntry, 2> kGraphicsBackends{{
+            {"auto", BACKEND_AUTO}, {"vulkan", BACKEND_VULKAN},
+        }};
+#elif defined(_WIN32)
         static constexpr std::array<GraphicsBackendEntry, 3> kGraphicsBackends{{
             {"auto", BACKEND_AUTO}, {"d3d12", BACKEND_D3D12}, {"vulkan", BACKEND_VULKAN},
         }};
+
+#endif
         const auto backendDisplayName = [](AuroraBackend value) -> const char* {
             for (const auto& entry : kGraphicsBackends) {
                 if (entry.backend == value) {
@@ -1528,6 +1551,11 @@ int RuntimeMain(int argc, char** argv) {
                 ? BACKEND_VULKAN
                 : configuredBackend;
         const AuroraBackend requestedBackend = configuredBackend;
+
+        // SDL only reads its Wii driver hint when the joystick subsystem starts, which
+        // aurora_initialize does; a Bluetooth Wii Remote paired before launch must be
+        // visible on that first scan.
+        WiiRemoteInput::ConfigureSdlHints(RuntimeConfigFile::WiiRemotesEnabled(true));
 
         const AuroraInfo auroraInfo = aurora_initialize(0, nullptr, &auroraConfig);
         if (requestedBackend != BACKEND_AUTO && auroraInfo.backend != requestedBackend) {

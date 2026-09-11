@@ -29,8 +29,10 @@ Code.pul
 /build/
 /build-*/
 /*native-build/
+/native-build-macos/
 /.build-output/
 /.build-test/
+/local-products/
 /dist/
 /extracted/
 /out/
@@ -83,3 +85,6 @@ output.txt
 
 # PS Vita crash dumps
 *.psp2dmp
+
+# Operating System
+.DS_Store

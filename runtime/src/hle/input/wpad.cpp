@@ -2,12 +2,17 @@
 #include "memory.h"
 #include "hle/controller_status_contract.h"
 #include "runtime_log.h"
+#if !defined(MKW_TARGET_VITA)
+#include "wii_remote_input.h"
+#endif
 
 #include <cstdint>
 #include <cstring>
 
 void NandQueueIosCallback(uint32_t callbackPtr, int32_t result, uint32_t callbackArg);
+#if defined(MKW_TARGET_VITA)
 extern "C" bool KPAD_IsVitaChannelConnected(uint32_t chan);
+#endif
 
 namespace {
 
@@ -52,6 +57,15 @@ int32_t CompleteWpadRequest(uint32_t chan, uint32_t callback, int32_t result)
 {
     InvokeWpadCallback(callback, chan, result);
     return result;
+}
+
+bool IsWpadChannelConnected(uint32_t chan)
+{
+#if defined(MKW_TARGET_VITA)
+    return KPAD_IsVitaChannelConnected(chan);
+#else
+    return WiiRemoteInput::IsRemoteChannel(chan);
+#endif
 }
 
 } // namespace
@@ -101,8 +115,10 @@ extern "C" int32_t WPADGetDataFormat_HLE(uint32_t chan)
 }
 PPC_NATIVE_OVERRIDE(801C0B54, WPADGetDataFormat_HLE, int32_t, (uint32_t chan), (chan));
 
+// WPADSetDataFormat: records the per-channel data format the game asked for.
 extern "C" int32_t WPADSetDataFormat_HLE(uint32_t chan, int32_t format)
 {
+#if defined(MKW_TARGET_VITA)
     if (chan >= WpadContract::kChannelCount) {
         return WpadContract::kErrorBadChannel;
     }
@@ -110,22 +126,41 @@ extern "C" int32_t WPADSetDataFormat_HLE(uint32_t chan, int32_t format)
         return WpadContract::kErrorNotReady;
     }
     (void)format;
-    return KPAD_IsVitaChannelConnected(chan) ? kStatusOk :
-                                               WpadContract::kErrorNoController;
+    return IsWpadChannelConnected(chan) ? kStatusOk : WpadContract::kErrorNoController;
+#else
+    return g_state.contract.SetDataFormat(chan, format);
+#endif
 }
 PPC_NATIVE_OVERRIDE(801C0B9C, WPADSetDataFormat_HLE, int32_t, (uint32_t chan, int32_t format), (chan, format));
 
+// WPADProbe: reports the extension type of a Bluetooth remote on `chan`, or no controller.
 extern "C" int32_t WPADProbe_HLE(uint32_t chan, uint32_t typePtr)
 {
     if (chan >= WpadContract::kChannelCount) {
         return WpadContract::kErrorBadChannel;
     }
-
+#if defined(MKW_TARGET_VITA)
     if (typePtr != 0) {
         Memory::Write32(typePtr, WpadContract::kExtensionClassic);
     }
-    return KPAD_IsVitaChannelConnected(chan) ? kStatusOk :
-                                               WpadContract::kErrorNoController;
+    return IsWpadChannelConnected(chan) ? kStatusOk : WpadContract::kErrorNoController;
+#else
+    WiiRemoteInput::Poll();
+    const WiiRemoteInput::Kind kind = WiiRemoteInput::EffectiveKind(chan);
+    if (WiiRemoteInput::IsRemoteChannel(chan)) {
+        if (typePtr != 0) {
+            uint32_t type = WpadContract::kExtensionCore;
+            if (kind == WiiRemoteInput::Kind::RemoteWithNunchuk) type = 1u;
+            if (kind == WiiRemoteInput::Kind::RemoteWithClassic) type = 2u;
+            Memory::Write32(typePtr, type);
+        }
+        return kStatusOk;
+    }
+    if (typePtr != 0) {
+        Memory::Write32(typePtr, WpadContract::kExtensionCore);
+    }
+    return WpadContract::kErrorNoController;
+#endif
 }
 PPC_NATIVE_OVERRIDE(801C0990, WPADProbe_HLE, int32_t, (uint32_t chan, uint32_t typePtr), (chan, typePtr));
 
@@ -166,7 +201,7 @@ extern "C" int32_t WPADControlLed_HLE(uint32_t chan, uint32_t ledMask, uint32_t 
     }
     (void)ledMask;
     return CompleteWpadRequest(chan, callback,
-                               KPAD_IsVitaChannelConnected(chan) ? kStatusOk :
+                               IsWpadChannelConnected(chan) ? kStatusOk :
                                                                   WpadContract::kErrorNoController);
 }
 PPC_NATIVE_OVERRIDE(801C0FF8, WPADControlLed_HLE, int32_t,

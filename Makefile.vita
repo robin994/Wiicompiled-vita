@@ -41,7 +41,9 @@ HLE_CHECK_SRCS := $(wildcard runtime/src/hle/*.cpp) \
 	$(wildcard runtime/src/hle/net/*.cpp) \
 	$(wildcard runtime/src/hle/storage/*.cpp)
 RUNTIME_NATIVE_CHECK_SRCS := $(filter-out runtime/src/main.cpp runtime/src/settings_overlay.cpp \
-	runtime/src/guest_flat_memory.cpp runtime/src/host_cpu_baseline.cpp runtime/src/controller_mapping_wizard.cpp,\
+	runtime/src/guest_flat_memory.cpp runtime/src/guest_flat_memory_macos.cpp runtime/src/host_cpu_baseline.cpp \
+	runtime/src/controller_mapping_wizard.cpp runtime/src/input_bindings.cpp runtime/src/input_expr.cpp \
+	runtime/src/wii_remote_input.cpp,\
 	$(wildcard runtime/src/*.cpp)) vita/controller_mapping_wizard_vita.cpp
 GX_HLE_CHECK_SRCS := $(wildcard runtime/src/hle/gx/*.cpp)
 GX_HLE_OBJS := $(patsubst runtime/src/hle/gx/%.cpp,$(BUILD_DIR)/gx_bridge_%.o,$(GX_HLE_CHECK_SRCS))
@@ -89,7 +91,7 @@ MKW_CRYPTOPP_LIB := $(MKW_RUNTIME_BUILD_DIR)/third_party/libmkw_cryptopp.a
 # Full native runtime for the first real Mario Kart boot. Desktop-only entry,
 # UI, memory, audio and CPU-baseline units are replaced by Vita equivalents.
 MKW_VITA_NATIVE_SRCS := $(shell find runtime/src -type f -name '*.cpp' | sort | \
-	grep -v -E '^runtime/src/(main|settings_overlay|controller_mapping_wizard|guest_flat_memory|audio_backend|host_cpu_baseline)\.cpp$$|^runtime/src/product/retro_rewind_product\.cpp$$|^runtime/src/vita/aurora/')
+	grep -v -E '^runtime/src/(main|settings_overlay|controller_mapping_wizard|guest_flat_memory|guest_flat_memory_macos|audio_backend|host_cpu_baseline|input_bindings|input_expr|wii_remote_input)\.cpp$|^runtime/src/platform/host_platform\.cpp$|^runtime/src/product/retro_rewind_product\.cpp$|^runtime/src/vita/aurora/')
 MKW_VITA_NATIVE_OBJS := $(patsubst runtime/src/%.cpp,$(MKW_RUNTIME_BUILD_DIR)/runtime/%.o,$(MKW_VITA_NATIVE_SRCS))
 MKW_VITA_MAIN_OBJ := $(MKW_RUNTIME_BUILD_DIR)/vita/main_vita.o
 MKW_VITA_AUDIO_OBJ := $(MKW_RUNTIME_BUILD_DIR)/vita/audio_backend_vita.o
