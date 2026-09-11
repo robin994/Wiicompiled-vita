@@ -30,6 +30,15 @@ extern "C" void GxNotifyGuestRamDmaWrite(uint32_t addr, uint32_t size);
 #ifndef MKW_VITA_BRSAR_PREFETCH_PHYCONT
 #define MKW_VITA_BRSAR_PREFETCH_PHYCONT 0
 #endif
+#ifndef MKW_VITA_BRSAR_PREFETCH_COOPERATIVE
+#define MKW_VITA_BRSAR_PREFETCH_COOPERATIVE 0
+#endif
+#ifndef MKW_VITA_SOL_CRITICAL_PROFILE
+#define MKW_VITA_SOL_CRITICAL_PROFILE 0
+#endif
+#ifndef MKW_VITA_LOADING_AUDIO_PROFILE
+#define MKW_VITA_LOADING_AUDIO_PROFILE 0
+#endif
 
 #if defined(MKW_TARGET_VITA) && (MKW_VITA_GUEST_IO_PROFILE || MKW_VITA_DVD_ASYNC_HOST || MKW_VITA_BRSAR_PREFETCH)
 #include <psp2/kernel/processmgr.h>
@@ -37,6 +46,9 @@ extern "C" void GxNotifyGuestRamDmaWrite(uint32_t addr, uint32_t size);
 #if defined(MKW_TARGET_VITA) && (MKW_VITA_DVD_ASYNC_HOST || MKW_VITA_BRSAR_PREFETCH)
 #include "wiicompiled_vita/host_jobs.h"
 #include <psp2/io/fcntl.h>
+#endif
+#if defined(MKW_TARGET_VITA) && MKW_VITA_BRSAR_PREFETCH_COOPERATIVE
+#include <psp2/kernel/threadmgr.h>
 #endif
 #if defined(MKW_TARGET_VITA) && MKW_VITA_BRSAR_PREFETCH
 #include <psp2/kernel/sysmem.h>
@@ -389,6 +401,19 @@ void DropHostFileCache() {
     }
 }
 
+#if defined(MKW_TARGET_VITA) && MKW_VITA_BRSAR_PREFETCH_COOPERATIVE
+std::atomic<uint32_t> g_foregroundDvdReaders{0};
+
+struct ForegroundDvdReadScope {
+    ForegroundDvdReadScope() noexcept {
+        g_foregroundDvdReaders.fetch_add(1u, std::memory_order_acq_rel);
+    }
+    ~ForegroundDvdReadScope() {
+        g_foregroundDvdReaders.fetch_sub(1u, std::memory_order_acq_rel);
+    }
+};
+#endif
+
 #if defined(MKW_TARGET_VITA) && MKW_VITA_BRSAR_PREFETCH
 namespace {
 constexpr uint32_t kBrsarWarmOffset = 6699712u;
@@ -425,7 +450,20 @@ bool IsBrsarEntry(const DVDFileEntry& entry) {
 bool PreadExact(SceUID fd, uint8_t* dst, uint32_t bytes, uint32_t offset) noexcept {
     uint32_t done = 0;
     while (done < bytes) {
-        const int got = sceIoPread(fd, dst + done, bytes - done,
+#if MKW_VITA_BRSAR_PREFETCH_COOPERATIVE
+        // Speculative BRSAR warming must never monopolize the storage device.
+        // True Wii DVD reads are latency-sensitive, so wait until the foreground
+        // lane is idle and issue bounded chunks that provide frequent yield points.
+        while (g_foregroundDvdReaders.load(std::memory_order_acquire) != 0u) {
+            sceKernelDelayThread(500);
+        }
+        constexpr uint32_t kPrefetchChunkBytes = 128u * 1024u;
+        const uint32_t remaining = bytes - done;
+        const uint32_t request = std::min<uint32_t>(remaining, kPrefetchChunkBytes);
+#else
+        const uint32_t request = bytes - done;
+#endif
+        const int got = sceIoPread(fd, dst + done, request,
                                    static_cast<SceOff>(offset) + done);
         if (got <= 0) return false;
         done += static_cast<uint32_t>(got);
@@ -503,7 +541,8 @@ void MaybeStartBrsarPrefetch(const DVDFileEntry& entry) {
     if (!g_brsarPrefetch.stage.compare_exchange_strong(expected, 1u,
             std::memory_order_acq_rel, std::memory_order_relaxed)) return;
     g_brsarPrefetch.entry = &entry;
-    auto& jobs = WiiCompiledVita::BackgroundJobs();
+    auto& jobs = WiiCompiledVita::PrefetchJobs();
+    jobs.setProfiling(MKW_VITA_SOL_CRITICAL_PROFILE || MKW_VITA_LOADING_AUDIO_PROFILE);
     if ((!jobs.running() && !jobs.start(WiiCompiledVita::HostThreadRole::Io)) ||
         !jobs.submit(&BrsarPrefetchWorker, const_cast<DVDFileEntry*>(&entry))) {
         g_brsarPrefetch.stage.store(0u, std::memory_order_release);
@@ -524,12 +563,20 @@ bool TryServeBrsarPrefetch(const DVDFileEntry& entry, uint32_t fileOffset, uint3
         static_cast<uint64_t>(fileOffset) + length <= static_cast<uint64_t>(kBrsarWarmOffset) + kBrsarWarmBytes) {
         cacheOffset = fileOffset - kBrsarWarmOffset;
         requiredStage = 2u;
+#if MKW_VITA_BRSAR_PREFETCH_COOPERATIVE
+        waitMs = 15u;
+#else
         waitMs = 400u;
+#endif
     } else if (fileOffset >= kBrsarLargeOffset &&
         static_cast<uint64_t>(fileOffset) + length <= static_cast<uint64_t>(kBrsarLargeOffset) + kBrsarLargeBytes) {
         cacheOffset = kBrsarWarmBytes + (fileOffset - kBrsarLargeOffset);
         requiredStage = 3u;
+#if MKW_VITA_BRSAR_PREFETCH_COOPERATIVE
+        waitMs = 15u;
+#else
         waitMs = 900u;
+#endif
     } else {
         return false;
     }
@@ -660,6 +707,9 @@ bool DvdReadIntoGuest(const DVDFileEntry& entry, uint32_t fileOffset, uint32_t l
     profileSeekUs = sceKernelGetProcessTimeWide() - seekBeginUs;
     const uint64_t readBeginUs = sceKernelGetProcessTimeWide();
 #endif
+#if defined(MKW_TARGET_VITA) && MKW_VITA_BRSAR_PREFETCH_COOPERATIVE
+    ForegroundDvdReadScope foregroundReadScope;
+#endif
     size_t done = 0;
     while (done < length) {
         const size_t n = std::fread(host + done, 1, length - done, file);
@@ -732,6 +782,9 @@ bool DvdReadIntoGuestNativePread(const DVDFileEntry& entry, uint32_t fileOffset,
 
 #if MKW_VITA_GUEST_IO_PROFILE
     const uint64_t readBeginUs = sceKernelGetProcessTimeWide();
+#endif
+#if MKW_VITA_BRSAR_PREFETCH_COOPERATIVE
+    ForegroundDvdReadScope foregroundReadScope;
 #endif
     uint32_t done = 0;
     while (done < length) {
@@ -815,6 +868,7 @@ bool SubmitAsyncDvdRead(const DVDFileEntry& entry, uint32_t fileOffset,
     }
 
     auto& jobs = WiiCompiledVita::BackgroundJobs();
+    jobs.setProfiling(MKW_VITA_SOL_CRITICAL_PROFILE || MKW_VITA_LOADING_AUDIO_PROFILE);
     if (!jobs.running() && !jobs.start(WiiCompiledVita::HostThreadRole::Io)) {
         RT_LOGF(RT_TAG_DVD, "dvd_async_worker start_failed; falling back to synchronous HLE\n");
         return false;

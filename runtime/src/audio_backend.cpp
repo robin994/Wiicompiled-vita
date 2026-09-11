@@ -36,6 +36,16 @@ void AudioBackend::SetMuted(bool muted) {
     ApplyGainLocked();
 }
 
+AudioBackendMetrics AudioBackend::GetMetrics() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    AudioBackendMetrics result{};
+    if (m_stream) {
+        const int queued = SDL_GetAudioStreamQueued(m_stream);
+        if (queued > 0) result.queuedBytes = static_cast<uint64_t>(queued);
+    }
+    return result;
+}
+
 bool AudioBackend::EnsureInitializedLocked(uint32_t sampleRate, uint32_t channels) {
     if (m_initialized && m_sampleRate == sampleRate && m_channels == channels) {
         return true;

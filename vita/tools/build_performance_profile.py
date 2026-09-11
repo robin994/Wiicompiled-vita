@@ -32,17 +32,22 @@ BASE = dict(
     MKW_VITA_NATIVE_AUDIOOUT=0, MKW_VITA_AUDIO_PACING=0, MKW_VITA_DIRECT_BATCHER=0,
     MKW_VITA_DIRECT_EFB=0, MKW_VITA_DIRECT_STATE_CACHE=0,
     MKW_VITA_DIRECT_TEV_SPECIALIZE=0, MKW_VITA_DIRECT_TEV_TWO_TEXTURE=0,
-    MKW_VITA_DIRECT_3D_TEXTURED_COMPAT=0, MKW_VITA_DIRECT_GX_DEPTH_RANGE=0,
+    MKW_VITA_DIRECT_3D_TEXTURED_COMPAT=0, MKW_VITA_DIRECT_3D_TEXTURE_RESCUE=0,
+    MKW_VITA_DIRECT_FFP_PREWARM=0, MKW_VITA_FFP_CACHE_RUNTIME_SAVE=1,
+    MKW_VITA_DIRECT_GX_DEPTH_RANGE=0,
+    MKW_VITA_INTERNAL_RENDER_WIDTH=960, MKW_VITA_INTERNAL_RENDER_HEIGHT=544,
     MKW_VITA_DIRECT_PREP_WORKER=0,
     MKW_VITA_DIRECT_VERTEX_PREP=0, MKW_VITA_DIRECT_TEXTURE_PREP=0,
+    MKW_VITA_DIRECT_TEXTURE_PRIORITY_PREP=0,
     MKW_VITA_DIRECT_STATE_PREP=0, MKW_VITA_DIRECT_TEXTURE_CACHE_ANTITHRASH=0,
     MKW_VITA_GUEST_IO_PROFILE=0,
     MKW_VITA_FULLSCREEN_PRESENT=0, MKW_VITA_DVD_HOST_BUFFERING=0,
     MKW_VITA_DVD_ASYNC_HOST=0, MKW_VITA_RFL_SHAPE_DL_BURST=0,
-    MKW_VITA_BRSAR_PREFETCH=0, MKW_VITA_BRSAR_PREFETCH_PHYCONT=0,
+    MKW_VITA_BRSAR_PREFETCH=0, MKW_VITA_BRSAR_PREFETCH_COOPERATIVE=0,
+    MKW_VITA_BRSAR_PREFETCH_PHYCONT=0,
     MKW_VITA_VGL_CDRAM_RESERVE_MB=0, MKW_VITA_VGL_PHYCONT_RESERVE_MB=0,
     MKW_VITA_VGL_CIRCULAR_POOL_MB=0, MKW_VITA_GUEST_WRITE_HIERARCHY=0,
-    MKW_VITA_THP_ASYNC_WORKER=0,
+    MKW_VITA_YAZ0_FAST_DIRECT=0, MKW_VITA_THP_ASYNC_WORKER=0,
     MKW_VITA_DIRECT_EFB_BATCH_SYNC=0, MKW_VITA_DIRECT_EFB_PREFLIGHT=0,
     MKW_VITA_RENDER_DECOUPLE=0, MKW_VITA_RENDER_TARGET_HZ=60,
     MKW_VITA_DIRECT_WORKER_TIMING=0,
@@ -52,6 +57,16 @@ BASE = dict(
     MKW_VITA_LOG_FLUSH_INTERVAL_US=250000, MKW_VITA_AUDIO_WAIT_MIN_INTERVAL_US=0,
     MKW_VITA_AUDIO_BACKLOG_CLAMP_BLOCKS=0, MKW_VITA_AX_NEON=0,
     MKW_VITA_THP_UNESCAPED_FIX=0, MKW_VITA_AUDIO_WAIT_BLOCK_BUDGET=4,
+    MKW_VITA_SOL_CRITICAL_PROFILE=0, MKW_VITA_SOL_DETAIL_BURST=0,
+    MKW_VITA_BUILD_MARKER=0, MKW_VITA_TEXTURE_RAW_CPU_CACHE=0,
+    MKW_VITA_TEXTURE_CACHE_BUDGET_MB=12, MKW_VITA_PREP_TEXTURE_LIMIT=8,
+    MKW_VITA_PREP_TEXTURE_BUDGET_MB=4, MKW_VITA_EFB_EXTENDED_COALESCE=0,
+    MKW_VITA_EFB_DEFER_TRANSFER_FINISH=0, MKW_VITA_RESCUE_KEEP_VERTEX_COLOR=0,
+    MKW_VITA_RESCUE_KEEP_DEPTH=0, MKW_VITA_RESCUE_KEEP_CULL=0,
+    MKW_VITA_RESCUE_KEEP_BLEND_ALPHA=0, MKW_VITA_RESCUE_KEEP_TEV=0,
+    MKW_VITA_DIRECT_LINEAR_BATCH_PREP=0, MKW_VITA_GUEST_ACTIVE_CPU_PROFILE=0,
+    MKW_VITA_VERTEX_REUSE_CACHE=0, MKW_VITA_PACKET_MOVE_STATE=0,
+    MKW_VITA_TIMELINE_PROFILE=0, MKW_VITA_LOADING_AUDIO_PROFILE=0,
     MKW_VITA_AURORA_RENDERER=1,
 )
 PROFILES = {
@@ -329,6 +344,129 @@ PROFILES["full-content-p6_34-direct-3d-depthfix"] = (
     PROFILES["full-content-p6_33-direct-3d-textured"] |
     dict(MKW_TRANSLATED_HOT_SHARDS="build_shards/base_common/shard_725a43c460cb362e6c90773f.cpp build_shards/base_common/shard_34d48ae74a14049acdf6da40.cpp build_shards/base_common/shard_dac23cfe7b0b40a5fa626d24.cpp build_shards/base_common/shard_7e4e85bfe552d83be87bec14.cpp build_shards/base_common/shard_5e1324bf49db899095100c5d.cpp build_shards/base_common/shard_25095ab60ee81e785006b467.cpp build_shards/base_common/shard_abfadd8a2b5c92f9a88d68ab.cpp build_shards/base_common/shard_ab968ad22595bad323bed60a.cpp build_shards/base_common/shard_3eb59e491a36d7242d565a06.cpp build_shards/base_common/shard_1ad6c774f8193dc8e5318e40.cpp build_shards/base_common/shard_f03227ec9fbe553ae94880e2.cpp build_shards/base_common/shard_7d45b3eea519ff690d1f6529.cpp build_shards/base_common/shard_9d589652ea7bcaf3bc33c546.cpp build_shards/base_common/shard_60e06428f12fde230bb8717d.cpp"))
 
+# P6.35 starts from the only hardware-proven 3D state (P6.32) and adds just
+# TEX0 sampling. Perspective draws keep white vertex colour, neutral Z and
+# depth/cull/blend/alpha disabled; TEX0 uses GX_REPLACE and a failed resolve
+# deliberately falls back to the visible white silhouette.
+PROFILES["full-content-p6_35-direct-3d-texture-rescue"] = (
+    PROFILES["full-content-p6_34-direct-3d-depthfix"] |
+    dict(MKW_VITA_PERF_FORCE_3D_SOLID=0,
+         MKW_VITA_DIRECT_3D_TEXTURED_COMPAT=0,
+         MKW_VITA_DIRECT_3D_TEXTURE_RESCUE=1,
+         MKW_VITA_DIRECT_GX_DEPTH_RANGE=0))
+
+# P6.36 keeps the hardware-visible P6.35 renderer unchanged while moving
+# fixed-function shader realization and hot texture decode work out of race frames.
+# Only signatures observed by prior runs are persisted/prewarmed; the first run
+# seeds the guaranteed P6.35 TEX0/REPLACE state.
+PROFILES["full-content-p6_36-direct-ffp-prewarm"] = (
+    PROFILES["full-content-p6_35-direct-3d-texture-rescue"] |
+    dict(MKW_VITA_DIRECT_FFP_PREWARM=1,
+         MKW_VITA_DIRECT_TEXTURE_PRIORITY_PREP=1))
+
+# P6.37 keeps P6.36 behavior but halves both Vita surface axes for debugging.
+# Guest Wii viewport/EFB coordinates remain unchanged; only raster resolution drops.
+PROFILES["full-content-p6_37-direct-272p-debug"] = (
+    PROFILES["full-content-p6_36-direct-ffp-prewarm"] |
+    dict(MKW_VITA_INTERNAL_RENDER_WIDTH=480,
+         MKW_VITA_INTERNAL_RENDER_HEIGHT=272))
+
+# P6.38 is the performance-first native-resolution build after the 272p A/B
+# proved raster fill-rate is not the limiting factor. Remove profiling/prewarm
+# overhead, prioritize foreground storage, tighten Yaz0, and compile the latest
+# measured guest hotspots at O3 without changing PPC floating-point semantics.
+PROFILES["full-content-p6_38-producer-io-yaz0"] = (
+    PROFILES["full-content-p6_36-direct-ffp-prewarm"] |
+    dict(MKW_VITA_INTERNAL_RENDER_WIDTH=960,
+         MKW_VITA_INTERNAL_RENDER_HEIGHT=544,
+         MKW_VITA_DIRECT_FFP_PREWARM=0,
+         MKW_VITA_FFP_CACHE_RUNTIME_SAVE=0,
+         MKW_VITA_BRSAR_PREFETCH_COOPERATIVE=1,
+         MKW_VITA_YAZ0_FAST_DIRECT=1,
+         MKW_VITA_GUEST_CPU_PROFILE=0,
+         MKW_VITA_GUEST_PC_SAMPLER=0,
+         MKW_VITA_GUEST_IO_PROFILE=0,
+         MKW_VITA_WAIT_SERVICE_PROFILE=0,
+         MKW_VITA_AUDIO_WAIT_PROFILE=0,
+         MKW_VITA_AUDIO_AI_PROFILE=0,
+         MKW_VITA_PERF_RING=0,
+         MKW_VITA_PERF_SUMMARY_INTERVAL=120,
+         MKW_TRANSLATED_HOT_SHARDS="build_shards/base_common/shard_725a43c460cb362e6c90773f.cpp build_shards/base_common/shard_34d48ae74a14049acdf6da40.cpp build_shards/base_common/shard_dac23cfe7b0b40a5fa626d24.cpp build_shards/base_common/shard_7e4e85bfe552d83be87bec14.cpp build_shards/base_common/shard_5e1324bf49db899095100c5d.cpp build_shards/base_common/shard_25095ab60ee81e785006b467.cpp build_shards/base_common/shard_abfadd8a2b5c92f9a88d68ab.cpp build_shards/base_common/shard_ab968ad22595bad323bed60a.cpp build_shards/base_common/shard_3eb59e491a36d7242d565a06.cpp build_shards/base_common/shard_1ad6c774f8193dc8e5318e40.cpp build_shards/base_common/shard_f03227ec9fbe553ae94880e2.cpp build_shards/base_common/shard_7d45b3eea519ff690d1f6529.cpp build_shards/base_common/shard_9d589652ea7bcaf3bc33c546.cpp build_shards/base_common/shard_60e06428f12fde230bb8717d.cpp build_shards/base_common/shard_230d3b08501d1c84788a7489.cpp build_shards/base_common/shard_cfaa9f5a3062596415aba33d.cpp",
+         MKW_TRANSLATED_HOT_OPT="-O3"))
+
+# Astra/Sol 5.6 high plan. Each profile below changes one causal family from
+# P6.38. Hardware acceptance remains separate; the integrated profile exists
+# only to prove that all implemented paths compile/link together.
+PROFILES["full-content-p6_39-f01-critical-off"] = (
+    PROFILES["full-content-p6_38-producer-io-yaz0"] |
+    dict(MKW_VITA_SOL_CRITICAL_PROFILE=0, MKW_VITA_SOL_DETAIL_BURST=0))
+PROFILES["full-content-p6_39-f01-critical-on"] = (
+    PROFILES["full-content-p6_38-producer-io-yaz0"] |
+    dict(MKW_VITA_SOL_CRITICAL_PROFILE=1, MKW_VITA_SOL_DETAIL_BURST=1,
+         MKW_VITA_GUEST_CPU_PROFILE=1, MKW_VITA_GUEST_PC_SAMPLER=1,
+         MKW_VITA_GUEST_ACTIVE_CPU_PROFILE=1))
+PROFILES["full-content-p6_40-f02-texture-identity"] = (
+    PROFILES["full-content-p6_38-producer-io-yaz0"] |
+    dict(MKW_VITA_TEXTURE_RAW_CPU_CACHE=1, MKW_VITA_PREP_TEXTURE_LIMIT=16,
+         MKW_VITA_PREP_TEXTURE_BUDGET_MB=8))
+PROFILES["full-content-p6_40-f02-texture-16m"] = (
+    PROFILES["full-content-p6_40-f02-texture-identity"] |
+    dict(MKW_VITA_TEXTURE_CACHE_BUDGET_MB=16))
+PROFILES["full-content-p6_40-f02-texture-20m"] = (
+    PROFILES["full-content-p6_40-f02-texture-identity"] |
+    dict(MKW_VITA_TEXTURE_CACHE_BUDGET_MB=20))
+PROFILES["full-content-p6_41-f03-efb-lifetime"] = (
+    PROFILES["full-content-p6_38-producer-io-yaz0"] |
+    dict(MKW_VITA_EFB_COMMAND_CAPACITY=1024, MKW_VITA_EFB_EXTENDED_COALESCE=1,
+         MKW_VITA_EFB_DEFER_TRANSFER_FINISH=1))
+PROFILES["full-content-p6_42-f04-rescue-color"] = (
+    PROFILES["full-content-p6_38-producer-io-yaz0"] |
+    dict(MKW_VITA_RESCUE_KEEP_VERTEX_COLOR=1))
+PROFILES["full-content-p6_42-f04-rescue-depth"] = (
+    PROFILES["full-content-p6_42-f04-rescue-color"] |
+    dict(MKW_VITA_RESCUE_KEEP_DEPTH=1, MKW_VITA_DIRECT_GX_DEPTH_RANGE=1))
+PROFILES["full-content-p6_42-f04-rescue-cull"] = (
+    PROFILES["full-content-p6_42-f04-rescue-depth"] |
+    dict(MKW_VITA_RESCUE_KEEP_CULL=1))
+PROFILES["full-content-p6_42-f04-rescue-blend-alpha"] = (
+    PROFILES["full-content-p6_42-f04-rescue-cull"] |
+    dict(MKW_VITA_RESCUE_KEEP_BLEND_ALPHA=1))
+PROFILES["full-content-p6_42-f04-rescue-tev"] = (
+    PROFILES["full-content-p6_42-f04-rescue-blend-alpha"] |
+    dict(MKW_VITA_RESCUE_KEEP_TEV=1))
+PROFILES["full-content-p6_42-f04-native-material"] = (
+    PROFILES["full-content-p6_38-producer-io-yaz0"] |
+    dict(MKW_VITA_DIRECT_3D_TEXTURE_RESCUE=0, MKW_VITA_DIRECT_3D_TEXTURED_COMPAT=0,
+         MKW_VITA_DIRECT_GX_DEPTH_RANGE=1))
+PROFILES["full-content-p6_43-f05-linear-batching"] = (
+    PROFILES["full-content-p6_38-producer-io-yaz0"] |
+    dict(MKW_VITA_DIRECT_LINEAR_BATCH_PREP=1))
+PROFILES["full-content-p6_44-f06-guest-attribution"] = (
+    PROFILES["full-content-p6_38-producer-io-yaz0"] |
+    dict(MKW_VITA_GUEST_CPU_PROFILE=1, MKW_VITA_GUEST_PC_SAMPLER=1,
+         MKW_VITA_GUEST_ACTIVE_CPU_PROFILE=1))
+PROFILES["full-content-p6_45-f07-prep-ownership"] = (
+    PROFILES["full-content-p6_38-producer-io-yaz0"] |
+    dict(MKW_VITA_VERTEX_REUSE_CACHE=1, MKW_VITA_PACKET_MOVE_STATE=1))
+PROFILES["full-content-p6_46-f08-timeline"] = (
+    PROFILES["full-content-p6_38-producer-io-yaz0"] |
+    dict(MKW_VITA_TIMELINE_PROFILE=1))
+PROFILES["full-content-p6_47-f09-loading-audio"] = (
+    PROFILES["full-content-p6_38-producer-io-yaz0"] |
+    dict(MKW_VITA_LOADING_AUDIO_PROFILE=1, MKW_VITA_GUEST_IO_PROFILE=1,
+         MKW_VITA_AUDIO_WAIT_PROFILE=1, MKW_VITA_AUDIO_AI_PROFILE=1))
+PROFILES["full-content-p6_48-sol-plan-integrated"] = (
+    PROFILES["full-content-p6_38-producer-io-yaz0"] |
+    dict(MKW_VITA_SOL_CRITICAL_PROFILE=1, MKW_VITA_TEXTURE_RAW_CPU_CACHE=1,
+         MKW_VITA_PREP_TEXTURE_LIMIT=16, MKW_VITA_PREP_TEXTURE_BUDGET_MB=8,
+         MKW_VITA_EFB_COMMAND_CAPACITY=1024, MKW_VITA_EFB_EXTENDED_COALESCE=1,
+         MKW_VITA_EFB_DEFER_TRANSFER_FINISH=1, MKW_VITA_DIRECT_LINEAR_BATCH_PREP=1,
+         MKW_VITA_GUEST_ACTIVE_CPU_PROFILE=1, MKW_VITA_VERTEX_REUSE_CACHE=1,
+         MKW_VITA_PACKET_MOVE_STATE=1, MKW_VITA_TIMELINE_PROFILE=1,
+         MKW_VITA_LOADING_AUDIO_PROFILE=1, MKW_VITA_GUEST_IO_PROFILE=1,
+         MKW_VITA_AUDIO_WAIT_PROFILE=1, MKW_VITA_AUDIO_AI_PROFILE=1))
+
+
 def sha(path):
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
@@ -352,6 +490,8 @@ def main():
         config["MKW_TRANSLATED_HOT_OPT"] = "-" + args.hot_opt
         suffix += "-hot-" + args.hot_opt + "-" + hashlib.sha256("\n".join(args.hot_shard).encode()).hexdigest()[:8]
     target = "wiicompiled-vita-mkw-firstboot-astra-" + suffix
+    marker_payload = json.dumps({"profile": suffix, "config": config}, sort_keys=True, separators=(",", ":"))
+    config["MKW_VITA_BUILD_MARKER"] = int(hashlib.sha256(marker_payload.encode()).hexdigest()[:8], 16)
     config["MKW_FIRSTBOOT_TARGET"] = target
     config["MKW_VITA_BUILD_VARIANT"] = "astra-" + suffix
     command = ["make", "-f", "Makefile.vita", f"-j{args.jobs}"]

@@ -3267,3 +3267,50 @@ Offline validation PASS: ARM32 compile/link, VELF/FSELF, VPK package, unzip -t. 
 - VPK SHA-256: 7e4f4938382011f35bfc0008e78552d68ff2ee7878651173412b1e5c9d3de64e
 
 Hardware acceptance: startup must report perf_force_3d_solid=0, direct_3d_textured_compat=1, direct_gx_depth_range=1 and clip_w=1. When the first unsupported perspective material is encountered, expect direct_3d_textured_compat ... depth_map=gx01_to_gl_m11. The critical visual test is character/vehicle/track perspective geometry: it should return as textured geometry rather than disappearing. If geometry is visible but faces are selectively missing, investigate GX-vs-GL front-face/cull semantics next; if geometry is visible but materials are wrong, continue TEV coverage. Do not reintroduce Aurora.
+
+
+## P6.35-P6.36 — texture-rescue visibility and FFP prewarm/cache (2026-09-10)
+
+P6.35 established the first hardware result where perspective Mario/kart geometry is visibly rasterized in normal menus. This is not a completed textured-material path: textured 3D models had never been correctly visible before this point, and the race scene remains predominantly white. The rescue path deliberately keeps the P6.32 visibility conditions for perspective draws (opaque white vertex colour, neutral Z, depth/cull/blend/alpha disabled), attempts real TEX0 with GX_REPLACE, and falls back to the visible white silhouette if texture resolution fails. Hardware screenshots confirm character and vehicle geometry appearing; the race confirms the geometry path is alive but material/TEV reconstruction is still incomplete.
+
+P6.36 adds a bounded persistent fixed-function-state prewarm cache at ux0:data/wiicompiled-vita/cache/ffp_prewarm.bin, first-use telemetry and frequency-ranked USER_2 texture preparation. Hot texture sources are protected from avoidable LRU eviction. Hardware testing did not produce a perceptible frame-rate increase. Representative steady scenes report render_us around 22-30 ms, while total present intervals remain much larger; transition/race preparation can still spend roughly 170-385 ms in USER_2 texture/vertex preparation and other guest/I/O work. The prewarm therefore removes only a small first-use component and is not the dominant performance solution.
+
+P6.36 hardware artifact:
+
+- VPK: build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_36-direct-ffp-prewarm.vpk
+- VPK bytes: 43822910
+- VPK SHA-256: 926614da1cd15d2f6e4e1a173514cbd5536e636e4ef97bc812fbed82e1591525
+
+## P6.37 — 480x272 internal debug surface (2026-09-10)
+
+P6.37 introduces a reversible low-resolution debug profile on top of P6.36. The Wii guest keeps its original GX viewport, projection and EFB logical coordinates; only the Vita render surface is changed from 960x544 to 480x272 through MKW_VITA_INTERNAL_RENDER_WIDTH/HEIGHT. Existing viewport/scissor presentation mapping derives from kSurfaceWidth/kSurfaceHeight, so raster dimensions scale by exactly 1/2 on each axis. The resulting surface contains 25% of the native Vita pixel count, intended to reduce fill-rate, color/depth traffic and EFB source-copy workload while rendering/material correctness is still being debugged.
+
+The backend logs an explicit marker at startup:
+
+    internal_render=480x272 panel=960x544 pixel_ratio_permille=250 mode=lowres-debug
+
+The default remains 960x544 and profile full-content-p6_37-direct-272p-debug alone selects 480x272, so native-resolution A/B testing remains available without reverting code. The direct EFB path continues to use vitaGL display-surface dimensions and no Aurora renderer path is introduced.
+
+Offline validation PASS: git diff --check, ARM32 compile/link, VELF/FSELF, VPK package and unzip -t. Final ELF string audit reports zero AuroraPacketRenderer and zero aurora::vita::gfx references. Hardware validation is still required to confirm how the custom 480x272 vitaGL display surface is scaled onto the physical 960x544 panel and to quantify the actual render_us/EFB improvement. If frame/present timing changes little at one-quarter pixels, the dominant blocker is CPU/guest/prep/I/O rather than raster fill-rate and further resolution cuts should not be prioritized.
+
+- VPK: build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_37-direct-272p-debug.vpk
+- VPK bytes: 43822016
+- VPK SHA-256: 05abbbebbfda5bba391598c6938f2f6ed697d0621300c52101ac9048951dc0a9
+
+Hardware acceptance: verify the startup internal_render marker, confirm the image fills the Vita display and has the expected lower-resolution appearance, then capture runtime.log through the same character/vehicle/race sequence used for P6.36. Compare perf_summary render_us, efb_us, direct_prep and render_present interval_us against P6.36.
+
+## P6.38 — producer/I/O/Yaz0 performance pass at native 960x544 (2026-09-11)
+
+P6.37 hardware A/B at 480x272 confirmed that quarter-pixel rendering does not materially improve the observed frame-rate bottleneck, so P6.38 returns to 960x544 and targets guest CPU, decompression, storage contention and profiling overhead.
+
+P6.38 keeps the direct-vitaGL texture-rescue and texture priority/anti-thrash stack, disables FFP prewarm/runtime-cache bookkeeping in the performance profile, disables guest PC/I/O/audio/wait profilers and the perf ring, separates speculative BRSAR prefetch from the foreground DVD async worker with a cooperative chunked prefetch lane, adds a direct-memory Yaz0/SZS fast path compiled at -O3, and builds the expanded 16-shard translated hot set at -O3 without fast-math.
+
+Sampler-off incremental linkage is kept compatible by retaining GuestHotProfiler::g_currentToken while current hot shards compile sampling calls away.
+
+Offline validation PASS: incremental ARM32 compile/link, VELF/FSELF, VPK package and unzip -t. Final ELF audit: zero AuroraPacketRenderer and zero aurora::vita::gfx matches. Manifest confirms internal_render=960x544, direct_ffp_prewarm=0, ffp_cache_runtime_save=0, brsar_prefetch_cooperative=1, yaz0_fast_direct=1, guest_pc_sampler=0 and guest_io_profile=0.
+
+- VPK: build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_38-producer-io-yaz0.vpk
+- VPK bytes: 44391665
+- VPK SHA-256: 050448ccb4eabb29779f3fbc374d85e6ac544cf023f6a7fdff69a7868c40b32b
+
+Hardware acceptance: repeat character select -> vehicle select -> race, verify no visual regression from the P6.35/P6.37 rescue state, and capture runtime.log through race entry. The next pass should target the dominant remaining producer/guest, texture-prep, EFB-sync or draw/state cost measured by the periodic summaries.

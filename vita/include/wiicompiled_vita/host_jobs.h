@@ -17,6 +17,17 @@ namespace WiiCompiledVita {
 
 using HostJobFunction = void (*)(void* context) noexcept;
 
+struct HostJobStats {
+    uint64_t submitted = 0;
+    uint64_t executed = 0;
+    uint64_t queueWaitUs = 0;
+    uint64_t queueWaitMaxUs = 0;
+    uint64_t executeUs = 0;
+    uint64_t executeMaxUs = 0;
+    uint64_t submitFailures = 0;
+    size_t queueHighWater = 0;
+};
+
 class HostJobFence {
 public:
     HostJobFence() = default;
@@ -50,6 +61,8 @@ public:
 
     bool submit(HostJobFunction function, void* context, HostJobFence* fence = nullptr) noexcept;
     bool running() const noexcept { return running_.load(std::memory_order_acquire); }
+    void setProfiling(bool enabled) noexcept { profiling_.store(enabled, std::memory_order_release); }
+    HostJobStats takeStats() noexcept;
 
     static constexpr size_t kQueueCapacity = 64;
     static constexpr size_t kWorkerStackSize = 96 * 1024;
@@ -59,6 +72,7 @@ private:
         HostJobFunction function = nullptr;
         void* context = nullptr;
         HostJobFence* fence = nullptr;
+        uint64_t queuedAtUs = 0;
     };
 
     void workerMain() noexcept;
@@ -70,10 +84,22 @@ private:
     size_t queued_ = 0;
     bool stopping_ = false;
     std::atomic<bool> running_{false};
+    std::atomic<bool> profiling_{false};
+    std::atomic<uint64_t> submitted_{0};
+    std::atomic<uint64_t> executed_{0};
+    std::atomic<uint64_t> queueWaitUs_{0};
+    std::atomic<uint64_t> queueWaitMaxUs_{0};
+    std::atomic<uint64_t> executeUs_{0};
+    std::atomic<uint64_t> executeMaxUs_{0};
+    std::atomic<uint64_t> submitFailures_{0};
+    std::atomic<size_t> queueHighWater_{0};
     std::mutex mutex_;
     std::condition_variable wake_;
 };
 
 HostJobSystem& BackgroundJobs() noexcept;
+// Dedicated low-priority/storage-prefetch lane so large speculative reads cannot
+// head-of-line block real asynchronous Wii DVD requests.
+HostJobSystem& PrefetchJobs() noexcept;
 
 } // namespace WiiCompiledVita

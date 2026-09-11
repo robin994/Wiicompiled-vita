@@ -423,6 +423,25 @@ void AudioBackend::SetMuted(bool muted) {
     m_muted = muted;
 }
 
+AudioBackendMetrics AudioBackend::GetMetrics() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    AudioBackendMetrics result{};
+#if MKW_VITA_NATIVE_AUDIOOUT
+    auto& state = NativeSink();
+    std::lock_guard<std::mutex> sinkLock(state.mutex);
+    result.realOutputChunks = state.realOutputChunks;
+    result.silenceOutputChunks = state.silenceOutputChunks;
+    result.underrunChunks = state.underrunChunks;
+    result.droppedChunks = state.droppedChunks;
+    result.queueHighWaterChunks = state.queueHighWater;
+    result.queuedChunks = state.readyCount;
+    result.stagingSamples = state.stagingCount;
+    result.queuedBytes = static_cast<uint64_t>(state.readyCount) * kNativeChunkSamples * sizeof(int16_t) +
+                         static_cast<uint64_t>(state.stagingCount) * sizeof(int16_t);
+#endif
+    return result;
+}
+
 bool AudioBackend::EnsureInitializedLocked(uint32_t sampleRate, uint32_t channels) {
     if (sampleRate == 0 || channels == 0) {
         return false;
@@ -480,7 +499,8 @@ bool AudioBackend::QueueHasCapacityLocked(int incomingBytes) {
         return false;
     }
     const uint64_t queuedBytes =
-        static_cast<uint64_t>(state.ready.size()) * kNativeChunkSamples * sizeof(int16_t);
+        static_cast<uint64_t>(state.readyCount) * kNativeChunkSamples * sizeof(int16_t) +
+        static_cast<uint64_t>(state.stagingCount) * sizeof(int16_t);
     return queuedBytes + static_cast<uint64_t>(std::max(incomingBytes, 0)) <=
            QueueLimitBytesLocked();
 #else

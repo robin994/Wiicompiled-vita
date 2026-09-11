@@ -7,6 +7,17 @@
 
 #include <SDL3/SDL_audio.h>
 
+struct AudioBackendMetrics {
+    uint64_t realOutputChunks = 0;
+    uint64_t silenceOutputChunks = 0;
+    uint64_t underrunChunks = 0;
+    uint64_t droppedChunks = 0;
+    uint64_t queueHighWaterChunks = 0;
+    uint64_t queuedChunks = 0;
+    uint64_t queuedBytes = 0;
+    uint64_t stagingSamples = 0;
+};
+
 class AudioBackend {
 public:
     static AudioBackend& Instance();
@@ -22,6 +33,9 @@ public:
     // Applied to the final host output, covering both AX and direct AI DMA.
     void SetMasterVolume(float volume);
     void SetMuted(bool muted);
+
+    // Snapshot-only diagnostics. No queue mutation and no guest-visible side effects.
+    AudioBackendMetrics GetMetrics() const;
 
 private:
     AudioBackend() = default;

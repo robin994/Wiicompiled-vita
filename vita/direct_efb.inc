@@ -5,22 +5,57 @@ struct DirectEfbEntry {
     GLuint texture = 0;
     uint32_t width = 0, height = 0;
     size_t bytes = 0;
+    uint32_t generation = 0;
 };
 std::array<DirectEfbEntry, 128> g_directEfb{};
 size_t g_directEfbBytes = 0;
 constexpr size_t kDirectEfbBudget = 8 * 1024 * 1024;
+
+enum class DirectEfbFailureReason : size_t {
+    UnsupportedFormat = 0, DepthFormat, InvalidDimensions, SourceLayout, Budget,
+    NoSlot, Allocation, Backing, Transfer, Count
+};
+struct DirectEfbProfile {
+    std::array<uint32_t, static_cast<size_t>(DirectEfbFailureReason::Count)> failures{};
+    uint64_t allocUs = 0;
+    uint64_t transferSubmitUs = 0;
+    uint64_t transferFinishUs = 0;
+    uint64_t cpuResizeUs = 0;
+    uint64_t channelConvertUs = 0;
+    uint64_t destroyUs = 0;
+    uint64_t staleGeneration = 0;
+    uint64_t transferBytes = 0;
+};
+inline void DirectEfbFail(DirectEfbProfile* profile, DirectEfbFailureReason reason) {
+    if (profile) ++profile->failures[static_cast<size_t>(reason)];
+}
+bool DirectEfbDepthFormat(uint32_t format) {
+    switch (format) {
+    case 0x11: case 0x13: case 0x16:
+    case 0x30: case 0x31: case 0x32: case 0x33: case 0x34: case 0x35:
+    case 0x36: case 0x37: case 0x38: case 0x39: case 0x3a: return true;
+    default: return false;
+    }
+}
 
 DirectEfbEntry* FindDirectEfb(uintptr_t destination) {
     for (auto& entry : g_directEfb)
         if (entry.destination == destination && destination) return &entry;
     return nullptr;
 }
-void DestroyDirectEfbInternal(uintptr_t destination, bool gpuAlreadySynchronized) {
+void DestroyDirectEfbInternal(uintptr_t destination, bool gpuAlreadySynchronized,
+                              uint32_t expectedGeneration = 0, DirectEfbProfile* profile = nullptr) {
     if (auto* entry = FindDirectEfb(destination)) {
-        if (!gpuAlreadySynchronized) glFinish(); // the previous draw may still sample this backing
+        if (expectedGeneration != 0 && entry->generation != expectedGeneration) {
+            if (profile) ++profile->staleGeneration;
+            return;
+        }
+        const uint64_t beginUs = sceKernelGetProcessTimeWide();
+        if (!gpuAlreadySynchronized) glFinish();
         glDeleteTextures(1, &entry->texture);
         g_directEfbBytes -= entry->bytes;
         *entry = {};
+        if (profile) profile->destroyUs += sceKernelGetProcessTimeWide() - beginUs;
     }
 }
 void DestroyDirectEfb(uintptr_t destination) {
@@ -78,18 +113,28 @@ bool CanAttemptDirectEfbCopy(const EfbFrameCommand& command, float scaleX, float
 
 bool CopyDirectEfb(const EfbFrameCommand& command, float scaleX, float scaleY,
                    float sourceLeft = 0.0f, float sourceTop = 0.0f,
-                   bool gpuAlreadySynchronized = false) {
-    if (!DirectEfbFormatSupported(command.format)) return false;
+                   bool gpuAlreadySynchronized = false,
+                   bool deferTransferFinish = false, bool* transferPending = nullptr,
+                   DirectEfbProfile* profile = nullptr) {
+    if (!DirectEfbFormatSupported(command.format)) {
+        DirectEfbFail(profile, DirectEfbDepthFormat(command.format)
+            ? DirectEfbFailureReason::DepthFormat : DirectEfbFailureReason::UnsupportedFormat);
+        return false;
+    }
     const int x = std::clamp(int(std::lround((command.srcLeft - sourceLeft) * scaleX)), 0, DISPLAY_WIDTH);
     const int y = std::clamp(int(std::lround((command.srcTop - sourceTop) * scaleY)), 0, DISPLAY_HEIGHT);
     const int x1 = std::clamp(int(std::lround((command.srcLeft + command.srcWidth - sourceLeft) * scaleX)), x, DISPLAY_WIDTH);
     const int y1 = std::clamp(int(std::lround((command.srcTop + command.srcHeight - sourceTop) * scaleY)), y, DISPLAY_HEIGHT);
     const uint32_t sw = x1 - x, sh = y1 - y;
-    if (!sw || !sh || !command.dstWidth || !command.dstHeight || has_cached_mem) return false;
+    if (!sw || !sh || !command.dstWidth || !command.dstHeight) {
+        DirectEfbFail(profile, DirectEfbFailureReason::InvalidDimensions);
+        return false;
+    }
+    if (has_cached_mem) { DirectEfbFail(profile, DirectEfbFailureReason::SourceLayout); return false; }
     const auto& surface = gxm_color_surfaces[gxm_back_buffer_index];
     if (sceGxmColorSurfaceGetFormat(&surface) != SCE_GXM_COLOR_FORMAT_U8U8U8U8_ABGR ||
         sceGxmColorSurfaceGetType(&surface) != SCE_GXM_COLOR_SURFACE_LINEAR ||
-        sceGxmColorSurfaceGetScaleMode(&surface) != SCE_GXM_COLOR_SURFACE_SCALE_NONE) return false;
+        sceGxmColorSurfaceGetScaleMode(&surface) != SCE_GXM_COLOR_SURFACE_SCALE_NONE) { DirectEfbFail(profile, DirectEfbFailureReason::SourceLayout); return false; }
     const auto* base = static_cast<const uint8_t*>(sceGxmColorSurfaceGetData(&surface));
     const size_t sourcePitch = size_t(sceGxmColorSurfaceGetStrideInPixels(&surface)) * 4;
     if (!base || sourcePitch < size_t(x1) * 4) return false;
@@ -102,19 +147,26 @@ bool CopyDirectEfb(const EfbFrameCommand& command, float scaleX, float scaleY,
     if (nativeBytes <= kDirectEfbBudget - (g_directEfbBytes - oldBytes)) { dw = sw; dh = sh; }
 #endif
     const size_t bytes = size_t((dw + 7u) & ~7u) * dh * 4;
-    if (bytes > kDirectEfbBudget - (g_directEfbBytes - oldBytes)) return false;
+    if (bytes > kDirectEfbBudget - (g_directEfbBytes - oldBytes)) { DirectEfbFail(profile, DirectEfbFailureReason::Budget); return false; }
     if (!gpuAlreadySynchronized) glFinish(); // finish source scene and prior destination readers
+    if (entry && entry->generation != command.generation) {
+        if (profile) ++profile->staleGeneration;
+        DestroyDirectEfbInternal(command.destination, true, 0, profile);
+        entry = nullptr;
+    }
     if (entry && (entry->width != dw || entry->height != dh)) {
         DestroyDirectEfbInternal(command.destination, true);
         entry = nullptr;
     }
     if (!entry) {
         for (auto& candidate : g_directEfb) if (!candidate.destination) { entry = &candidate; break; }
-        if (!entry || !g_textureScratch || size_t(dw) * dh * 4 > kTextureScratchBytes) return false;
+        if (!entry) { DirectEfbFail(profile, DirectEfbFailureReason::NoSlot); return false; }
+        if (!g_textureScratch || size_t(dw) * dh * 4 > kTextureScratchBytes) { DirectEfbFail(profile, DirectEfbFailureReason::Budget); return false; }
         std::memset(g_textureScratch.get(), 0, size_t(dw) * dh * 4);
+        const uint64_t allocBeginUs = sceKernelGetProcessTimeWide();
         GLuint texture = 0;
         glGenTextures(1, &texture);
-        if (!texture) return false;
+        if (!texture) { DirectEfbFail(profile, DirectEfbFailureReason::Allocation); return false; }
         glBindTexture(GL_TEXTURE_2D, texture);
         while (glGetError() != GL_NO_ERROR) {}
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, dw, dh, 0, GL_RGBA, GL_UNSIGNED_BYTE, g_textureScratch.get());
@@ -122,25 +174,41 @@ bool CopyDirectEfb(const EfbFrameCommand& command, float scaleX, float scaleY,
             glDeleteTextures(1, &texture);
             return false;
         }
-        *entry = {command.destination, texture, dw, dh, bytes};
+        *entry = {command.destination, texture, dw, dh, bytes, command.generation};
         g_directEfbBytes += bytes;
+        if (profile) profile->allocUs += sceKernelGetProcessTimeWide() - allocBeginUs;
     }
+    entry->generation = command.generation;
     glBindTexture(GL_TEXTURE_2D, entry->texture);
     auto* backing = vglGetGxmTexture(GL_TEXTURE_2D);
     auto* dst = static_cast<uint8_t*>(vglGetTexDataPointer(GL_TEXTURE_2D));
     if (!backing || !dst || sceGxmTextureGetType(backing) != SCE_GXM_TEXTURE_LINEAR ||
-        sceGxmTextureGetFormat(backing) != SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR) return false;
+        sceGxmTextureGetFormat(backing) != SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR) {
+        DirectEfbFail(profile, DirectEfbFailureReason::Backing); return false;
+    }
     const auto* src = base + size_t(y) * sourcePitch + size_t(x) * 4;
     const size_t pitch = size_t((dw + 7u) & ~7u) * 4;
     bool copied = false;
     if (sw == dw && sh == dh) {
+        const uint64_t transferBeginUs = sceKernelGetProcessTimeWide();
         copied = sceGxmTransferCopy(sw, sh, 0, 0, SCE_GXM_TRANSFER_COLORKEY_NONE,
             SCE_GXM_TRANSFER_FORMAT_U8U8U8U8_ABGR, SCE_GXM_TRANSFER_LINEAR, src, 0, 0, sourcePitch,
             SCE_GXM_TRANSFER_FORMAT_U8U8U8U8_ABGR, SCE_GXM_TRANSFER_LINEAR, dst, 0, 0, pitch,
             nullptr, 0, nullptr) >= 0;
-        if (copied) copied = sceGxmTransferFinish() >= 0;
+        if (profile) { profile->transferSubmitUs += sceKernelGetProcessTimeWide() - transferBeginUs; if (copied) profile->transferBytes += bytes; }
+        if (copied) {
+            const bool cpuWillTouchBacking = command.format != 5 && command.format != 6;
+            if (deferTransferFinish && !cpuWillTouchBacking) {
+                if (transferPending) *transferPending = true;
+            } else {
+                const uint64_t finishBeginUs = sceKernelGetProcessTimeWide();
+                copied = sceGxmTransferFinish() >= 0;
+                if (profile) profile->transferFinishUs += sceKernelGetProcessTimeWide() - finishBeginUs;
+            }
+        }
     }
     if (!copied) {
+        const uint64_t resizeBeginUs = sceKernelGetProcessTimeWide();
         for (uint32_t row = 0; row < dh; ++row) {
             const auto* source = src + size_t(row * sh / dh) * sourcePitch;
             auto* target = dst + row * pitch;
@@ -149,10 +217,12 @@ bool CopyDirectEfb(const EfbFrameCommand& command, float scaleX, float scaleY,
                 std::memcpy(target + col * 4, source + (col * sw / dw) * 4, 4);
         }
         __sync_synchronize();
+        if (profile) profile->cpuResizeUs += sceKernelGetProcessTimeWide() - resizeBeginUs;
     }
     // Apply GX copy-channel selection to the resident RGBA backing. Color
     // passthrough keeps the transfer-only path; other formats need this pass.
     if (command.format != 5 && command.format != 6) {
+        const uint64_t convertBeginUs = sceKernelGetProcessTimeWide();
         const auto q4 = [](uint8_t value) { return uint8_t((value >> 4) * 17); };
         for (uint32_t row = 0; row < dh; ++row) {
             for (uint32_t col = 0; col < dw; ++col) {
@@ -182,6 +252,8 @@ bool CopyDirectEfb(const EfbFrameCommand& command, float scaleX, float scaleY,
             }
         }
         __sync_synchronize();
+        if (profile) profile->channelConvertUs += sceKernelGetProcessTimeWide() - convertBeginUs;
     }
+    if (!copied && profile && sw == dw && sh == dh) DirectEfbFail(profile, DirectEfbFailureReason::Transfer);
     return true;
 }

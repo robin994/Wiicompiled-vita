@@ -32,6 +32,9 @@
 #ifndef MKW_VITA_DIRECT_PRESENT_30HZ
 #define MKW_VITA_DIRECT_PRESENT_30HZ 0
 #endif
+#ifndef MKW_VITA_TIMELINE_PROFILE
+#define MKW_VITA_TIMELINE_PROFILE 0
+#endif
 
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -713,6 +716,63 @@ void VI_HLE_PresentFrame(bool presentedXfb, bool paceToRetrace) {
         s_lastPacedRetraceCount = g_vi.retraceCount;
     }
     const auto paceEnd = Clock::now();
+#if MKW_VITA_TIMELINE_PROFILE
+    {
+        static Clock::time_point windowBegin{};
+        static uint32_t windowRetraceBegin = 0;
+        static uint64_t windowPresents = 0;
+        static uint64_t windowXfbPresents = 0;
+        static uint64_t windowPaced = 0;
+        static uint64_t windowLate = 0;
+        static uint64_t windowRetracesObserved = 0;
+        static uint32_t maxRetracesElapsed = 0;
+        uint32_t currentRetrace = 0;
+        uint32_t intervalUs = 0;
+        {
+            std::lock_guard<std::mutex> lock(g_viMutex);
+            currentRetrace = g_vi.retraceCount;
+            intervalUs = static_cast<uint32_t>(g_vi.retraceInterval.count());
+        }
+        if (windowBegin.time_since_epoch().count() == 0) {
+            windowBegin = presentBegin;
+            windowRetraceBegin = currentRetrace;
+        }
+        ++windowPresents;
+        if (presentedXfb) ++windowXfbPresents;
+        if (paceThisFrame) ++windowPaced;
+        if (retracesElapsedForPerf > 1u) ++windowLate;
+        windowRetracesObserved += retracesElapsedForPerf;
+        maxRetracesElapsed = std::max(maxRetracesElapsed, retracesElapsedForPerf);
+        const auto hostUs = std::chrono::duration_cast<std::chrono::microseconds>(paceEnd - windowBegin).count();
+        if (hostUs >= 1000000) {
+            const uint32_t retraceDelta = currentRetrace - windowRetraceBegin;
+            const uint64_t presentMilliHz = hostUs > 0 ? (windowPresents * 1000000000ull) / static_cast<uint64_t>(hostUs) : 0;
+            const uint64_t xfbMilliHz = hostUs > 0 ? (windowXfbPresents * 1000000000ull) / static_cast<uint64_t>(hostUs) : 0;
+            const uint64_t retraceMilliHz = hostUs > 0 ? (static_cast<uint64_t>(retraceDelta) * 1000000000ull) / static_cast<uint64_t>(hostUs) : 0;
+            RT_LOGF(RT_TAG_VI,
+                    "vi_timeline host_us=%lld present=%llu xfb=%llu retrace=%u present_millihz=%llu xfb_millihz=%llu retrace_millihz=%llu paced=%llu late=%llu retraces_observed=%llu max_retraces_elapsed=%u interval_us=%u last_present=%llu\n",
+                    static_cast<long long>(hostUs),
+                    static_cast<unsigned long long>(windowPresents),
+                    static_cast<unsigned long long>(windowXfbPresents), retraceDelta,
+                    static_cast<unsigned long long>(presentMilliHz),
+                    static_cast<unsigned long long>(xfbMilliHz),
+                    static_cast<unsigned long long>(retraceMilliHz),
+                    static_cast<unsigned long long>(windowPaced),
+                    static_cast<unsigned long long>(windowLate),
+                    static_cast<unsigned long long>(windowRetracesObserved),
+                    maxRetracesElapsed, intervalUs,
+                    static_cast<unsigned long long>(currentPresentOrdinal));
+            windowBegin = paceEnd;
+            windowRetraceBegin = currentRetrace;
+            windowPresents = 0;
+            windowXfbPresents = 0;
+            windowPaced = 0;
+            windowLate = 0;
+            windowRetracesObserved = 0;
+            maxRetracesElapsed = 0;
+        }
+    }
+#endif
     if (currentPresentOrdinal <= 8u || (currentPresentOrdinal % 120u) == 0u) {
         const auto submitUs = std::chrono::duration_cast<std::chrono::microseconds>(submitEnd - submitBegin).count();
         const auto paceUs = std::chrono::duration_cast<std::chrono::microseconds>(paceEnd - submitEnd).count();

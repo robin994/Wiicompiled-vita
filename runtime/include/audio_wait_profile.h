@@ -36,3 +36,16 @@ private:
 void Audio_HLE_PollDeferredForRenderWait();
 AudioWaitProfile Audio_HLE_TakeWaitProfile() noexcept;
 #endif
+#if defined(MKW_TARGET_VITA) && MKW_VITA_LOADING_AUDIO_PROFILE
+struct AudioRuntimeMetrics {
+    uint64_t backlogClampCount = 0;
+    uint64_t backlogDroppedUs = 0;
+    uint64_t backlogUs = 0;
+    uint32_t callback = 0;
+    uint32_t length = 0;
+    uint32_t sampleRate = 0;
+    uint8_t enabled = 0;
+    uint8_t tickActive = 0;
+};
+AudioRuntimeMetrics Audio_HLE_GetRuntimeMetrics() noexcept;
+#endif

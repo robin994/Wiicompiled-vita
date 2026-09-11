@@ -209,6 +209,18 @@ MKW_VITA_DIRECT_TEV_TWO_TEXTURE ?= 0
 # P6.33: show real textures on perspective materials even when their TEV chain
 # is not yet exactly representable; exact simple/two-texture materials stay faithful.
 MKW_VITA_DIRECT_3D_TEXTURED_COMPAT ?= 0
+# P6.35: keep the hardware-proven P6.32 visibility state for perspective draws
+# while sampling only TEX0 with GX_REPLACE; failed texture resolution falls back
+# to the same opaque white silhouette instead of dropping the geometry.
+MKW_VITA_DIRECT_3D_TEXTURE_RESCUE ?= 0
+MKW_VITA_DIRECT_FFP_PREWARM ?= 0
+# P6.38: use the persistent FFP cache only when explicitly requested. The
+# aggressive profile disables it after hardware showed no frame-time benefit.
+MKW_VITA_FFP_CACHE_RUNTIME_SAVE ?= 1
+# P6.37: debug-only internal surface resolution. Keep guest Wii GX/EFB coordinates
+# unchanged and only reduce the Vita render target/raster workload.
+MKW_VITA_INTERNAL_RENDER_WIDTH ?= 960
+MKW_VITA_INTERNAL_RENDER_HEIGHT ?= 544
 # GX uses perspective NDC Z [0,1]; remap to the OpenGL/vitaGL [-1,1] range.
 MKW_VITA_DIRECT_GX_DEPTH_RANGE ?= 0
 # P6.8-MT: predecode CPU-only frame resources on USER_2 before USER_1 touches
@@ -220,6 +232,7 @@ MKW_VITA_DIRECT_VERTEX_PREP ?= 0
 # P6.10-MT: extend USER_2 texture preparation from THP to ordinary GX formats
 # using a bounded per-frame RGBA preparation budget.
 MKW_VITA_DIRECT_TEXTURE_PREP ?= 0
+MKW_VITA_DIRECT_TEXTURE_PRIORITY_PREP ?= 0
 # P6.11-MT: classify immutable direct draw/TEV state and native batch run bounds
 # on USER_2 so USER_1 only applies the preclassified state and submits work.
 MKW_VITA_DIRECT_STATE_PREP ?= 0
@@ -246,6 +259,9 @@ MKW_VITA_RFL_SHAPE_DL_BURST ?= 0
 # P6.23: prefetch the two hot revo_kart.brsar ranges into a bounded cache
 # after the first small BRSAR read, then serve later synchronous DVDReadPrio calls.
 MKW_VITA_BRSAR_PREFETCH ?= 0
+# P6.38: run BRSAR warming on a dedicated lane and yield storage bandwidth to
+# foreground Wii DVD reads instead of blocking the async-I/O queue for ~1 s.
+MKW_VITA_BRSAR_PREFETCH_COOPERATIVE ?= 0
 # P6.24: keep explicit memory headroom outside vitaGL instead of letting
 # vglInitExtended consume every free CDRAM/PHYCONT page at initialization.
 MKW_VITA_VGL_CDRAM_RESERVE_MB ?= 0
@@ -256,6 +272,8 @@ MKW_VITA_VGL_CIRCULAR_POOL_MB ?= 0
 # P6.26: use 1 MiB summary generations for aligned interiors of large guest
 # memory ranges while retaining 64 KiB tracking at range edges.
 MKW_VITA_GUEST_WRITE_HIERARCHY ?= 0
+# P6.38: tight direct-RAM Yaz0 loop for the multi-megabyte archive hot path.
+MKW_VITA_YAZ0_FAST_DIRECT ?= 0
 # P6.27: run native THP/TurboJPEG work on USER_2 while the calling Wii fiber
 # sleeps cooperatively, allowing USER_0 to continue the main/game guest thread.
 MKW_VITA_THP_ASYNC_WORKER ?= 0
@@ -294,6 +312,29 @@ MKW_VITA_DIRECT_DECOUPLED_PRESENT ?= 0
 # per-thread run clocks with the GX wall-clock window; the PC sampler adds one
 # relaxed token store at translated-function entry and samples it off USER_0.
 MKW_VITA_GUEST_CPU_PROFILE ?= 0
+# Astra/Sol performance plan F00-F09. These switches are deliberately orthogonal:
+# profiles enable one causal intervention at a time, while the integrated profile
+# is compile/integration coverage only until each phase is hardware-validated.
+MKW_VITA_SOL_CRITICAL_PROFILE ?= 0
+MKW_VITA_SOL_DETAIL_BURST ?= 0
+MKW_VITA_BUILD_MARKER ?= 0
+MKW_VITA_TEXTURE_RAW_CPU_CACHE ?= 0
+MKW_VITA_TEXTURE_CACHE_BUDGET_MB ?= 12
+MKW_VITA_PREP_TEXTURE_LIMIT ?= 8
+MKW_VITA_PREP_TEXTURE_BUDGET_MB ?= 4
+MKW_VITA_EFB_EXTENDED_COALESCE ?= 0
+MKW_VITA_EFB_DEFER_TRANSFER_FINISH ?= 0
+MKW_VITA_RESCUE_KEEP_VERTEX_COLOR ?= 0
+MKW_VITA_RESCUE_KEEP_DEPTH ?= 0
+MKW_VITA_RESCUE_KEEP_CULL ?= 0
+MKW_VITA_RESCUE_KEEP_BLEND_ALPHA ?= 0
+MKW_VITA_RESCUE_KEEP_TEV ?= 0
+MKW_VITA_DIRECT_LINEAR_BATCH_PREP ?= 0
+MKW_VITA_GUEST_ACTIVE_CPU_PROFILE ?= 0
+MKW_VITA_VERTEX_REUSE_CACHE ?= 0
+MKW_VITA_PACKET_MOVE_STATE ?= 0
+MKW_VITA_TIMELINE_PROFILE ?= 0
+MKW_VITA_LOADING_AUDIO_PROFILE ?= 0
 MKW_VITA_GUEST_PC_SAMPLER ?= 0
 MKW_VITA_GUEST_PC_SAMPLE_US ?= 2000
 # Fully-buffer stdout/stderr and flush from a helper core instead of forcing a
@@ -373,11 +414,13 @@ MKW_VITA_BUILD_VARIANT := $(MKW_VITA_RENDERER_VARIANT)-$(MKW_VITA_VITAGL_VARIANT
 MKW_VITA_RUNTIME_CONFIG_STAMP := $(MKW_RUNTIME_BUILD_DIR)/.native-config
 MKW_VITA_RUNTIME_CONFIG_TEXT := lyt_direct=$(MKW_VITA_LYT_DIRECT) lyt_faithful=$(MKW_VITA_LYT_FAITHFUL) movies_disabled=$(MKW_VITA_DISABLE_MOVIES) dvd_defer=$(MKW_VITA_DVD_DEFER) native_thp=$(MKW_VITA_NATIVE_THP) dl_indexed_raw=$(MKW_VITA_DL_INDEXED_RAW) perf_skip_efb=$(MKW_VITA_PERF_SKIP_EFB) perf_skip_billboards=$(MKW_VITA_PERF_SKIP_BILLBOARDS) perf_skip_lighttexture=$(MKW_VITA_PERF_SKIP_LIGHTTEXTURE) perf_force_3d_solid=$(MKW_VITA_PERF_FORCE_3D_SOLID) perf_solid_keep_depth=$(MKW_VITA_PERF_SOLID_KEEP_DEPTH) perf_inject_clip_triangle=$(MKW_VITA_PERF_INJECT_CLIP_TRIANGLE) perf_inject_wii_triangle=$(MKW_VITA_PERF_INJECT_WII_TRIANGLE) perf_log=$(MKW_VITA_PERF_LOG) perf_ring=$(MKW_VITA_PERF_RING) perf_summary_interval=$(MKW_VITA_PERF_SUMMARY_INTERVAL) compact_vertex=$(MKW_VITA_COMPACT_VERTEX) frame_batcher=$(MKW_VITA_FRAME_BATCHER) direct_stream_write=$(MKW_VITA_DIRECT_STREAM_WRITE) compact_frame_state=$(MKW_VITA_COMPACT_FRAME_STATE) frame_queue_depth=$(MKW_VITA_FRAME_QUEUE_DEPTH) dl_template_cache=$(MKW_VITA_DL_TEMPLATE_CACHE) gx_state_generations=$(MKW_VITA_GX_STATE_GENERATIONS) raw_layout_cache=$(MKW_VITA_RAW_LAYOUT_CACHE) raw_mesh_cache=$(MKW_VITA_RAW_MESH_CACHE) efb_readback_flip_y=$(MKW_VITA_EFB_READBACK_FLIP_Y) efb_transfer_readback=$(MKW_VITA_EFB_TRANSFER_READBACK)
 # Objects compiled with renderer/vitaGL-specific flags live under this variant tag.
-MKW_VITA_RUNTIME_CONFIG_TEXT += clip_w=$(MKW_VITA_CLIP_W)
+MKW_VITA_RUNTIME_CONFIG_TEXT += clip_w=$(MKW_VITA_CLIP_W) internal_render=$(MKW_VITA_INTERNAL_RENDER_WIDTH)x$(MKW_VITA_INTERNAL_RENDER_HEIGHT)
 MKW_VITA_RUNTIME_CONFIG_TEXT += efb_resident_copy=$(MKW_VITA_EFB_RESIDENT_COPY) efb_native_res_copy=$(MKW_VITA_EFB_NATIVE_RES_COPY) stream_safe_reuse=$(MKW_VITA_STREAM_SAFE_REUSE) efb_command_capacity=$(MKW_VITA_EFB_COMMAND_CAPACITY) ui_quad_runs=$(MKW_VITA_UI_QUAD_RUNS) texture_shared_headroom=$(MKW_VITA_TEXTURE_SHARED_HEADROOM) texture_safe_retry=$(MKW_VITA_TEXTURE_SAFE_RETRY)
-MKW_VITA_RUNTIME_CONFIG_TEXT += wait_timing_service=$(MKW_VITA_WAIT_TIMING_SERVICE) incremental_cache_eviction=$(MKW_VITA_INCREMENTAL_CACHE_EVICTION) fiber_irq_state=$(MKW_VITA_FIBER_IRQ_STATE) wait_service_profile=$(MKW_VITA_WAIT_SERVICE_PROFILE) audio_wait_profile=$(MKW_VITA_AUDIO_WAIT_PROFILE) audio_ai_profile=$(MKW_VITA_AUDIO_AI_PROFILE) native_audioout=$(MKW_VITA_NATIVE_AUDIOOUT) audio_pacing=$(MKW_VITA_AUDIO_PACING) direct_batcher=$(MKW_VITA_DIRECT_BATCHER) direct_efb=$(MKW_VITA_DIRECT_EFB) direct_state_cache=$(MKW_VITA_DIRECT_STATE_CACHE) direct_tev_specialize=$(MKW_VITA_DIRECT_TEV_SPECIALIZE) direct_tev_two_texture=$(MKW_VITA_DIRECT_TEV_TWO_TEXTURE) direct_3d_textured_compat=$(MKW_VITA_DIRECT_3D_TEXTURED_COMPAT) direct_gx_depth_range=$(MKW_VITA_DIRECT_GX_DEPTH_RANGE) direct_prep_worker=$(MKW_VITA_DIRECT_PREP_WORKER) direct_vertex_prep=$(MKW_VITA_DIRECT_VERTEX_PREP) direct_texture_prep=$(MKW_VITA_DIRECT_TEXTURE_PREP) direct_state_prep=$(MKW_VITA_DIRECT_STATE_PREP) direct_texture_cache_antithrash=$(MKW_VITA_DIRECT_TEXTURE_CACHE_ANTITHRASH) guest_io_profile=$(MKW_VITA_GUEST_IO_PROFILE)
-MKW_VITA_RUNTIME_CONFIG_TEXT += fullscreen_present=$(MKW_VITA_FULLSCREEN_PRESENT) dvd_host_buffering=$(MKW_VITA_DVD_HOST_BUFFERING) dvd_async_host=$(MKW_VITA_DVD_ASYNC_HOST) rfl_shape_dl_burst=$(MKW_VITA_RFL_SHAPE_DL_BURST) brsar_prefetch=$(MKW_VITA_BRSAR_PREFETCH) brsar_prefetch_phycont=$(MKW_VITA_BRSAR_PREFETCH_PHYCONT) vgl_cdram_reserve_mb=$(MKW_VITA_VGL_CDRAM_RESERVE_MB) vgl_phycont_reserve_mb=$(MKW_VITA_VGL_PHYCONT_RESERVE_MB) vgl_circular_pool_mb=$(MKW_VITA_VGL_CIRCULAR_POOL_MB) guest_write_hierarchy=$(MKW_VITA_GUEST_WRITE_HIERARCHY) thp_async_worker=$(MKW_VITA_THP_ASYNC_WORKER) direct_efb_batch_sync=$(MKW_VITA_DIRECT_EFB_BATCH_SYNC) direct_efb_preflight=$(MKW_VITA_DIRECT_EFB_PREFLIGHT) display_end_frame_decouple=$(MKW_VITA_DISPLAY_END_FRAME_DECOUPLE) efb_deferred_barrier=$(MKW_VITA_EFB_DEFERRED_BARRIER) render_decouple=$(MKW_VITA_RENDER_DECOUPLE) render_target_hz=$(MKW_VITA_RENDER_TARGET_HZ) direct_worker_timing=$(MKW_VITA_DIRECT_WORKER_TIMING)
+MKW_VITA_RUNTIME_CONFIG_TEXT += wait_timing_service=$(MKW_VITA_WAIT_TIMING_SERVICE) incremental_cache_eviction=$(MKW_VITA_INCREMENTAL_CACHE_EVICTION) fiber_irq_state=$(MKW_VITA_FIBER_IRQ_STATE) wait_service_profile=$(MKW_VITA_WAIT_SERVICE_PROFILE) audio_wait_profile=$(MKW_VITA_AUDIO_WAIT_PROFILE) audio_ai_profile=$(MKW_VITA_AUDIO_AI_PROFILE) native_audioout=$(MKW_VITA_NATIVE_AUDIOOUT) audio_pacing=$(MKW_VITA_AUDIO_PACING) direct_batcher=$(MKW_VITA_DIRECT_BATCHER) direct_efb=$(MKW_VITA_DIRECT_EFB) direct_state_cache=$(MKW_VITA_DIRECT_STATE_CACHE) direct_tev_specialize=$(MKW_VITA_DIRECT_TEV_SPECIALIZE) direct_tev_two_texture=$(MKW_VITA_DIRECT_TEV_TWO_TEXTURE) direct_3d_textured_compat=$(MKW_VITA_DIRECT_3D_TEXTURED_COMPAT) direct_3d_texture_rescue=$(MKW_VITA_DIRECT_3D_TEXTURE_RESCUE) direct_ffp_prewarm=$(MKW_VITA_DIRECT_FFP_PREWARM) ffp_cache_runtime_save=$(MKW_VITA_FFP_CACHE_RUNTIME_SAVE) direct_gx_depth_range=$(MKW_VITA_DIRECT_GX_DEPTH_RANGE) direct_prep_worker=$(MKW_VITA_DIRECT_PREP_WORKER) direct_vertex_prep=$(MKW_VITA_DIRECT_VERTEX_PREP) direct_texture_prep=$(MKW_VITA_DIRECT_TEXTURE_PREP) direct_texture_priority_prep=$(MKW_VITA_DIRECT_TEXTURE_PRIORITY_PREP) direct_state_prep=$(MKW_VITA_DIRECT_STATE_PREP) direct_texture_cache_antithrash=$(MKW_VITA_DIRECT_TEXTURE_CACHE_ANTITHRASH) guest_io_profile=$(MKW_VITA_GUEST_IO_PROFILE)
+MKW_VITA_RUNTIME_CONFIG_TEXT += fullscreen_present=$(MKW_VITA_FULLSCREEN_PRESENT) dvd_host_buffering=$(MKW_VITA_DVD_HOST_BUFFERING) dvd_async_host=$(MKW_VITA_DVD_ASYNC_HOST) rfl_shape_dl_burst=$(MKW_VITA_RFL_SHAPE_DL_BURST) brsar_prefetch=$(MKW_VITA_BRSAR_PREFETCH) brsar_prefetch_cooperative=$(MKW_VITA_BRSAR_PREFETCH_COOPERATIVE) brsar_prefetch_phycont=$(MKW_VITA_BRSAR_PREFETCH_PHYCONT) vgl_cdram_reserve_mb=$(MKW_VITA_VGL_CDRAM_RESERVE_MB) vgl_phycont_reserve_mb=$(MKW_VITA_VGL_PHYCONT_RESERVE_MB) vgl_circular_pool_mb=$(MKW_VITA_VGL_CIRCULAR_POOL_MB) guest_write_hierarchy=$(MKW_VITA_GUEST_WRITE_HIERARCHY) yaz0_fast_direct=$(MKW_VITA_YAZ0_FAST_DIRECT) thp_async_worker=$(MKW_VITA_THP_ASYNC_WORKER) direct_efb_batch_sync=$(MKW_VITA_DIRECT_EFB_BATCH_SYNC) direct_efb_preflight=$(MKW_VITA_DIRECT_EFB_PREFLIGHT) display_end_frame_decouple=$(MKW_VITA_DISPLAY_END_FRAME_DECOUPLE) efb_deferred_barrier=$(MKW_VITA_EFB_DEFERRED_BARRIER) render_decouple=$(MKW_VITA_RENDER_DECOUPLE) render_target_hz=$(MKW_VITA_RENDER_TARGET_HZ) direct_worker_timing=$(MKW_VITA_DIRECT_WORKER_TIMING)
 MKW_VITA_RUNTIME_CONFIG_TEXT += direct_present_30hz=$(MKW_VITA_DIRECT_PRESENT_30HZ) direct_decoupled_present=$(MKW_VITA_DIRECT_DECOUPLED_PRESENT) guest_cpu_profile=$(MKW_VITA_GUEST_CPU_PROFILE) guest_pc_sampler=$(MKW_VITA_GUEST_PC_SAMPLER) guest_pc_sample_us=$(MKW_VITA_GUEST_PC_SAMPLE_US) buffered_logging=$(MKW_VITA_BUFFERED_LOGGING) log_flush_us=$(MKW_VITA_LOG_FLUSH_INTERVAL_US) audio_wait_min_us=$(MKW_VITA_AUDIO_WAIT_MIN_INTERVAL_US) audio_backlog_clamp_blocks=$(MKW_VITA_AUDIO_BACKLOG_CLAMP_BLOCKS) ax_neon=$(MKW_VITA_AX_NEON) thp_unescaped_fix=$(MKW_VITA_THP_UNESCAPED_FIX) audio_wait_block_budget=$(MKW_VITA_AUDIO_WAIT_BLOCK_BUDGET)
+MKW_VITA_RUNTIME_CONFIG_TEXT += sol_profile=$(MKW_VITA_SOL_CRITICAL_PROFILE) sol_detail=$(MKW_VITA_SOL_DETAIL_BURST) build_marker=$(MKW_VITA_BUILD_MARKER) texture_raw_cpu_cache=$(MKW_VITA_TEXTURE_RAW_CPU_CACHE) texture_cache_budget_mb=$(MKW_VITA_TEXTURE_CACHE_BUDGET_MB) prep_texture_limit=$(MKW_VITA_PREP_TEXTURE_LIMIT) prep_texture_budget_mb=$(MKW_VITA_PREP_TEXTURE_BUDGET_MB) efb_extended_coalesce=$(MKW_VITA_EFB_EXTENDED_COALESCE) efb_defer_transfer_finish=$(MKW_VITA_EFB_DEFER_TRANSFER_FINISH)
+MKW_VITA_RUNTIME_CONFIG_TEXT += rescue_keep_vertex_color=$(MKW_VITA_RESCUE_KEEP_VERTEX_COLOR) rescue_keep_depth=$(MKW_VITA_RESCUE_KEEP_DEPTH) rescue_keep_cull=$(MKW_VITA_RESCUE_KEEP_CULL) rescue_keep_blend_alpha=$(MKW_VITA_RESCUE_KEEP_BLEND_ALPHA) rescue_keep_tev=$(MKW_VITA_RESCUE_KEEP_TEV) direct_linear_batch_prep=$(MKW_VITA_DIRECT_LINEAR_BATCH_PREP) guest_active_cpu_profile=$(MKW_VITA_GUEST_ACTIVE_CPU_PROFILE) vertex_reuse_cache=$(MKW_VITA_VERTEX_REUSE_CACHE) packet_move_state=$(MKW_VITA_PACKET_MOVE_STATE) timeline_profile=$(MKW_VITA_TIMELINE_PROFILE) loading_audio_profile=$(MKW_VITA_LOADING_AUDIO_PROFILE)
 MKW_VITA_RUNTIME_CONFIG_TEXT += arc_native_fast=1 arc_native_cache=1 arc_native_oracle=1 stricmp_native=1
 # Common runtime/third-party objects remain shared because their compile flags are identical.
 MKW_VITA_VARIANT_OBJ_DIR := $(MKW_RUNTIME_BUILD_DIR)/variants/$(MKW_VITA_BUILD_VARIANT)
@@ -411,6 +454,7 @@ COMMON_FLAGS := -O2 -g -ffunction-sections -fdata-sections -D__vita__ -DMKW_TARG
 	-DMKW_VITA_DISABLE_MOVIES=$(MKW_VITA_DISABLE_MOVIES) -DMKW_VITA_DVD_DEFER=$(MKW_VITA_DVD_DEFER) \
 	-DMKW_VITA_NATIVE_THP=$(MKW_VITA_NATIVE_THP) -DMKW_VITA_DL_INDEXED_RAW=$(MKW_VITA_DL_INDEXED_RAW) \
 	-DMKW_VITA_CLIP_W=$(MKW_VITA_CLIP_W) \
+	-DMKW_VITA_INTERNAL_RENDER_WIDTH=$(MKW_VITA_INTERNAL_RENDER_WIDTH) -DMKW_VITA_INTERNAL_RENDER_HEIGHT=$(MKW_VITA_INTERNAL_RENDER_HEIGHT) \
 	-DMKW_VITA_PERF_SKIP_EFB=$(MKW_VITA_PERF_SKIP_EFB) -DMKW_VITA_PERF_SKIP_BILLBOARDS=$(MKW_VITA_PERF_SKIP_BILLBOARDS) \
 	-DMKW_VITA_PERF_SKIP_LIGHTTEXTURE=$(MKW_VITA_PERF_SKIP_LIGHTTEXTURE) -DMKW_VITA_PERF_FORCE_3D_SOLID=$(MKW_VITA_PERF_FORCE_3D_SOLID) \
 	-DMKW_VITA_PERF_SOLID_KEEP_DEPTH=$(MKW_VITA_PERF_SOLID_KEEP_DEPTH) \
@@ -447,10 +491,14 @@ COMMON_FLAGS := -O2 -g -ffunction-sections -fdata-sections -D__vita__ -DMKW_TARG
 					-DMKW_VITA_DIRECT_TEV_SPECIALIZE=$(MKW_VITA_DIRECT_TEV_SPECIALIZE) \
 					-DMKW_VITA_DIRECT_TEV_TWO_TEXTURE=$(MKW_VITA_DIRECT_TEV_TWO_TEXTURE) \
 					-DMKW_VITA_DIRECT_3D_TEXTURED_COMPAT=$(MKW_VITA_DIRECT_3D_TEXTURED_COMPAT) \
+					-DMKW_VITA_DIRECT_3D_TEXTURE_RESCUE=$(MKW_VITA_DIRECT_3D_TEXTURE_RESCUE) \
+					-DMKW_VITA_DIRECT_FFP_PREWARM=$(MKW_VITA_DIRECT_FFP_PREWARM) \
+					-DMKW_VITA_FFP_CACHE_RUNTIME_SAVE=$(MKW_VITA_FFP_CACHE_RUNTIME_SAVE) \
 					-DMKW_VITA_DIRECT_GX_DEPTH_RANGE=$(MKW_VITA_DIRECT_GX_DEPTH_RANGE) \
 						-DMKW_VITA_DIRECT_PREP_WORKER=$(MKW_VITA_DIRECT_PREP_WORKER) \
 						-DMKW_VITA_DIRECT_VERTEX_PREP=$(MKW_VITA_DIRECT_VERTEX_PREP) \
 						-DMKW_VITA_DIRECT_TEXTURE_PREP=$(MKW_VITA_DIRECT_TEXTURE_PREP) \
+						-DMKW_VITA_DIRECT_TEXTURE_PRIORITY_PREP=$(MKW_VITA_DIRECT_TEXTURE_PRIORITY_PREP) \
 							-DMKW_VITA_DIRECT_STATE_PREP=$(MKW_VITA_DIRECT_STATE_PREP) \
 								-DMKW_VITA_DIRECT_TEXTURE_CACHE_ANTITHRASH=$(MKW_VITA_DIRECT_TEXTURE_CACHE_ANTITHRASH) \
 								-DMKW_VITA_GUEST_IO_PROFILE=$(MKW_VITA_GUEST_IO_PROFILE) \
@@ -459,11 +507,13 @@ COMMON_FLAGS := -O2 -g -ffunction-sections -fdata-sections -D__vita__ -DMKW_TARG
 					-DMKW_VITA_DVD_ASYNC_HOST=$(MKW_VITA_DVD_ASYNC_HOST) \
 					-DMKW_VITA_RFL_SHAPE_DL_BURST=$(MKW_VITA_RFL_SHAPE_DL_BURST) \
 					-DMKW_VITA_BRSAR_PREFETCH=$(MKW_VITA_BRSAR_PREFETCH) \
+					-DMKW_VITA_BRSAR_PREFETCH_COOPERATIVE=$(MKW_VITA_BRSAR_PREFETCH_COOPERATIVE) \
 					-DMKW_VITA_BRSAR_PREFETCH_PHYCONT=$(MKW_VITA_BRSAR_PREFETCH_PHYCONT) \
 					-DMKW_VITA_VGL_CDRAM_RESERVE_MB=$(MKW_VITA_VGL_CDRAM_RESERVE_MB) \
 					-DMKW_VITA_VGL_PHYCONT_RESERVE_MB=$(MKW_VITA_VGL_PHYCONT_RESERVE_MB) \
 					-DMKW_VITA_VGL_CIRCULAR_POOL_MB=$(MKW_VITA_VGL_CIRCULAR_POOL_MB) \
 					-DMKW_VITA_GUEST_WRITE_HIERARCHY=$(MKW_VITA_GUEST_WRITE_HIERARCHY) \
+					-DMKW_VITA_YAZ0_FAST_DIRECT=$(MKW_VITA_YAZ0_FAST_DIRECT) \
 					-DMKW_VITA_THP_ASYNC_WORKER=$(MKW_VITA_THP_ASYNC_WORKER) \
 					-DMKW_VITA_DIRECT_EFB_BATCH_SYNC=$(MKW_VITA_DIRECT_EFB_BATCH_SYNC) \
 					-DMKW_VITA_DIRECT_EFB_PREFLIGHT=$(MKW_VITA_DIRECT_EFB_PREFLIGHT) \
@@ -475,6 +525,26 @@ COMMON_FLAGS := -O2 -g -ffunction-sections -fdata-sections -D__vita__ -DMKW_TARG
 					-DMKW_VITA_DIRECT_PRESENT_30HZ=$(MKW_VITA_DIRECT_PRESENT_30HZ) \
 					-DMKW_VITA_DIRECT_DECOUPLED_PRESENT=$(MKW_VITA_DIRECT_DECOUPLED_PRESENT) \
 					-DMKW_VITA_GUEST_CPU_PROFILE=$(MKW_VITA_GUEST_CPU_PROFILE) \
+					-DMKW_VITA_SOL_CRITICAL_PROFILE=$(MKW_VITA_SOL_CRITICAL_PROFILE) \
+					-DMKW_VITA_SOL_DETAIL_BURST=$(MKW_VITA_SOL_DETAIL_BURST) \
+					-DMKW_VITA_BUILD_MARKER=$(MKW_VITA_BUILD_MARKER) \
+					-DMKW_VITA_TEXTURE_RAW_CPU_CACHE=$(MKW_VITA_TEXTURE_RAW_CPU_CACHE) \
+					-DMKW_VITA_TEXTURE_CACHE_BUDGET_MB=$(MKW_VITA_TEXTURE_CACHE_BUDGET_MB) \
+					-DMKW_VITA_PREP_TEXTURE_LIMIT=$(MKW_VITA_PREP_TEXTURE_LIMIT) \
+					-DMKW_VITA_PREP_TEXTURE_BUDGET_MB=$(MKW_VITA_PREP_TEXTURE_BUDGET_MB) \
+					-DMKW_VITA_EFB_EXTENDED_COALESCE=$(MKW_VITA_EFB_EXTENDED_COALESCE) \
+					-DMKW_VITA_EFB_DEFER_TRANSFER_FINISH=$(MKW_VITA_EFB_DEFER_TRANSFER_FINISH) \
+					-DMKW_VITA_RESCUE_KEEP_VERTEX_COLOR=$(MKW_VITA_RESCUE_KEEP_VERTEX_COLOR) \
+					-DMKW_VITA_RESCUE_KEEP_DEPTH=$(MKW_VITA_RESCUE_KEEP_DEPTH) \
+					-DMKW_VITA_RESCUE_KEEP_CULL=$(MKW_VITA_RESCUE_KEEP_CULL) \
+					-DMKW_VITA_RESCUE_KEEP_BLEND_ALPHA=$(MKW_VITA_RESCUE_KEEP_BLEND_ALPHA) \
+					-DMKW_VITA_RESCUE_KEEP_TEV=$(MKW_VITA_RESCUE_KEEP_TEV) \
+					-DMKW_VITA_DIRECT_LINEAR_BATCH_PREP=$(MKW_VITA_DIRECT_LINEAR_BATCH_PREP) \
+					-DMKW_VITA_GUEST_ACTIVE_CPU_PROFILE=$(MKW_VITA_GUEST_ACTIVE_CPU_PROFILE) \
+					-DMKW_VITA_VERTEX_REUSE_CACHE=$(MKW_VITA_VERTEX_REUSE_CACHE) \
+					-DMKW_VITA_PACKET_MOVE_STATE=$(MKW_VITA_PACKET_MOVE_STATE) \
+					-DMKW_VITA_TIMELINE_PROFILE=$(MKW_VITA_TIMELINE_PROFILE) \
+					-DMKW_VITA_LOADING_AUDIO_PROFILE=$(MKW_VITA_LOADING_AUDIO_PROFILE) \
 					-DMKW_VITA_GUEST_PC_SAMPLER=$(MKW_VITA_GUEST_PC_SAMPLER) \
 					-DMKW_VITA_GUEST_PC_SAMPLE_US=$(MKW_VITA_GUEST_PC_SAMPLE_US) \
 					-DMKW_VITA_BUFFERED_LOGGING=$(MKW_VITA_BUFFERED_LOGGING) \
@@ -790,6 +860,10 @@ $(MKW_RUNTIME_BUILD_DIR)/runtime/%.o: runtime/src/%.cpp $(MKW_VITA_RUNTIME_CONFI
 ifeq ($(MKW_VITA_AX_NEON),1)
 $(MKW_RUNTIME_BUILD_DIR)/runtime/hle/audio/ax_mix.o \
 $(MKW_RUNTIME_BUILD_DIR)/runtime/hle/audio/ax_memory.o: CXXFLAGS += -mfpu=neon -mfloat-abi=hard
+endif
+
+ifeq ($(MKW_VITA_YAZ0_FAST_DIRECT),1)
+$(MKW_RUNTIME_BUILD_DIR)/runtime/hle/egg_decomp.o: CXXFLAGS += -O3
 endif
 
 $(MKW_VITA_MAIN_OBJ): vita/main_vita.cpp $(MKW_VITA_RUNTIME_CONFIG_STAMP) | check-vitasdk

@@ -6,6 +6,9 @@
 #ifndef MKW_VITA_GUEST_PC_SAMPLER
 #define MKW_VITA_GUEST_PC_SAMPLER 0
 #endif
+#ifndef MKW_VITA_GUEST_ACTIVE_CPU_PROFILE
+#define MKW_VITA_GUEST_ACTIVE_CPU_PROFILE 0
+#endif
 
 // Low-overhead statistical producer profiler for the Vita build.  Generated
 // translated functions publish their guest entry address with one relaxed

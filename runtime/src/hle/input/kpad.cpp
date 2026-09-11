@@ -3,6 +3,11 @@
 #include "runtime_log.h"
 
 #include <psp2/ctrl.h>
+#include <psp2/kernel/processmgr.h>
+
+#ifndef MKW_VITA_TIMELINE_PROFILE
+#define MKW_VITA_TIMELINE_PROFILE 0
+#endif
 
 #include <algorithm>
 #include <array>
@@ -189,8 +194,14 @@ void LogInputChange(uint32_t core, uint32_t classic, float stickX, float stickY)
     }
     loggedCore = core;
     loggedClassic = classic;
+#if MKW_VITA_TIMELINE_PROFILE
+    RT_LOGF(RT_TAG_HLE, "input_timeline t_us=%llu core=%04x classic=%04x stick=(%.2f,%.2f)\n",
+            static_cast<unsigned long long>(sceKernelGetProcessTimeWide()), core, classic,
+            static_cast<double>(stickX), static_cast<double>(stickY));
+#else
     RT_LOGF(RT_TAG_HLE, "input Vita state core=%04x classic=%04x stick=(%.2f,%.2f)\n",
             core, classic, static_cast<double>(stickX), static_cast<double>(stickY));
+#endif
 }
 
 } // namespace

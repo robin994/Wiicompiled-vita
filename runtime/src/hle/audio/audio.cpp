@@ -39,6 +39,9 @@ constexpr int kMaxBlocksPerTick = 4;
 #ifndef MKW_VITA_AUDIO_BACKLOG_CLAMP_BLOCKS
 #define MKW_VITA_AUDIO_BACKLOG_CLAMP_BLOCKS 0
 #endif
+#ifndef MKW_VITA_LOADING_AUDIO_PROFILE
+#define MKW_VITA_LOADING_AUDIO_PROFILE 0
+#endif
 
 struct AIDmaState {
     std::mutex mutex;
@@ -721,6 +724,22 @@ void Audio_HLE_PollDeferredForRenderWait() {
 AudioWaitProfile Audio_HLE_TakeWaitProfile() noexcept {
     const auto result = g_audioWaitProfile;
     g_audioWaitProfile = {};
+    return result;
+}
+#endif
+
+#if defined(MKW_TARGET_VITA) && MKW_VITA_LOADING_AUDIO_PROFILE
+AudioRuntimeMetrics Audio_HLE_GetRuntimeMetrics() noexcept {
+    std::lock_guard<std::mutex> lock(g_ai.mutex);
+    AudioRuntimeMetrics result{};
+    result.backlogClampCount = g_ai.backlogClampCount;
+    result.backlogDroppedUs = g_ai.backlogDroppedUs;
+    result.backlogUs = static_cast<uint64_t>(std::max(0.0, g_ai.accumulatorSeconds) * 1000000.0);
+    result.callback = g_ai.callback;
+    result.length = g_ai.length;
+    result.sampleRate = g_ai.sampleRate;
+    result.enabled = g_ai.enabled ? 1u : 0u;
+    result.tickActive = g_ai.tickActive ? 1u : 0u;
     return result;
 }
 #endif

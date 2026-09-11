@@ -1,5 +1,6 @@
 #include "hle_stubs.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include "memory.h"
@@ -8,6 +9,10 @@
 
 #if defined(MKW_TARGET_VITA)
 #include <psp2/kernel/processmgr.h>
+#endif
+
+#ifndef MKW_VITA_YAZ0_FAST_DIRECT
+#define MKW_VITA_YAZ0_FAST_DIRECT 0
 #endif
 
 // Native because a crafted Yaz0 run writes past the caller's buffer
@@ -104,6 +109,108 @@ extern "C" uint32_t EGG_Decomp_decodeSZS_80218c2c(uint32_t src, uint32_t dst)
             directOutput = nullptr;
         }
     }
+
+#if MKW_VITA_YAZ0_FAST_DIRECT
+    if (directInput != nullptr && directOutput != nullptr) [[likely]] {
+        const uint8_t* in = directInput + 16u;
+        const uint8_t* const inEnd = directInput + safeInputBytes;
+        uint8_t* out = directOutput;
+        uint8_t* const outEnd = directOutput + expandSize;
+        uint32_t mask = 0;
+        uint32_t flags = 0;
+        uint32_t literalRunBytes = 0;
+        uint32_t bulkNonOverlap = 0;
+        uint32_t bulkOverlap = 0;
+
+        const auto malformed = [&](const char* reason) {
+            RT_LOG(RT_TAG_HLE) << "decodeSZS: malformed stream from 0x" << std::hex << src
+                               << std::dec << ", " << reason << std::endl;
+            ShowRuntimeFatalPopup("corrupt compressed file",
+                                  "The game stopped decoding a malformed Yaz0 file.");
+            std::abort();
+        };
+
+        while (out < outEnd) {
+            if (mask == 0) {
+                if (in >= inEnd) [[unlikely]] malformed("compressed input exceeded safe bound");
+                flags = *in++;
+                mask = 0x80u;
+            }
+
+            if ((flags & mask) != 0) {
+                // Consume a whole run of adjacent literal flag bits at once.
+                uint32_t run = 0;
+                uint32_t probe = mask;
+                const size_t outputRemaining = static_cast<size_t>(outEnd - out);
+                while (probe != 0 && (flags & probe) != 0 && run < outputRemaining) {
+                    ++run;
+                    probe >>= 1;
+                }
+                if (static_cast<size_t>(inEnd - in) < run) [[unlikely]] {
+                    malformed("compressed literal run exceeded safe bound");
+                }
+                std::memcpy(out, in, run);
+                in += run;
+                out += run;
+                literalRunBytes += run;
+                mask = probe;
+                continue;
+            }
+
+            if (inEnd - in < 2) [[unlikely]] malformed("truncated back-reference");
+            const uint32_t high = in[0];
+            const uint32_t low = in[1];
+            in += 2;
+            const uint32_t rep = (high << 8) | low;
+            const uint32_t distance = (rep & 0x0FFFu) + 1u;
+            const size_t producedBytes = static_cast<size_t>(out - directOutput);
+            if (distance > producedBytes) [[unlikely]] malformed("back-reference before output");
+
+            uint32_t count = rep >> 12;
+            if (count != 0) {
+                count += 2u;
+            } else {
+                if (in >= inEnd) [[unlikely]] malformed("truncated extended back-reference");
+                count = static_cast<uint32_t>(*in++) + 18u;
+            }
+            if (static_cast<size_t>(outEnd - out) < count) [[unlikely]] {
+                malformed("output overran declared size");
+            }
+
+            const uint8_t* source = out - distance;
+            if (distance >= count) {
+                std::memcpy(out, source, count);
+                ++bulkNonOverlap;
+            } else if (distance == 1u) {
+                // RLE is common in UI/course archives; libc memset is much cheaper
+                // than repeatedly growing a one-byte seed through memcpy calls.
+                std::memset(out, source[0], count);
+                ++bulkOverlap;
+            } else {
+                std::memcpy(out, source, distance);
+                uint32_t copied = distance;
+                while (copied < count) {
+                    const uint32_t remaining = count - copied;
+                    const uint32_t chunk = std::min(copied, remaining);
+                    std::memcpy(out + copied, out, chunk);
+                    copied += chunk;
+                }
+                ++bulkOverlap;
+            }
+            out += count;
+            mask >>= 1;
+        }
+
+#if defined(MKW_TARGET_VITA) && defined(MKW_VITA_GUEST_IO_PROFILE) && MKW_VITA_GUEST_IO_PROFILE
+        RT_LOGF(RT_TAG_HLE,
+                "decodeSZS_profile src=0x%08X dst=0x%08X expand=%u consumed=%u elapsed_us=%llu direct_src=1 direct_dst=1 literal_run_bytes=%u bulk_nonoverlap=%u bulk_overlap=%u fast_direct=1\n",
+                src, dst, expandSize, static_cast<unsigned>(in - directInput),
+                static_cast<unsigned long long>(sceKernelGetProcessTimeWide() - profileBeginUs),
+                literalRunBytes, bulkNonOverlap, bulkOverlap);
+#endif
+        return expandSize;
+    }
+#endif
 
     const auto readOutput = [dst, directOutput](uint32_t index) -> uint8_t {
         if (directOutput != nullptr) [[likely]] {

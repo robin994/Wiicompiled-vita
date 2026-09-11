@@ -1,5 +1,12 @@
 #include "guest_hot_profiler.h"
 
+// Keep the token symbol linkable even in sampler-off performance builds. Some
+// translated cold shards are shared across configurations and may have been built
+// with MarkGuestPc enabled; hot P6.38 shards compile the call away entirely.
+namespace GuestHotProfiler {
+std::atomic<uint32_t> g_currentToken{kUnknown};
+}
+
 #if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_PC_SAMPLER
 
 #include "runtime_log.h"
@@ -7,6 +14,7 @@
 
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
+#include <psp2/power.h>
 
 #include <algorithm>
 #include <array>
@@ -21,12 +29,23 @@
 
 namespace GuestHotProfiler {
 
-std::atomic<uint32_t> g_currentToken{kUnknown};
-
 namespace {
 
 std::atomic_bool g_stop{false};
 WiiCompiledVita::HostThread g_samplerThread;
+SceUID g_observedGuestThread = -1;
+
+uint64_t GuestRunClocks() noexcept {
+#if MKW_VITA_GUEST_ACTIVE_CPU_PROFILE
+    if (g_observedGuestThread < 0) return 0;
+    SceKernelThreadInfo info{};
+    info.size = sizeof(info);
+    if (sceKernelGetThreadInfo(g_observedGuestThread, &info) >= 0) {
+        return static_cast<uint64_t>(info.runClocks);
+    }
+#endif
+    return 0;
+}
 
 struct PhaseCounters {
     uint64_t unknown = 0;
@@ -38,7 +57,8 @@ struct PhaseCounters {
 };
 
 void EmitWindow(uint64_t window, uint64_t samples, const PhaseCounters& phases,
-                const std::unordered_map<uint32_t, uint64_t>& guestCounts) {
+                const std::unordered_map<uint32_t, uint64_t>& guestCounts,
+                uint64_t wallUs, uint64_t runClockDelta) {
     std::vector<std::pair<uint32_t, uint64_t>> hot;
     hot.reserve(guestCounts.size());
     for (const auto& entry : guestCounts) hot.push_back(entry);
@@ -58,8 +78,13 @@ void EmitWindow(uint64_t window, uint64_t samples, const PhaseCounters& phases,
         used += std::min<size_t>(static_cast<size_t>(written), sizeof(top) - used - 1);
     }
 
+    const int armMHzRaw = scePowerGetArmClockFrequency();
+    const uint64_t activeCpuUs = (MKW_VITA_GUEST_ACTIVE_CPU_PROFILE && armMHzRaw > 0)
+        ? runClockDelta / static_cast<uint64_t>(armMHzRaw) : 0;
+    const uint32_t activePermille = wallUs != 0
+        ? static_cast<uint32_t>(std::min<uint64_t>(1000u, activeCpuUs * 1000u / wallUs)) : 0u;
     RT_LOGF(RT_TAG_OS,
-            "guest_hot_pc window=%llu samples=%llu guest=%llu unknown=%llu wait_vi=%llu wait_alarm=%llu wait_audio=%llu host_other=%llu top=%s\n",
+            "guest_hot_pc window=%llu samples=%llu guest=%llu unknown=%llu wait_vi=%llu wait_alarm=%llu wait_audio=%llu host_other=%llu active_cpu_us=%llu wall_us=%llu active_permille=%u arm_mhz=%d top=%s\n",
             static_cast<unsigned long long>(window),
             static_cast<unsigned long long>(samples),
             static_cast<unsigned long long>(phases.guest),
@@ -67,7 +92,9 @@ void EmitWindow(uint64_t window, uint64_t samples, const PhaseCounters& phases,
             static_cast<unsigned long long>(phases.vi),
             static_cast<unsigned long long>(phases.alarm),
             static_cast<unsigned long long>(phases.audio),
-            static_cast<unsigned long long>(phases.hostOther), top);
+            static_cast<unsigned long long>(phases.hostOther),
+            static_cast<unsigned long long>(activeCpuUs),
+            static_cast<unsigned long long>(wallUs), activePermille, armMHzRaw, top);
 }
 
 void SamplerMain() {
@@ -78,6 +105,7 @@ void SamplerMain() {
     uint64_t samples = 0;
     uint64_t window = 0;
     uint64_t windowBegin = static_cast<uint64_t>(sceKernelGetProcessTimeWide());
+    uint64_t runClockBegin = GuestRunClocks();
 
     while (!g_stop.load(std::memory_order_acquire)) {
         const uint32_t token = g_currentToken.load(std::memory_order_relaxed);
@@ -96,16 +124,24 @@ void SamplerMain() {
 
         const uint64_t now = static_cast<uint64_t>(sceKernelGetProcessTimeWide());
         if (now - windowBegin >= kReportIntervalUs) {
-            EmitWindow(++window, samples, phases, guestCounts);
+            const uint64_t runClockEnd = GuestRunClocks();
+            const uint64_t runDelta = runClockEnd >= runClockBegin ? runClockEnd - runClockBegin : 0;
+            EmitWindow(++window, samples, phases, guestCounts, now - windowBegin, runDelta);
             samples = 0;
             phases = {};
             guestCounts.clear();
             windowBegin = now;
+            runClockBegin = runClockEnd;
         }
         sceKernelDelayThread(std::max<uint32_t>(1000u, MKW_VITA_GUEST_PC_SAMPLE_US));
     }
 
-    if (samples != 0) EmitWindow(++window, samples, phases, guestCounts);
+    if (samples != 0) {
+        const uint64_t now = static_cast<uint64_t>(sceKernelGetProcessTimeWide());
+        const uint64_t runClockEnd = GuestRunClocks();
+        EmitWindow(++window, samples, phases, guestCounts, now - windowBegin,
+                   runClockEnd >= runClockBegin ? runClockEnd - runClockBegin : 0);
+    }
 }
 
 } // namespace
@@ -114,6 +150,7 @@ bool Start() noexcept {
     if (g_samplerThread.joinable()) return true;
     g_stop.store(false, std::memory_order_release);
     g_currentToken.store(kUnknown, std::memory_order_relaxed);
+    g_observedGuestThread = sceKernelGetThreadId();
     const bool started = g_samplerThread.start(
         WiiCompiledVita::HostThreadRole::Background, 64 * 1024, SamplerMain);
     RT_LOGF(RT_TAG_OS, "guest_hot_pc sampler=%s interval_us=%u affinity=helper\n",
