@@ -1,0 +1,11 @@
+ M Makefile.vita
+ M PORTING_STATUS.md
+ M runtime/src/guest_hot_profiler.cpp
+ M runtime/src/hle/egg_decomp.cpp
+ M runtime/src/hle/storage/dvd.cpp
+ M vita/gx_backend.cpp
+ M vita/host_jobs.cpp
+ M vita/include/wiicompiled_vita/host_jobs.h
+ M vita/tools/build_performance_profile.py
+?? CLAUDE.md
+?? report_performance/

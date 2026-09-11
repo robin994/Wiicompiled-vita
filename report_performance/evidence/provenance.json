@@ -1,0 +1,75 @@
+{
+  "date": "2026-09-11",
+  "cwd": "/Users/robin994/Documents/Code/PSVita/wiicompiled-vita",
+  "head": "5bdb6a63d4f495db7b086cd91059313f72cdfd8f",
+  "sources": {
+    "runtime.original.log": {
+      "original_path": "/Users/robin994/Documents/Code/PSVita/SmashMeleeVita/build/vita-full/runtime.log",
+      "bytes": 2260792,
+      "sha256": "21a06c7b9bd506d7954e7ccdd8ab79027e7bbc2eb118bfb1f85b8b958867d30e"
+    },
+    "sol_analysis.original.txt": {
+      "original_path": "/Users/robin994/.codex/attachments/6ccb52f0-8af1-4b14-abd0-1a4d6ff162fa/pasted-text.txt",
+      "bytes": 11456,
+      "sha256": "389b1ead5c1951871aa77ad7b293863a6529c21acd2b8fcf5130b9e3ccd1910b"
+    }
+  },
+  "audited_files": {
+    "Makefile.vita": {
+      "bytes": 58340,
+      "sha256": "e0909e208667bcfa47c1d728871238de646ec1aa0ad98a1f6150406593bc998a"
+    },
+    "PORTING_STATUS.md": {
+      "bytes": 196803,
+      "sha256": "ab9cfeb5001476e28372762a3b2f7ca75b1e455995350410ad9d8d86cf308822"
+    },
+    "vita/gx_backend.cpp": {
+      "bytes": 434193,
+      "sha256": "e82f9fc626468a2fc365184ae7c4fc51a2a62b37976ba0389b41753e3464eb13"
+    },
+    "vita/direct_efb.inc": {
+      "bytes": 10092,
+      "sha256": "11236dbac776ceacb6078dc873afe9a797cb38ed3ef965db15de0c3bea364357"
+    },
+    "vita/tools/build_performance_profile.py": {
+      "bytes": 26450,
+      "sha256": "b035da0531efedb7967c56c6ebe1ccc4688818ae5a80ea3c1a35a59979ee3e7c"
+    },
+    "runtime/src/hle/egg_decomp.cpp": {
+      "bytes": 15518,
+      "sha256": "526087ebe582c7f9c5bddfdd18038c881186eafee23d57d913e42fb12c2dca05"
+    },
+    "runtime/src/hle/storage/dvd.cpp": {
+      "bytes": 77628,
+      "sha256": "77a5af87614ea589b54012fad0c6e8bf46a3107495abdaab723a522021a7cb74"
+    },
+    "vita/host_jobs.cpp": {
+      "bytes": 2985,
+      "sha256": "70cb589213b630fdadca2703bb861767a869fddfcdf80477e345dab9409202d4"
+    },
+    "runtime/src/guest_hot_profiler.cpp": {
+      "bytes": 4886,
+      "sha256": "94690015cbbd1e0c4569a7ffd13195f65ca264238d6efadf79cefd167b6d86ae"
+    },
+    "../aurora-vita-max-prehardware/third_party/vitaGL-speedhack-src/source/gxm.c": {
+      "bytes": 40691,
+      "sha256": "7c562fe98ad16b9218b9a74b15a485b9ecd27bf3b914730f56987f041287afc1"
+    },
+    "../aurora-vita-max-prehardware/third_party/vitaGL-speedhack-src/source/draw.c": {
+      "bytes": 19235,
+      "sha256": "dffcfb56d9099487caaf47cbed41885770e103ed5848b95b0fc87b94bd973b2e"
+    },
+    "../aurora-vita-max-prehardware/third_party/vitaGL-speedhack-src/libvitaGL-m12_5-custom-heap.a": {
+      "bytes": 5805826,
+      "sha256": "de04978951a09cdc28da1710face48051530be17358df7f50273d7a9a262600d"
+    },
+    "build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_38-producer-io-yaz0.vpk": {
+      "bytes": 44391665,
+      "sha256": "050448ccb4eabb29779f3fbc374d85e6ac544cf023f6a7fdff69a7868c40b32b"
+    },
+    "build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_38-producer-io-yaz0.manifest.txt": {
+      "bytes": 3964,
+      "sha256": "2d85daab1f2595ee01a159d0f8b956c9e24e880d908d78287ddc3d05061587b8"
+    }
+  }
+}

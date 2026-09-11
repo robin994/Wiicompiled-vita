@@ -1,0 +1,8 @@
+{
+  "original_path": "/Users/robin994/Documents/Code/PSVita/SmashMeleeVita/build/vita-full/runtime.log",
+  "snapshot": "/Users/robin994/Documents/Code/PSVita/wiicompiled-vita/report_performance/evidence/runtime.observed-later.log",
+  "bytes": 10071,
+  "sha256": "5f46cc13e3d340eb4cc585d8dbc1b82550882d517c323461d056cc78f5fe4336",
+  "observed_at": "2026-09-10T23:16:05.539064+00:00",
+  "note": "The live source changed after the initial complete attachment snapshot. Main metrics use runtime.original.log."
+}

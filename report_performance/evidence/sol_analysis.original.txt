@@ -1,0 +1,158 @@
+Sì. Ho analizzato il runtime.log completo, isolando l’ultimo run P6.38 dagli avvii precedenti presenti nello stesso file. La diagnosi ora è molto più netta: il collo di bottiglia principale non è la GPU/fill-rate, né il present, né la risoluzione. È soprattutto il percorso CPU del renderer durante la gara — texture/TEV/material handling + migliaia di draw — seguito dall’EFB. In menu, invece, il limite si sposta sul guest/producer.
+Quadro generale P6.38
+La build corretta sta effettivamente girando a 960×544, con rescue texture attivo, prewarm FFP disattivato, texture priority/anti-thrash attivi e renderer direct-vitaGL. 
+Durante la gara ho contato circa 40 campioni stabili con questi valori medi/mediani:
+Metrica	P6.38 gara
+Draw/frame	~5.984
+Vertici/frame	~38.126
+EFB commands/frame	13
+Frame interval mediano	~1.072 ms
+Render-worker mediano	~1.014 ms
+Queue wait mediano	~704 ms
+FPS effettivi	~0,93 FPS
+Limite imposto dal solo renderer	~0,99 FPS
+
+
+Un campione rappresentativo mostra 5984 draws, 38116 vertices, circa 996 ms nel worker e 627 ms di queue wait; pochi frame dopo siamo ancora a circa 1,04 s nel worker. 
+Questo significa che in gara USER_0 rimane bloccato perché USER_1 non riesce a consumare i frame abbastanza velocemente. Il queue_wait_us da 550–750 ms non è quindi la causa primaria: è il sintomo della saturazione del renderer.
+1. Texture + TEV + material path: è il bottleneck più grosso
+Abbiamo fortunatamente un A/B estremamente utile dentro questo stesso log.
+Con il P6.32 white visibility probe, cioè stessa geometria ma texture/materiali praticamente eliminati, una gara con:
+6157 draws / 38660 vertices
+richiedeva 261.945 µs, dei quali 239.958 µs erano EFB. Tolto l’EFB, tutto il resto del rendering richiedeva soltanto circa 22 ms. 
+Con il texture rescue successivo, sulla praticamente identica scena:
+6157 draws / 38660 vertices
+il rendering sale a:
+1.119.235 µs
+con EFB praticamente invariato a:
+249.169 µs. 
+Quindi:
+P6.32 senza texture/materiali
+262 ms total - 240 ms EFB ≈ 22 ms
+Texture rescue
+1119 ms total - 249 ms EFB ≈ 870 ms
+Abbiamo quindi circa +848 ms/frame dovuti essenzialmente al percorso texture/material/TEV.
+Questo è il dato più importante di tutta la diagnosi.
+E il perché appare nello stesso perf_summary: su 6157 draw abbiamo:
+tev_draw=151/5793/0
+cioè circa 5793 draw su 6157, il 94%, passano attraverso il fallback TEV. Inoltre nello stesso singolo frame abbiamo:
+texprep=8/71
+texcache=25/79/79/0/...
+evict=77/...
+~14,8 MB caricati
+~14,8 MB immediatamente espulsi dalla cache
+Praticamente carichiamo texture per poi buttarle via e ricaricarle continuamente. 
+La cache da 12 MiB è quindi in thrashing quasi perfetto per la working set della gara.
+2. L’EFB da solo è già troppo costoso per arrivare a 30 FPS
+Il secondo bottleneck è indipendente dal problema texture.
+Il white probe P6.32 è fondamentale anche qui: con texture/materiali eliminati, il frame scende a ~262 ms, ma ~240 ms sono soltanto EFB. 
+Significa che anche immaginando di rendere gratuitamente geometria, texture e TEV, l’attuale EFB ci limiterebbe teoricamente a circa:
+1 / 0,240 ≈ 4,2 FPS
+Il budget per 30 FPS è invece 33,3 ms per tutto il frame.
+Quindi l’EFB attuale da solo è circa 7× oltre l’intero budget dei 30 FPS.
+In gara P6.38 continuiamo ad avere stabilmente 13 EFB command per frame. 
+Non basta quindi accelerare il draw path: dovremo rendere le copy EFB quasi interamente GPU-resident, eliminando qualunque conversione/copia/sincronizzazione CPU evitabile.
+3. Quasi 6.000 draw call fisiche per frame
+Il terzo problema è la granularità.
+La gara produce circa:
+5.980–5.990 draw/frame
+per appena:
+~38.000 vertici
+Quindi abbiamo in media soltanto circa 6,4 vertici per draw.
+È una situazione pessima per VitaGL/GXM: il costo di preparare stato, texture, vertex stream e fare la draw può essere molto superiore al lavoro effettivamente eseguito dalla GPU.
+Nei vecchi summary avevamo addirittura:
+presented=6157 physical=6157 merged=0
+quindi zero batching effettivo. 
+Per ottenere 30 FPS con 6000 draw avremmo un budget totale medio di circa:
+33.333 µs / 6000 = 5,5 µs per draw
+E dentro quei 5,5 µs dovrebbero rientrare tutto: TEV, texture lookup, state setup, transform, VitaGL, EFB ecc.
+Ora il renderer P6.38 sta spendendo grossomodo:
+1.014.000 / 5984 ≈ 169 µs per draw
+Non possiamo arrivare al target soltanto facendo micro-ottimizzazioni: dobbiamo ridurre drasticamente il numero delle submission fisiche.
+4. Texture preparation continua a produrre stall enormi
+La P6.38 ha migliorato il ranking delle texture, ma il problema non è risolto.
+All'ingresso della gara:
+prep_us=180032
+vertex_us=40497
+texture_us=132552
+e il frame immediatamente successivo:
+prep_us=185019
+vertex_us=43114
+texture_us=133532
+Quindi ~132–134 ms vengono spesi esclusivamente preparando texture, contro ~40–43 ms per trasformare 35–36 mila vertici. 
+Ci sono anche casi precedenti ancora peggiori: una singola texture richiede 370–374 ms di texture preparation. 
+Questo è un problema soprattutto nei cambi scena e nei primi frame. Nel steady-state il renderer da ~1 s rimane comunque troppo lento, quindi non è l'unico colpevole, ma genera stutter giganteschi.
+5. Abbiamo ancora una vera “EFB command storm” nelle transizioni
+C'è un frame particolarmente importante:
+producer_frame=1211
+con:
+4.255.742 µs = 4,26 secondi
+e:
+efb_cmds=512
+efb_calls=399
+efb_recorded=303
+efb_cap_fail=169
+efb_destroy=209
+Abbiamo letteralmente raggiunto il limite massimo di 512 EFB command, con 169 fallimenti di capacità e 209 destroy nello stesso intervallo. 
+Questo non è il bottleneck steady-state da 1 FPS, ma è uno dei principali responsabili dei freeze durante i cambi scena/loading e suggerisce anche un problema architetturale: stiamo facendo troppo churn delle risorse EFB.
+Aumentare semplicemente efb_cap non sarebbe una vera soluzione. Dobbiamo coalescere/deduplicare/deferire queste operazioni.
+6. Nei menu il problema è diverso: il renderer è già abbastanza veloce
+Questo è un altro dato molto importante.
+Prima della gara, P6.38 registra:
+2038 draws / 14936 vertices
+con:
+render_us=26484 → 26,5 ms
+efb_us=9997 → 10,0 ms
+direct_prep=14296 → 14,3 ms
+e lo swap costa appena:
+124 µs. 
+Quindi il renderer di quel menu è già dentro il budget dei 30 FPS.
+Eppure:
+producer_frame interval_us=168543
+cioè il gioco genera un nuovo frame ogni ~168 ms:
+~5,9 FPS.
+E queue_wait_us=3.
+Quindi in quel punto il render thread sta aspettando il guest, non viceversa.
+Questo ci dà una diagnosi a due regimi:
+Menu → guest/producer bound.
+Gara → render/material/EFB bound.
+Per arrivare a 30 FPS dovremo risolvere entrambi.
+7. Guest CPU / callback rimane un problema importante nelle transizioni
+Nelle build con profiler attivo abbiamo registrato callback guest individuali estremamente pesanti. Un esempio arriva a:
+2.557.383 µs = 2,56 secondi
+per callback=0x80544A5C. 
+P6.38 ha disabilitato quella strumentazione per eliminare overhead, quindi non abbiamo più la scomposizione completa nell'ultimo run. Ma il comportamento dei menu e dei caricamenti dimostra che il producer guest resta troppo lento.
+Anche nei menu i vecchi profiler mostrano diverse decine di ms tra display-list decode, layout faithful e lavoro pre-GXBegin. Per esempio un campione contiene ~24 ms di display-list work più diversi ms di layout e decine di ms prima del begin. 
+8. I/O e Yaz0 sono ancora importanti, ma non spiegano il singolo FPS in gara
+Nelle build profilate una lettura di beginner_course.szs richiedeva circa 239 ms e la decompressione dello stesso SZS poteva arrivare a circa 620 ms. 
+P6.38 contiene il nuovo Yaz0 fast-direct, quindi dovremo riattivare temporaneamente solo una telemetria estremamente leggera per quantificare quanto sia migliorato; il profiler I/O completo è ora OFF.
+Il BRSAR prefetch P6.38 impiega ancora circa 1,064 secondi per costruire la cache da ~9 MB, ma ora è lavoro di prefetch e non dovrebbe stare davanti alle DVD foreground. 
+Quindi I/O/decompressione spiegano i freeze e i loading, ma non il frame steady-state da ~1,07 secondi durante la gara.
+9. L'audio è devastato, ma è soprattutto una conseguenza
+Alla fine del run P6.38:
+real=8263
+silence=29625
+underrun=29625
+Circa il 78% delle submission audio è silenzio per underrun. 
+Il backlog clamp ha inoltre buttato via circa:
+77,6 secondi di audio accumulato. 
+Questo sembra grave — e lo è dal punto di vista audio — ma non lo tratterei come root cause. Il gioco gira così lentamente che l'audio non riesce semplicemente a mantenere una timeline sensata.
+10. Il clock CPU è ancora sotto il target
+Ogni avvio tenta 500 MHz ma la chiamata fallisce:
+arm500_rc=-2144665600
+e il fallback riesce a:
+444 MHz. 
+Se tutto fosse CPU-bound, passare realmente 444 → 500 MHz darebbe al massimo circa un +12,6% teorico.
+È utile, ma anche trasformare perfettamente 1,01 s secondo la frequenza ci porterebbe soltanto intorno a 0,90 s/frame.
+Non è la soluzione principale.
+Cosa NON è più prioritario
+Il test a 272p è stato estremamente utile: ha dimostrato che ridurre di quattro volte i pixel non sposta significativamente il collo di bottiglia. Anche lo swap_us è normalmente dell'ordine di 0,1–0,3 ms, quindi display swap/vsync non sta consumando il secondo che perdiamo per frame. Il packet copy in gara è circa 6 ms; il vertex preparation è ~40–45 ms; lo state preparation è ~2 ms. Sono costi da ottimizzare eventualmente, ma non spiegano l'ordine di grandezza attuale.
+La conclusione quantitativa è quindi questa: dei ~1.000 ms del render worker in gara, centinaia di millisecondi sono EFB e la maggioranza del resto nasce dal texture/material/TEV path e dalle ~6.000 submission fisiche.
+Ordine in cui interverrei adesso
+1. Eliminare il texture thrashing e il fallback TEV per-draw. Dobbiamo avere texture decodificate/uploadate persistentemente, chiavi materiali stabili e fast-path dedicati per le signature TEV più frequenti. Il target è portare 79 upload + 77 eviction/frame vicino allo zero nello steady-state.
+2. Ridurre drasticamente le ~6.000 draw call fisiche. Batch consecutivi compatibili per texture/material/TEV/primitive, mantenendo barrier solo su EFB, blend e dipendenze realmente order-sensitive. Dobbiamo puntare prima a <2000, poi possibilmente <1000 submission.
+3. Rifare il percorso EFB. Con ~240–290 ms/frame è impossibile arrivare a 30 FPS anche eliminando tutto il resto. Servono resident surfaces/GPU copy, coalescing e nessuna readback/sync CPU non strettamente necessaria.
+4. Eliminare la command storm EFB delle transizioni, soprattutto il caso 512 commands / 169 cap failures / 209 destroys.
+5. Poi attaccare USER_0/guest: callback multi-secondo, hot PPC functions, layout faithful e display-list producer. È questo che attualmente tiene i menu intorno ai 6 FPS anche quando il renderer impiega solo 26 ms.
+6. I/O/decompressione/audio vengono dopo per il steady-state, pur continuando a ottimizzarli per loading e stabilità.
+Il dato più incoraggiante è il P6.32: la Vita riesce a processare la geometria della gara molto più velocemente di quanto vediamo oggi. Il salto da ~262 ms a ~1.119 ms avviene quando riattiviamo il percorso texture/materiale. Quindi non siamo davanti a un generico “la Vita non ce la fa”: abbiamo identificato un percorso software specifico che costa circa 850 ms/frame in più e che va sostanzialmente riprogettato.

@@ -1,0 +1,1749 @@
+18180 [BOOT] WiiCompiled Vita runtime start
+18181 [PERF] clocks before=333/222/0/111 arm500_rc=-2144665600 arm444_rc=0 other_rc=0/0/0 after=444/222/222/166 MHz target_arm=500 preserve_high=0
+18182 [MEM] process-start user=28311552 cdram=117440512 phycont=27262976
+18183 [BOOT] guest thread configured on USER_0
+18184 [memory] before guest backing user=28311552 cdram=117440512 phycont=27262976
+18185 [memory] allocating MEM1 backing: 25165824 bytes via USER
+18186 [memory] after guest backing allocation user=28311552 cdram=117440512 phycont=27262976
+18187 [memory] allocating MEM2 backing: 67108864 bytes via CDRAM
+18188 [memory] after guest backing allocation user=28311552 cdram=50331648 phycont=27262976
+18189 [memory] allocating owned backing: 2097152 bytes via USER
+18190 [memory] after guest backing allocation user=28311552 cdram=50331648 phycont=27262976
+18191 [memory] allocating owned backing: 1052672 bytes via USER
+18192 [memory] after guest backing allocation user=28311552 cdram=50331648 phycont=27262976
+18193 [runtime] Seeded 27 low-memory default(s)
+18194 [runtime] MEM2 defaults active -> size=64 MB, arena 0x90000800 - 0x93DC0000
+18195 [runtime] Initializing data sections from embedded DOL/REL data
+18196 [runtime] Initializing embedded data sections...
+18197 [runtime]   Loaded _init (9312 bytes) @ 0x80004000
+18198 [runtime]   Loaded _text (2349856 bytes) @ 0x800072C0
+18199 [runtime]   Loaded extab (1472 bytes) @ 0x80006460
+18200 [runtime]   Loaded extabindex (2208 bytes) @ 0x80006A20
+18201 [runtime]   Loaded _ctors (192 bytes) @ 0x80244DE0
+18202 [runtime]   Loaded _dtors (32 bytes) @ 0x80244EA0
+18203 [runtime]   Loaded _rodata (79552 bytes) @ 0x80244EC0
+18204 [runtime]   Loaded _data (309952 bytes) @ 0x80258580
+18205 [runtime]   Loaded _sdata (5056 bytes) @ 0x80384C00
+18206 [runtime]   Loaded _sdata2 (8608 bytes) @ 0x80386FA0
+18207 [runtime]   Loaded StaticR (4934832 bytes) @ 0x805102E0
+18208 [runtime] Running static constructors for main DOL...
+18209 [OSReport] << NW4R    - EF 	final   build: Mar  8 2008 20:58:16 (0x4201_127) >>
+18210 [runtime] Executed 43 main DOL static constructors.
+18211 [runtime] Running static constructors for StaticR.rel...
+18212 [runtime] Executed 192 static constructors.
+18213 [BOOT] memory and SystemBridge ready
+18214 [MEM] system-bridge-ready user=28311552 cdram=50331648 phycont=27262976
+18215 [BOOT] translated registry ready
+18216 [gx] internal_render=960x544 panel=960x544 pixel_ratio_permille=1000 mode=native
+18217 [gx] init_marker=vglInitExtended phase=begin t_us=1465062 renderer=direct-vitagl vitagl=speedhack-custom-heap rt_scenes=8/8 frame_draw_cap=12288 frame_vertex_cap=73728 efb_cap=512 packet_bytes=2501576 efb_gpu_blit=0 movies_disabled=0 native_thp=1 lyt_direct=0 lyt_faithful=1 dl_indexed_raw=1 perf_skip_efb=0 perf_skip_billboards=0 perf_skip_lighttexture=0 perf_force_3d_solid=0 perf_solid_keep_depth=0 perf_inject_clip_triangle=0 perf_inject_wii_triangle=0 perf_log=0 perf_ring=0 perf_summary_interval=120 compact_vertex=1 frame_batcher=1 direct_stream_write=1 compact_frame_state=1 frame_queue_depth=2 dl_template_cache=1 gx_state_generations=1 raw_layout_cache=1 raw_mesh_cache=1 efb_readback_flip_y=1 efb_transfer_readback=0 efb_resident_copy=1 efb_native_res_copy=1 stream_safe_reuse=1 ui_quad_runs=1 texture_shared_headroom=1 texture_safe_retry=1 clip_w=1 wait_timing_service=1 incremental_cache_eviction=1 fiber_irq_state=1 wait_service_profile=0 audio_wait_profile=0 audio_ai_profile=0 native_audioout=1 audio_pacing=1 direct_batcher=1 direct_efb=1 direct_state_cache=1 direct_tev_specialize=1 direct_tev_two_texture=1 direct_3d_textured_compat=0 direct_3d_texture_rescue=1 direct_ffp_prewarm=0 direct_gx_depth_range=0 direct_prep_worker=1 direct_vertex_prep=1 direct_texture_prep=1 direct_texture_priority_prep=1 direct_state_prep=1 direct_texture_cache_antithrash=1 texture_cache_cap=256 texture_cache_budget=12582912 guest_io_profile=0 fullscreen_present=1 dvd_host_buffering=1 direct_efb_batch_sync=1 render_decouple=1 render_target_hz=30 direct_worker_timing=1 audio_wait_block_budget=1
+18218 [gx] memory_budget phase=before-vgl user=28311552 cdram=50331648 phycont=27262976 reserve_cdram_mb=8 reserve_phycont_mb=12
+18219 [gx] vitagl_circular_pool configured_mb=8 configured_bytes=8388608 library_default_mb=32
+18220 [gx] memory_budget phase=after-vgl user=7340032 cdram=8388608 phycont=12582912 reserve_cdram_mb=8 reserve_phycont_mb=12
+18221 [gx] init_marker=vglInitExtended phase=end t_us=2219948 elapsed_us=754886 fallback=0 renderer=direct-vitagl vitagl=speedhack-custom-heap
+18222 [gx] vitaGL pools total_ram=14680064 total_cdram=25165824 total_phycont=14680064 bytes renderer=direct-vitagl vitagl=speedhack-custom-heap gc=single allocator=custom
+18223 [gx] init_marker=legacy_texture_scratch phase=begin t_us=2219968 vitagl=speedhack-custom-heap bytes=4194304
+18224 [gx] init_marker=legacy_texture_scratch phase=end t_us=2219981 elapsed_us=13 ok=1 vitagl=speedhack-custom-heap
+18225 [gx] renderer=direct_vitagl vitagl=speedhack-custom-heap aurora_renderer=0 packet_bridge=0 ready=1
+18226 [gx] init_marker=initial_clear phase=begin t_us=2219991
+18227 [gx] init_marker=initial_clear phase=end t_us=3220828 elapsed_us=1000837
+18228 [gx] init_marker=initial_swap phase=begin t_us=3220838
+18229 [gx] init_marker=initial_swap phase=end t_us=3235093 elapsed_us=14255
+18230 [gx] render_pacing decoupled=1 target_hz=30 swap_interval=2 owner=USER_1
+18231 [gx] init_marker=legacy_vertex_vbo phase=begin t_us=3235104 bytes=2064384
+18232 [gx] init_marker=legacy_vertex_vbo phase=end t_us=3235121 elapsed_us=17 id=2264962576 gl_error=0x0 ready=1
+18233 [gx] init_marker=g_renderInitDone phase=before_publish t_us=3235130 ready=1 after_initial_present=1
+18234 [gx] init_marker=g_renderInitDone phase=published t_us=3236549 elapsed_us=1419 after_initial_present=1
+18235 [gx] init_marker=g_renderInitDone phase=notified t_us=3236576 after_initial_present=1
+18236 [gx] direct_prep worker_started affinity=USER_2
+18237 [BOOT] Vita GX backend ready on USER_1
+18238 [MEM] gx-ready user=7340032 cdram=8388608 phycont=12582912
+18239 [gx] guest write tracking installed mem1_host=0x8736d000 mem1_bytes=25165824 mem2_host=0x61000000 mem2_bytes=67108864 hierarchy=1 granule_kb=64 supergranule_kb=1024
+18240 [BOOT] GX guest write tracking installed
+18241 [BOOT] guest fiber manager ready
+18242 [BOOT] Aurora wait timing service installed
+18243 [BOOT] entry 0x800060A4 (func_800060A4), r1=0x81700000 r2=0x8038EFA0 r13=0x8038CC00
+18244 [os] __init_hardware_80006348 called (stubbed)
+18245 [os] PPCMtmmcr0 called (stubbed) - Move To MMCR0
+18246 [os] PPCMtmmcr1 called (stubbed) - Move To MMCR1
+18247 gx] boot_console_gpu phase=upload_begin ordinal=1 vertices=27012 bytes=756336 renderer=direct-vitagl vitagl=speedhack-custom-heap
+18248 [gx] boot_console_gpu phase=upload_end ordinal=1 vbo=2265756408 capacity=1048576
+18249 [gx] boot_console_gpu phase=draw_begin ordinal=1
+18250 
+18251 [os] PPCMtpmc1 called (stubbed) - Move To PMC1[[gx] boot_console_gpu phase=draw_returned ordinal=1
+18252 [gx] boot_console_gpu phase=finish_end ordinal=1
+18253 [os] PPCMtpmc2 called (stubbed) - Move To PMC2
+18254 [os] PPCMtpmc3 called (stubbed) - Move To PMC3
+18255 [os] PPCMtpmc4 called (stubbed) - Move To PMC4
+18256 [os] PPCMthid4 called (stubbed) - Move To HID4
+18257 [os] PPCDisableSpeculation called (stubbed)
+18258 [os] OS__ExceptionInit_801a00e0 called: r3=[gx] boot_console_gpu phase=upload_begin ordinal=2 vertices=27114 bytes=759192 renderer=direct-vitagl vitagl=speedhack-custom-heap
+18259 [gx] boot_console_gpu phase=upload_end ordinal=2 vbo=2265756408 capacity=1048576
+18260 [gx] boot_console_gpu phase=draw_begin ordinal=2
+18261 [gx] boot_console_gpu phase=draw_returned ordinal=2
+18262 2147483648[gx] boot_console_gpu phase=finish_end ordinal=2
+18263  r4=2415919104 r5=2151264640 r6=2147483892 r7=0 r8=0 r20=0
+18264 [os] OSExceptionInit: skipped exception vector setup
+18265 [os] [gx] boot_console_gpu phase=upload_begin ordinal=3 vertices=26118 bytes=731304 renderer=direct-vitagl vitagl=speedhack-custom-heap
+18266 [gx] boot_console_gpu phase=upload_end ordinal=3 vbo=2265756408 capacity=1048576
+18267 [gx] boot_console_gpu phase=draw_begin ordinal=3
+18268 [gx] boot_console_gpu phase=draw_returned ordinal=3
+18269 OS____InterruptInit_801a661c called: r3=[gx] boot_console_gpu phase=finish_end ordinal=3
+18270 2147483648 r4=2151180560 r5=0 r6=2147486747 r7=0 r8=0
+18271 [os] OSInterruptInit: skipped hardware MMIO setup; marking interrupts initialized
+18272 [os] EXIInit_80168fa0 called: skipping MMIO register setup[gx] boot_console_gpu phase=upload_begin ordinal=4 vertices=23712 bytes=663936 renderer=direct-vitagl vitagl=speedhack-custom-heap
+18273 [gx] boot_console_gpu phase=upload_end ordinal=4 vbo=2265756408 capacity=1048576
+18274 [gx] boot_console_gpu phase=draw_begin ordinal=4
+18275 [gx] boot_console_gpu phase=draw_returned ordinal=4
+18276 
+18277 [gx] boot_console_gpu phase=finish_end ordinal=4
+18278 [os] SIInit_801b2de0 called: skipping MMIO register setup and controller detection
+18279 [os] EXISelect_801689d0 called: channel=0 device=1 freq=3 (stubbed success)
+18280 [os] EXIImm_80167f68 called: chan=0 len=4 type=1 (stubbed success)
+18281 [os] EXISync_80168380 called: chan=0 (stubbed success)
+18282 [os] EXIDma_80168288 called: chan=0 len=64 (stubbed success)
+18283 [os] EXISync_80168380 called: chan=0 (stubbed success)
+18284 [os] EXIDeselect_80168b00 called: channel=0 (stubbed success)
+18285 [os] EXIUnlock_80169260 called: chan=0 (stubbed success)
+18286 [audio] vita_audioout opened port=7 type=main frames=256 rate=48000 queue_chunks=8
+18287 [os] PPCMthid2 set HID2=0x10000000
+18288 [os] OS____InitMemoryProtection_801a7dfc called (stubbed): r3=0x10000000
+18289 [OSReport] 
+18290 Revolution OS
+18291 [OSReport] Kernel built : Jan 28 2008 09:31:54
+18292 [OSReport] Console Type : 
+18293 [os] OSGetConsoleType: MEM2=64 MB, returning 0x12
+18294 [OSReport] Pre-production board 2-1
+18295 [OSReport] Firmware     : 36.14.24 
+18296 [OSReport] (3/1/2010)
+18297 [OSReport] Memory 88 MB
+18298 [OSReport] MEM1 Arena : 0x80399180 - 0x817f0520
+18299 [OSReport] MEM2 Arena : 0x90000800 - 0x93dc0000
+18300 [OSReport] << RVL_SDK - OS 	release build: Jan 28 2008 09:31:54 (0x4199_60831) >>
+18301 [os] OSGetResetCode_801a8a50 called: returning 0 (Cold Boot)
+18302 [os] guest_after_OSGetResetCode target=0x801A8A50 r3=0x0 pc=0x800060a4 lr=0x8019ff38 sp=0x80399158
+18303 [os] guest_after_OSGetResetCode target=0x801A8A50 r3=0x0 pc=0x800060a4 lr=0x8019ff3c sp=0x80399158
+18304 [os] IPCCltInit_80193478 called: calling IPCInit for buffer setup
+18305 [os] IPCCltInit: IPC buffer lo advanced from 0x93fc0000 to 0x93fc1000
+18306 [os] __OSInitSTM_HLE_801ab848 called: initializing STM state
+18307 [OSReport] << RVL_SDK - SC 	release build: Aug  8 2007 02:09:03 (0x4199_60831) >>
+18308 [nand] using managed NAND root: ux0:data/wiicompiled-vita/NAND
+18309 [OSReport] << RVL_SDK - NWC24 	release build: Dec 10 2007 10:02:25 (0x4199_60831) >>
+18310 [nand] NANDOpen: FAILED guest='/shared2/sys/SYSCONF' host='ux0:data/wiicompiled-vita/NAND/shared2/sys/SYSCONF' mode=1 exists=0 dir=0
+18311 [hle] [WC24] SCCheckStatus #0 -> 0
+18312 [net] [WC24] IOS_Open device='/dev/net/kd/request' mode=1 -> fd=2000
+18313 [hle] [WC24] SCCheckStatus #1 -> 0
+18314 [hle] [WC24] SCCheckStatus #2 -> 0
+18315 [os] [WC24] OSLockMutex mutex=0x803570E0 current=0x80347498 owner=0x00000000 count=0
+18316 [net] [WC24] IOS_Open device='/dev/net/kd/time' mode=0 -> fd=2001
+18317 [net] [WC24] KD/time ioctl cmd=0x17 in=0x80357100/32 out=0x80357120/32
+18318 [net] [WC24] IOS_Close KD fd=2001
+18319 [net] [WC24] IOS_Close KD fd=2001 complete removed=1
+18320 [os] [WC24] OSUnlockMutex mutex=0x803570E0 current=0x80347498 owner=0x80347498 count=1
+18321 [dvd] [BOOT] DVDInit enter
+18322 [dvd] [BOOT] resolving DVD root
+18323 [dvd] [BOOT] DVD root=ux0:data/wiicompiled-vita/game/DATA
+18324 [dvd] [BOOT] load FST begin
+18325 [dvd] [BOOT] load FST end files=2032
+18326 [dvd] [BOOT] register vanilla files from FST begin
+18327 [dvd] [BOOT] register vanilla files from FST end entries=2032
+18328 [dvd] [BOOT] scan sys begin
+18329 [dvd] [BOOT] directory existence check root=ux0:data/wiicompiled-vita/game/DATA/sys
+18330 [dvd] [BOOT] directory existence result exists=1 error=none
+18331 [dvd] [BOOT] recursive iterator create root=ux0:data/wiicompiled-vita/game/DATA/sys
+18332 [dvd] [BOOT] recursive iterator ready root=ux0:data/wiicompiled-vita/game/DATA/sys
+18333 [dvd] [BOOT] scan progress visited=1 path=ux0:data/wiicompiled-vita/game/DATA/sys/bi2.bin
+18334 [dvd] [BOOT] scan progress visited=2 path=ux0:data/wiicompiled-vita/game/DATA/sys/._bi2.bin
+18335 [dvd] [BOOT] scan progress visited=3 path=ux0:data/wiicompiled-vita/game/DATA/sys/boot.bin
+18336 [dvd] [BOOT] scan progress visited=4 path=ux0:data/wiicompiled-vita/game/DATA/sys/._boot.bin
+18337 [dvd] [BOOT] recursive iterator complete visited=10 root=ux0:data/wiicompiled-vita/game/DATA/sys
+18338 [dvd] [BOOT] scan sys end entries=0
+18339 [dvd] disc index: 2032 disc file(s), 0 overlay registration(s) from 0 root(s)
+18340 [dvd] [BOOT] publish FST begin
+18341 [dvd] published 2062 FST entries (63641 bytes) at 0x93dc0000 inside the boot-time MEM2 reservation
+18342 [dvd] [BOOT] publish FST end
+18343 [dvd] [BOOT] translated DVD filesystem init begin
+18344 [dvd] [BOOT] translated DVD filesystem init end
+18345 [dvd] [BOOT] DVDInit complete
+18346 [OSReport] << NW4R    - EF 	final   build: Mar  8 2008 20:58:16 (0x4201_127) >>
+18347 [gx] GX initialized, FIFO at 0x80343740 (base=0x803A9320 size=0x00080000)
+18348 [vi] VIInit_801b94a4 called: seeding VI state (HLE)
+18349 [OSReport] << RVL_SDK - KPAD 	release build: Aug  8 2007 02:05:53 (0x4199_60831) >>
+18350 [nand] NANDOpen: FAILED guest='/title/00000001/00000002/data/setting.txt' host='ux0:data/wiicompiled-vita/NAND/title/00000001/00000002/data/setting.txt' mode=1 exists=0 dir=0
+18351 [gx] producer_frame=1 interval_us=0 queue_wait_us=2 packet_copy_us=8 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=0/0/0 worker=0/0/0/0 draws=0 vertices=0 efb_cmds=0 requested_draws=0 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0
+18352 [vi] vi_perf present=1 pace_requested=0 pace=0 render_decouple=1 direct_decoupled=0 present30=0 retraces_elapsed=0 submit_us=80 pace_us=8 total_us=95 presented_xfb=0
+18353 [gx] direct_prep serial=1 affinity=USER_2 prep_us=38 vertex_us=2 vertices=0 texture_us=0 textures=0 reuse=0 cap_skip=0 budget_skip=0 decode_fail=0 state_us=3 state_runs=0 failures=0
+18354 [gx] frame=1 skipped_empty=1 packet_draws=0 packet_vertices=0 calls=0 raw_ok=0 raw_fail=0 raw_cap=0 begin_cap=0 dropped=0 tex_state=0/0/0/0/0/0 recovered=0 texcoord_gt0=0 custom=0 custom_mode=0/0/0/0/0/0
+18355 [gx] producer_frame=2 interval_us=14676 queue_wait_us=1 packet_copy_us=5 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=0/0/0 worker=0/0/0/0 draws=0 vertices=0 efb_cmds=0 requested_draws=0 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0
+18356 [gx] direct_prep serial=2 affinity=USER_2 prep_us=9 vertex_us=1 vertices=0 texture_us=0 textures=0 reuse=0 cap_skip=0 budget_skip=0 decode_fail=0 state_us=3 state_runs=0 failures=0
+18357 [vi] vi_perf present=2 pace_requested=0 pace=0 render_decouple=1 direct_decoupled=0 present30=0 retraces_elapsed=0 submit_us=62 pace_us=7 total_us=75 presented_xfb=0
+18358 [gx] frame=2 skipped_empty=1 packet_draws=0 packet_vertices=0 calls=0 raw_ok=0 raw_fail=0 raw_cap=0 begin_cap=0 dropped=0 tex_state=0/0/0/0/0/0 recovered=0 texcoord_gt0=0 custom=0 custom_mode=0/0/0/0/0/0
+18359 [vi] VIInit_801b94a4 called: seeding VI state (HLE)
+18360 [os] OSSetPowerCallback_801ab75c called: newCB=0x8000b1f4
+18361 [OSReport] [SYS] Static .text: 0x80004000-0x8038917c(3605KBytes)
+18362 [OSReport] [SYS] Can't get SimpleAddressData.
+18363 [OSReport] [SYS] Matching Area: 2
+18364 [OSReport] [SYS] isNdev: FALSE returnCode: 0x00000000 launchCode: 0x00000000
+18365 [OSReport] [SYS] LaunchType: 0
+18366 [OSReport] [SYS] Argument="(null)"
+18367 [OSReport] ***********************************
+18368 [OSReport] *   NTSC/Progressive/PAL60 mode   *
+18369 [OSReport] ***********************************
+18370 [gx] producer_frame=3 interval_us=209859 queue_wait_us=3 packet_copy_us=7 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=0/0/0 worker=0/0/0/0 draws=0 vertices=0 efb_cmds=0 requested_draws=0 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0[gx] direct_prep serial=ice=0/0/0 work3
+18371  affinity=USER_2 prep_us=13 vertex_us=2 vertices=0 texture_us=0 textures=0 reuse=0 cap_skip=0 budget_skip=0 decode_fail=0 state_us=3 state_runs=0 failures=0
+18372 [vi] vi_perf present=3 pace_requested=0 pace=0 render_decouple=1 direct_decoupled=0 present30=0 retraces_elapsed=0 submit_us=85 pace_us=7 total_us=99 presented_xfb=0
+18373 [gx] frame=3 skipped_empty=1 packet_draws=0 packet_vertices=0 calls=0 raw_ok=0 raw_fail=0 raw_cap=0 begin_cap=0 dropped=0 tex_state=0/0/0/0/0/0 recovered=0 texcoord_gt0=0 custom=0 custom_mode=0/0/0/0/0/0
+18374 [gx] producer_frame=4 interval_us=177 queue_wait_us=2 packet_copy_us=3 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=0/0/0 worker=0/0/0/0 draws=0 vertices=0 efb_cmds=0 requested_draws=0 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0
+18375 [gx] direct_prep serial=4 affinity=USER_2 prep_us=9 vertex_us=1 vertices=0 texture_us=0 textures=0 reuse=0 cap_skip=0 budget_skip=0 decode_fail=0 state_us=3 state_runs=0 failures=0
+18376 [vi] vi_perf present=4 pace_requested=0 pace=0 render_decouple=1 direct_decoupled=0 present30=0 retraces_elapsed=0 submit_us=69 pace_us=7 total_us=81 presented_xfb=0
+18377 [gx] frame=4 skipped_empty=1 packet_draws=0 packet_vertices=0 calls=0 raw_ok=0 raw_fail=0 raw_cap=0 begin_cap=0 dropped=0 tex_state=0/0/0/0/0/0 recovered=0 texcoord_gt0=0 custom=0 custom_mode=0/0/0/0/0/0
+18378 [gx] producer_frame=5 interval_us=139 queue_wait_us=1 packet_copy_us=3 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=0/0/0 worker=0/0/0/0 draws=0 vertices=0 efb_cmds=0 requested_draws=0 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0
+18379 [gx] direct_prep serial=5 affinity=USER_2 prep_us=8 vertex_us=1 vertices=0 texture_us=0 textures=0 reuse=0 cap_skip=0 budget_skip=0 decode_fail=0 state_us=2 state_runs=0 failures=0
+18380 [vi] vi_perf present=5 pace_requested=0 pace=0 render_decouple=1 direct_decoupled=0 present30=0 retraces_elapsed=0 submit_us=103 pace_us=7 total_us=116 presented_xfb=0
+18381 [gx] frame=5 skipped_empty=1 packet_draws=0 packet_vertices=0 calls=0 raw_ok=0 raw_fail=0 raw_cap=0 begin_cap=0 dropped=0 tex_state=0/0/0/0/0/0 recovered=0 texcoord_gt0=0 custom=0 custom_mode=0/0/0/0/0/0
+18382 [gx] producer_frame=6 interval_us=175 queue_wait_us=1 packet_copy_us=3 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=0/0/0 worker=0/0/0/0 draws=0 vertices=0 efb_cmds=0 requested_draws=0 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0
+18383 [gx] direct_prep serial=6 affinity=USER_2 prep_us=8 vertex_us=1 vertices=0 texture_us=0 textures=0 reuse=0 cap_skip=0 budget_skip=0 decode_fail=0 state_us=3 state_runs=0 failures=0
+18384 [vi] vi_perf present=6 pace_requested=0 pace=0 render_decouple=1 direct_decoupled=0 present30=0 retraces_elapsed=0 submit_us=97 pace_us=7 total_us=110 presented_xfb=0
+18385 [gx] frame=6 skipped_empty=1 packet_draws=0 packet_vertices=0 calls=0 raw_ok=0 raw_fail=0 raw_cap=0 begin_cap=0 dropped=0 tex_state=0/0/0/0/0/0 recovered=0 texcoord_gt0=0 custom=0 custom_mode=0/0/0/0/0/0
+18386 [gx] producer_frame=7 interval_us=169 queue_wait_us=1 packet_copy_us=3 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=0/0/0 worker=0/0/0/0 draws=0 vertices=0 efb_cmds=0 requested_draws=0 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0
+18387 [gx] direct_prep serial=7 affinity=USER_2 prep_us=9 vertex_us=1 vertices=0 texture_us=0 textures=0 reuse=0 cap_skip=0 budget_skip=0 decode_fail=0 state_us=2 state_runs=0 failures=0
+18388 [vi] vi_perf present=7 pace_requested=0 pace=0 render_decouple=1 direct_decoupled=0 present30=0 retraces_elapsed=0 submit_us=94 pace_us=7 total_us=107 presented_xfb=0
+18389 [gx] frame=7 skipped_empty=1 packet_draws=0 packet_vertices=0 calls=0 raw_ok=0 raw_fail=0 raw_cap=0 begin_cap=0 dropped=0 tex_state=0/0/0/0/0/0 recovered=0 texcoord_gt0=0 custom=0 custom_mode=0/0/0/0/0/0
+18390 [gx] producer_frame=8 interval_us=166 queue_wait_us=1 packet_copy_us=3 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=0/0/0 worker=0/0/0/0 draws=0 vertices=0 efb_cmds=0 requested_draws=0 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0
+18391 [gx] direct_prep serial=8 affinity=USER_2 prep_us=7 vertex_us=1 vertices=0 texture_us=0 textures=0 reuse=0 cap_skip=0 budget_skip=0 decode_fail=0 state_us=2 state_runs=0 failures=0
+18392 [vi] vi_perf present=8 pace_requested=0 pace=0 render_decouple=1 direct_decoupled=0 present30=0 retraces_elapsed=0 submit_us=95 pace_us=8 total_us=109 presented_xfb=0
+18393 [gx] frame=8 skipped_empty=1 packet_draws=0 packet_vertices=0 calls=0 raw_ok=0 raw_fail=0 raw_cap=0 begin_cap=0 dropped=0 tex_state=0/0/0/0/0/0 recovered=0 texcoord_gt0=0 custom=0 custom_mode=0/0/0/0/0/0
+18394 [os] fiber_slice n=1 from=0x90112660 to=0x80347498 from_entry=0x8024373C to_entry=0x00000000 elapsed_us=60740
+18395 [os] fiber_slice n=2 from=0x80347498 to=0x8042E480 from_entry=0x00000000 to_entry=0x8024373C elapsed_us=39130
+18396 [gx] boot console disabled on first renderable frame
+18397 [os] fiber_slice n=3 from=0x90112660 to=0x80347498 from_entry=0x8024373C to_entry=0x00000000 elapsed_us=65295
+18398 [net] [WC24] IOS_Open device='/dev/net/kd/request' mode=0 -> fd=2002
+18399 [net] [WC24] KD/request ioctl cmd=0x02 phase=0 in=0x80356F20/32 out=0x80356F40/32
+18400 [net] [WC24] KD/request try-suspend -> pending (-42), phase=boot
+18401 [net] [WC24] IOS_Close KD fd=2002
+18402 [net] [WC24] IOS_Close KD fd=2002 complete removed=1
+18403 [OSReport] [Boot] NWC24TrySuspendScheduler: errcode=-42
+18404 [os] [WC24] OSUnlockMutex mutex=0x80356EE0 current=0x80347498 owner=0x80347498 count=1
+18405 [os] [WC24] OSUnlockMutex mutex=0x80356EF8 current=0x80347498 owner=0x80347498 count=1
+18406 [OSReport] id                1
+18407 [OSReport] numSections       17
+18408 [OSReport] sectionInfoOffset 8051032ch
+18409 [OSReport] nameOffset        00000000h [(null)]
+18410 [OSReport] nameSize          66
+18411 [OSReport] version           3
+18412 [OSReport] 
+18413 [OSReport] offset1           0x805103b5 - 0x8088f401
+18414 [OSReport] offset2           0x8088f400 - 0x8088f704
+18415 [OSReport] offset3           0x8088f704 - 0x8088f710
+18416 [OSReport] offset4           0x8088f720 - 0x808b2bd0
+18417 [OSReport] offset5           0x808b2bd0 - 0x808dd3d4
+18418 [OSReport] offset6           0x809bd6e0 - 0x809c4f90
+18419 [OSReport] 
+18420 [OSReport] bssSize           30896
+18421 [OSReport] relOffset         808dd3e4h
+18422 [OSReport] impOffset         808dd3d4h
+18423 [OSReport] impSize           00000010h
+18424 [OSReport] prolog            8055531ch
+18425 [OSReport] epilog            80555368h
+18426 [OSReport] unresolved        805553b0h
+18427 [OSReport] align             00000020h
+18428 [OSReport] bssAlign          00000020h
+18429 [OSReport] fixSize           808dd3e4h
+18430 [OSReport] 
+18431 [OSReport] [Rel] Load Module[1]: size=4903876Bytes time=714msec
+18432 [os] fiber_slice n=4 from=0x90112660 to=0x80347498 from_entry=0x8024373C to_entry=0x00000000 elapsed_us=785134
+18433 [os] fiber_slice n=5 from=0x80347498 to=0x901187C0 from_entry=0x00000000 to_entry=0x8024373C elapsed_us=722548
+18434 [gx] gx_cpu_perf frame=2 lyt_calls=0 lyt_us=0 lyt_direct=0 lyt_packet=0 lyt_faithful=0 dl_calls=0 dl_us=0 dl_bytes=0 dl_cache=0/0 dl_cache_mem=0/0/0 dl_evict=0/0 dl_clear=0/0 dl_skip=0 dl_fallback=0 dl_raw=0/0 verts=0 fail=0 dl_template=0/0 draws=0 fallback=0 glyph_fast=0 setup=0 texload=0 glyph_raw=0 glyph_fallback=0 prebegin_us=850236 prebegin_run_clocks=0 prebegin_cpu_us=0 prebegin_offcpu_us=0 prebegin_cpu_permille=0 arm_mhz=0 tail_us=130 copydisp_us=106
+18435 [gx] gx_phase frame=2 prebegin_us=850236 tail_us=130 begins=2
+18436 [gx] gx_begin_hot frame=2 rank=0 lr=80007dd8 count=1 total=2 gap_us=0 max_gap_us=0
+18437 [gx] gx_begin_hot frame=2 rank=1 lr=802155e0 count=1 total=2 gap_us=525 max_gap_us=525
+18438 [gx] gx_gap_hot frame=2 rank=0 lr=802155e0 gap_us=525 max_gap_us=525 count=1
+18439 [gx] direct_present_drop n=1 draws=0 vertices=0 reason=queue_saturated depth=2
+18440 [gx] direct_present_drop n=2 draws=0 vertices=0 reason=queue_saturated depth=2
+18441 [gx] direct_present_drop n=3 draws=0 vertices=0 reason=queue_saturated depth=2
+18442 [gx] direct_present_drop n=4 draws=0 vertices=0 reason=queue_saturated depth=2
+18443 [gx] direct_present_drop n=5 draws=0 vertices=0 reason=queue_saturated depth=2
+18444 [gx] direct_present_drop n=6 draws=0 vertices=0 reason=queue_saturated depth=2
+18445 [gx] direct_present_drop n=7 draws=0 vertices=0 reason=queue_saturated depth=2
+18446 [gx] direct_present_drop n=8 draws=2 vertices=8 reason=queue_saturated depth=2
+18447 [gx] direct_present_drop n=9 draws=0 vertices=0 reason=queue_saturated depth=2
+18448 [gx] direct_present_drop n=10 draws=0 vertices=0 reason=queue_saturated depth=2
+18449 [gx] direct_present_drop n=11 draws=0 vertices=0 reason=queue_saturated depth=2
+18450 [gx] direct_present_drop n=12 draws=0 vertices=0 reason=queue_saturated depth=2
+18451 [gx] direct_present_drop n=13 draws=0 vertices=0 reason=queue_saturated depth=2
+18452 [gx] direct_present_drop n=14 draws=0 vertices=0 reason=queue_saturated depth=2
+18453 [gx] direct_present_drop n=15 draws=0 vertices=0 reason=queue_saturated depth=2
+18454 [gx] direct_present_drop n=16 draws=0 vertices=0 reason=queue_saturated depth=2
+18455 [gx] render_present serial=20 target_hz=30 interval_us=915688 swap_us=133
+18456 [vi] vi_perf present=120 pace_requested=0 pace=0 render_decouple=1 direct_decoupled=0 present30=0 retraces_elapsed=0 submit_us=13 pace_us=6 total_us=25 presented_xfb=0
+18457 [os] fiber_slice n=6 from=0x90112660 to=0x80347498 from_entry=0x8024373C to_entry=0x00000000 elapsed_us=51036
+18458 [os] fiber_slice n=7 from=0x90112660 to=0x80347498 from_entry=0x8024373C to_entry=0x00000000 elapsed_us=251936
+18459 [os] fiber_slice n=8 from=0x80347498 to=0x90122460 from_entry=0x00000000 to_entry=0x8024373C elapsed_us=250261
+18460 [gx] render_present serial=107 target_hz=30 interval_us=257466 swap_us=129
+18461 [gx] producer_frame=120 interval_us=464 queue_wait_us=2 packet_copy_us=5 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=0/0/0 worker=118/210/113/16049 draws=1 vertices=4 efb_cmds=0 requested_draws=1 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0ep 
+18462  affinity=USER_2 prep_us=15 vertex_us=5 vertices=4 texture_us=0 textures=0 reuse=0 cap_skip=0 budget_skip=0 decode_fail=0 state_us=2 state_runs=1 failures=0
+18463 [gx] render_present serial=120 target_hz=30 interval_us=16356 swap_us=105
+18464 [gx] perf_summary serial=120 draws=1 vertices=4 presented=1 physical=1 merged=0 raw_ok=0 raw_fail=0 dropped=0 transform_fail=0 render_us=181 present_wait_us=0 swap_us=105 prep=15/5/0/2/0/1/0 prep_tex=0/0/0/0 texprep=0/0 texcache=0/0/0/0/0 live=1517568/1 evict=0/0/0 invalidate=0 direct_upload_us=2 direct_upload=1/0/0 state_skip=0/0/0 tev_direct=0/0 tev_chain=0/0/0/0 tev_draw=0/0/0 efb=0/0 sampled=0 efb_us=0 ring_write=0
+18465 [os] fiber_slice n=16 from=0x80347498 to=0x8042E480 from_entry=0x00000000 to_entry=0x8024373C elapsed_us=53686
+18466 [hle] arc_native_fast active=1 mode=oracle-cache stricmp=0x8001BBF8 convert_path=0x80124894
+18467 [hle] arc_native_cache calls=64 hits=47 misses=17 bypass=0 hit_pct=73
+18468 [hle] arc_native_cache calls=128 hits=105 misses=23 bypass=0 hit_pct=82
+18469 [hle] arc_native_cache calls=256 hits=225 misses=31 bypass=0 hit_pct=87
+18470 [hle] arc_native_cache calls=512 hits=465 misses=47 bypass=0 hit_pct=90
+18471 [hle] arc_native_cache calls=1024 hits=948 misses=76 bypass=0 hit_pct=92
+18472 [audio] AIInit_801240b0 called: Audio subsystem initialized (HLE)
+18473 [OSReport] << RVL_SDK - AX 	release build: Aug  8 2007 01:58:18 (0x4199_60831) >>
+18474 [audio] __AXOutInitDSP called: native AX/DSP HLE initialized.
+18475 [OSReport] << RVL_SDK - DWC 	release build: Mar  1 2008 21:50:41 (0x4199_60831) >>
+18476 [os] [WC24] OSLockMutex mutex=0x80356EF8 current=0x80347498 owner=0x00000000 count=0
+18477 [os] [WC24] OSLockMutex mutex=0x80356EE0 current=0x80347498 owner=0x00000000 count=0
+18478 [net] [WC24] IOS_Open device='/dev/net/kd/request' mode=0 -> fd=2003
+18479 [net] [WC24] KD/request ioctl cmd=0x01 phase=0 in=0x00000000/0 out=0x80356F40/32
+18480 [net] [WC24] IOS_Close KD fd=2003
+18481 [net] [WC24] IOS_Close KD fd=2003 complete removed=1
+18482 [os] [WC24] OSUnlockMutex mutex=0x80356EE0 current=0x80347498 owner=0x80347498 count=1
+18483 [os] [WC24] OSUnlockMutex mutex=0x80356EF8 current=0x80347498 owner=0x80347498 count=1
+18484 [os] [WC24] OSLockMutex mutex=0x80356EE0 current=0x80347498 owner=0x00000000 count=0
+18485 [net] [WC24] IOS_Open device='/dev/net/kd/request' mode=0 -> fd=2004
+18486 [net] [WC24] KD/request ioctl cmd=0x0F phase=0 in=0x00000000/0 out=0x80356F40/32
+18487 [net] [WC24] IOS_Close KD fd=2004
+18488 [net] [WC24] IOS_Close KD fd=2004 complete removed=1
+18489 [os] [WC24] OSUnlockMutex mutex=0x80356EE0 current=0x80347498 owner=0x80347498 count=1
+18490 [os] [WC24] OSLockMutex mutex=0x80356EF8 current=0x80347498 owner=0x00000000 count=0
+18491 [os] [WC24] OSLockMutex mutex=0x80356EE0 current=0x80347498 owner=0x00000000 count=0
+18492 [net] [WC24] IOS_Open device='/dev/net/kd/request' mode=0 -> fd=2005
+18493 [net] [WC24] KD/request ioctl cmd=0x03 phase=0 in=0x00000000/0 out=0x80356F40/32
+18494 [net] [WC24] IOS_Close KD fd=2005
+18495 [net] [WC24] IOS_Close KD fd=2005 complete removed=1
+18496 [OSReport] 20071023
+18497 [os] [WC24] OSUnlockMutex mutex=0x80356EE0 current=0x80347498 owner=0x80347498 count=1
+18498 [os] [WC24] OSUnlockMutex mutex=0x80356EF8 current=0x80347498 owner=0x80347498 count=1
+18499 [audio] AIInit_801240b0 called: Audio subsystem initialized (HLE)
+18500 [OSReport] << NW4R    - SND 	final   build: Mar  8 2008 20:59:14 (0x4201_127) >>
+18501 [hle] [WC24] SCCheckStatus #3 -> 0
+18502 [os] PPCMtdec called (stubbed) - Move To Decrementer[[os] guest_watchdog_stall serial=128 stalled_us=1008401 interval_us=527 current_guest=0x80347498 os_current=0x80347498 os_running=0x80347498 thread_state=2 priority=16 pending=0x00000000 idle=0 pc=0x800060A4 srr0=0x00000000 lr=0x8021A058 fiber_entry=0x00000000 task_thread=0x8042BBF0 task_job=0x00000000 task_cb=0x00000000 task_arg=0x00000000 movie_manager=0x00000000 movie_state=0x00000000 movie_result=0x00000000 rfl_manager=0x00000000 rfl_working=0
+18503 [os] guest_watchdog_live os_running=0x80347498 run_state=2 run_prio=16 run_wait_q=0x00000000 os_current=0x80347498 cur_state=2 pending=0x00004820
+18504 [os] guest_live switch_seq=208 switching=0 from=0x902216C8 to=0x80347498 from_entry=0x80176B44 to_entry=0x00000000 slice_age_us=140993 last_return_age_us=140989
+18505 [os] guest_live sched_select_total=224 sched_idle_total=1155 vi_poll_total=1155 last_scheduler_age_us=93833 last_idle_age_us=1009287 last_vi_poll_age_us=1009267 idle_audio_pending_total=0 idle_vi_after_audio_total=0 idle_break_after_service_total=94
+18506 [os] vi_stall retrace_count=177 last_retrace_age_us=1013202 next_retrace_due_us=-996536 in_advance=0 pre_cb=0x00000000 post_cb=0x8020FCD4 sSystem=0x802A4080 poll_total=1155 due_total=177 deferred=119/0/38 advance_enter=177 advance_reentry=0 advance_complete=177 pre_cb_total=0 post_cb_total=175 post_cb_no_system=0 post_cb_zero=2 retrace_wake_total=177 last_post_cb=0x8020FCD4 last_post_cb_us=1789080230857939 last_retrace_count=177 last_advance_complete_us=1789080230858064
+18507 [os] guest_thread_table head=0x80347498
+18508 [os] guest_thread t=0x80347498 state=2 suspend=0 prio=16 wait_q=0x00000000 wq=[0x00000000,0x00000000] q_link=0x00000000 join_q=0x00000000 fiber=1 entry=0x00000000 term=0
+18509 [os] guest_thread t=0x8042A680 state=4 suspend=0 prio=15 wait_q=0x804294F8 wq=[0x8042A680,0x8042A680] q_link=0x00000000 join_q=0x00000000 fiber=1 entry=0x8024373C term=0
+18510 [os] guest_thread t=0x802A70B8 state=4 suspend=0 prio=0 wait_q=0x802A73D8 wq=[0x802A70B8,0x802A70B8] q_link=0x00000000 join_q=0x00000000 fiber=1 entry=0x80023380 term=0
+18511 [os] guest_thread t=0x8042E480 state=4 suspend=0 prio=24 wait_q=0x8042BC04 wq=[0x8042E480,0x8042E480] q_link=0x00000000 join_q=0x00000000 fiber=1 entry=0x8024373C term=0
+18512 [os] guest_thread t=0x90112660 state=4 suspend=0 prio=6 wait_q=0x80386BC0 wq=[0x90112660,0x90112660] q_link=0x00000000 join_q=0x00000000 fiber=1 entry=0x8024373C term=0
+18513 [os] guest_thread t=0x90122460 state=4 suspend=0 prio=24 wait_q=0x809C504C wq=[0x90122460,0x90122460] q_link=0x00000000 join_q=0x00000000 fiber=1 entry=0x8024373C term=0
+18514 [os] guest_thread t=0x902216C8 state=4 suspend=0 prio=4 wait_q=0x902219E8 wq=[0x902216C8,0x902216C8] q_link=0x00000000 join_q=0x00000000 fiber=1 entry=0x80176B44 term=0
+18515 [os] guest_thread t=0x902CE9C0 state=1 suspend=0 prio=17 wait_q=0x80347838 wq=[0x902CE9C0,0x902CE9C0] q_link=0x00000000 join_q=0x00000000 fiber=1 entry=0x8024373C term=0
+18516 [os] guest_thread t=0x902FDEE0 state=1 suspend=0 prio=26 wait_q=0x80347880 wq=[0x902FDEE0,0x902FDEE0] q_link=0x00000000 join_q=0x00000000 fiber=1 entry=0x8024373C term=0
+18517 [os] guest_thread t=0x90339BA0 state=1 suspend=0 prio=20 wait_q=0x80347850 wq=[0x90339BA0,0x90339BA0] q_link=0x00000000 join_q=0x00000000 fiber=1 entry=0x8024373C term=0
+18518 [os] PPCMtdec called (stubbed) - Move To Decrementer
+18519 [os] PPCMtdec called (stubbed) - Move To Decrementer
+18520 [os] PPCMtdec called (stubbed) - Move To Decrementer
+18521 [dvd] brsar_prefetch queued warm=6699712/2437024 large=9178144/7044512
+18522 [audio] audio_backlog_clamp n=1 kept_blocks=3 dropped_total_us=91000
+18523 [audio] starting the AX/DSP mix worker thread
+18524 [audio] vita_audioout first_output port=7 frames=256 rate=48000
+18525 [audio] vita_audioout underrun inserting_silence frames=256
+18526 [gx] producer_frame=129 interval_us=1303673 queue_wait_us=3 packet_copy_us=7 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=0/0/0 worker=128/213/113/1303352 draws=0 vertices=0 efb_cmds=0 requested_draws=0 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0
+18527 [vi] vi_perf present=240 pace_requested=0 pace=0 render_decouple=1 direct_decoupled=0 present30=0 retraces_elapsed=16 submit_us=38 pace_us=8 total_us=53 presented_xfb=1
+18528 [gx] gx_cpu_perf frame=93 lyt_calls=0 lyt_us=0 lyt_direct=0 lyt_packet=0 lyt_faithful=0 dl_calls=0 dl_us=0 dl_bytes=0 dl_cache=0/0 dl_cache_mem=0/0/0 dl_evict=0/0 dl_clear=0/0 dl_skip=0 dl_fallback=0 dl_raw=0/0 verts=0 fail=0 dl_template=0/0 draws=0 fallback=0 glyph_fast=0 setup=0 texload=0 glyph_raw=0 glyph_fallback=0 prebegin_us=1305638 prebegin_run_clocks=0 prebegin_cpu_us=0 prebegin_offcpu_us=0 prebegin_cpu_permille=0 arm_mhz=0 tail_us=499 copydisp_us=91
+18529 [gx] gx_phase frame=93 prebegin_us=1305638 tail_us=499 begins=1
+18530 [gx] gx_begin_hot frame=93 rank=0 lr=802155e0 count=1 total=1 gap_us=0 max_gap_us=0
+18531 [gx] render_present serial=136 target_hz=30 interval_us=1306690 swap_us=151
+18532 [audio] audio_backlog_clamp n=2 kept_blocks=3 dropped_total_us=139503
+18533 [nand] RKSYS: open guest='rksys.dat' mode=1 fd=101
+18534 [nand] RKSYS: close via=NANDClose mode=1 reads=0/0 writes=0/0 nonzero=0 hash=14650FB0739D0383 first=0x00000000@0 shadow=0
+18535 [nand] RKSYS: open guest='rksys.dat' mode=1 fd=102
+18536 [dvd] brsar_prefetch_profile ok=1 warm_us=376320 large_us=668545 total_us=1063967 cache_bytes=9481536 alloc_bytes=10485760 pool=phycont
+18537 [nand] RKSYS: close via=NANDClose mode=1 reads=1/163840 writes=0/0 nonzero=0 hash=14650FB0739D0383 first=0x00000000@0 shadow=0
+18538 [audio] audio_backlog_clamp n=3 kept_blocks=3 dropped_total_us=230635
+18539 [audio] audio_backlog_clamp n=4 kept_blocks=3 dropped_total_us=321635
+18540 [os] fiber_slice n=32 from=0x802ECEB0 to=0x902216C8 from_entry=0x800A49C0 to_entry=0x80176B44 elapsed_us=111073
+18541 [gx] gx_cpu_perf frame=96 lyt_calls=0 lyt_us=0 lyt_direct=0 lyt_packet=0 lyt_faithful=0 dl_calls=0 dl_us=0 dl_bytes=0 dl_cache=0/0 dl_cache_mem=0/0/0 dl_evict=0/0 dl_clear=0/0 dl_skip=0 dl_fallback=0 dl_raw=0/0 verts=0 fail=0 dl_template=0/0 draws=0 fallback=0 glyph_fast=0 setup=0 texload=0 glyph_raw=0 glyph_fallback=0 prebegin_us=1028843 prebegin_run_clocks=0 prebegin_cpu_us=0 prebegin_offcpu_us=0 prebegin_cpu_permille=0 arm_mhz=0 tail_us=596 copydisp_us=99
+18542 [gx] gx_phase frame=96 prebegin_us=1028843 tail_us=596 begins=1
+18543 [gx] gx_begin_hot frame=96 rank=0 lr=802155e0 count=1 total=1 gap_us=0 max_gap_us=0
+18544 [gx] render_present serial=160 target_hz=30 interval_us=1029721 swap_us=182
+18545 [OSReport] << RVL_SDK - RFL 	release build: Jan 28 2008 15:34:44 (0x4201_127) >>
+18546 [os] rfl_working n=1 manager=0x909999BC flag=0x00000000
+18547 [nand] NANDSafeOpen: FAILED to open 'ux0:data/wiicompiled-vita/NAND/shared2/menu/FaceLib/RFL_DB.dat' for reading
+18548 [os] rfl_working n=3 manager=0x909999BC flag=0x00000000
+18549 [os] rfl_working n=4 manager=0x909999BC flag=0x00000000
+18550 [os] rfl_working n=2 manager=0x909999BC flag=0x00000000
+18551 [os] rfl_working n=5 manager=0x909999BC flag=0x00000000
+18552 [os] rfl_working n=6 manager=0x909999BC flag=0x00000000
+18553 [os] rfl_working n=7 manager=0x909999BC flag=0x00000000
+18554 [os] rfl_working n=8 manager=0x909999BC flag=0x00000000
+18555 [os] rfl_working n=16 manager=0x909999BC flag=0x00000000
+18556 [os] rfl_working n=32 manager=0x909999BC flag=0x00000000
+18557 [audio] audio_backlog_clamp n=5 kept_blocks=3 dropped_total_us=412635
+18558 [gx] producer_frame=161 interval_us=1394209 queue_wait_us=3 packet_copy_us=7 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=0/0/0 worker=160/352/182/1393724 draws=0 vertices=0 efb_cmds=0 requested_draws=0 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0
+18559 [gx] gx_cpu_perf frame=97 lyt_calls=0 lyt_us=0 lyt_direct=0 lyt_packet=0 lyt_faithful=0 dl_calls=0 dl_us=0 dl_bytes=0 dl_cache=0/0 dl_cache_mem=0/0/0 dl_evict=0/0 dl_clear=0/0 dl_skip=0 dl_fallback=0 dl_raw=0/0 verts=0 fail=0 dl_template=0/0 draws=0 fallback=0 glyph_fast=0 setup=0 texload=0 glyph_raw=0 glyph_fallback=0 prebegin_us=1396207 prebegin_run_clocks=0 prebegin_cpu_us=0 prebegin_offcpu_us=0 prebegin_cpu_permille=0 arm_mhz=0 tail_us=512 copydisp_us=96
+18560 [gx] gx_phase frame=97 prebegin_us=1396207 tail_us=512 begins=1
+18561 [gx] gx_begin_hot frame=97 rank=0 lr=802155e0 count=1 total=1 gap_us=0 max_gap_us=0
+18562 [gx] render_present serial=168 target_hz=30 interval_us=1396787 swap_us=135
+18563 [os] OSSleepTicks trace #0: arm thread=0x80347498 ticks=0x5cb278
+18564 [net] [WC24] IOS_Open device='/dev/net/kd/request' mode=0 -> fd=2006
+18565 [net] [WC24] KD/request ioctl cmd=0x02 phase=1 in=0x80356F20/32 out=0x80356F40/32
+18566 [net] [WC24] KD/request try-suspend -> pending (-42), phase=post-resume; now ready
+18567 [net] [WC24] IOS_Close KD fd=2006
+18568 [net] [WC24] IOS_Close KD fd=2006 complete removed=1
+18569 [os] [WC24] OSUnlockMutex mutex=0x80356EE0 current=0x902FDEE0 owner=0x902FDEE0 count=1
+18570 [os] [WC24] OSUnlockMutex mutex=0x80356EF8 current=0x902FDEE0 owner=0x902FDEE0 count=1
+18571 [os] [WC24] OSLockMutex mutex=0x80356EF8 current=0x902FDEE0 owner=0x00000000 count=0
+18572 [os] [WC24] OSLockMutex mutex=0x80356EE0 current=0x902FDEE0 owner=0x00000000 count=0
+18573 [net] [WC24] IOS_Open device='/dev/net/kd/request' mode=0 -> fd=2007
+18574 [net] [WC24] KD/request ioctl cmd=0x03 phase=2 in=0x00000000/0 out=0x80356F40/32
+18575 [net] [WC24] IOS_Close KD fd=2007
+18576 [net] [WC24] IOS_Close KD fd=2007 complete removed=1
+18577 [os] [WC24] OSUnlockMutex mutex=0x80356EE0 current=0x902FDEE0 owner=0x902FDEE0 count=1
+18578 [os] [WC24] OSUnlockMutex mutex=0x80356EF8 current=0x902FDEE0 owner=0x902FDEE0 count=1
+18579 [audio] audio_backlog_clamp n=6 kept_blocks=3 dropped_total_us=486455
+18580 [gx] direct_present_drop n=120 draws=0 vertices=0 reason=queue_saturated depth=2
+18581 [vi] vi_perf present=360 pace_requested=0 pace=0 render_decouple=1 direct_decoupled=0 present30=0 retraces_elapsed=0 submit_us=28 pace_us=7 total_us=41 presented_xfb=0
+18582 [gx] producer_frame=240 interval_us=134 queue_wait_us=1 packet_copy_us=3 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=0/0/0 worker=168/294/135/94855 draws=0 vertices=0 efb_cmds=0 requested_draws=0 begin_cap=0 raw_cap=0 dropped=0[gx] direct0prep serial=in_us=139620240 efb_recorded=0 efb_cap_fail=02 vertex_tro1=gin_offcpu_0
+18583  vertices=0 texture_us=0 textures=0 reuse=0 cap_skip=0 budget_skip=0 decode_fail=0 state_us=2 state_runs=0 failures=0
+18584 [gx] frame=240 skipped_empty=1 packet_draws=0 packet_vertices=0 calls=0 raw_ok=0 raw_fail=0 raw_cap=0 begin_cap=0 dropped=0 tex_state=0/0/0/0/0/0 recovered=0 texcoord_gt0=0 custom=0 custom_mode=0/0/0/0/0/0
+18585 [os] OSSleepTicks trace #0: suspend returned thread=0x80347498
+18586 [os] OSSleepTicks trace #1: arm thread=0x80347498 ticks=0x5cb278
+18587 [audio] audio_backlog_clamp n=7 kept_blocks=3 dropped_total_us=569304
+18588 [audio] vita_audioout stats real=28 silence=484 underrun=484 drop_oldest=0 high_water=2 queued=2
+18589 [os] OSSleepTicks trace #1: suspend returned thread=0x80347498
+18590 [OSReport] << NW4R    - LYT 	final   build: Mar  8 2008 20:59:41 (0x4201_127) >>
+18591 [OSReport] [CINS] OSIsTitleInstalled(0x00010004524d4350) start
+18592 [OSReport] [CINS] OSIsTitleInstalled(0x00010004524d4350) errcode=0
+18593 [audio] audio_backlog_clamp n=8 kept_blocks=3 dropped_total_us=660981
+18594 [gx] gx_cpu_perf frame=98 lyt_calls=0 lyt_us=0 lyt_direct=0 lyt_packet=0 lyt_faithful=0 dl_calls=0 dl_us=0 dl_bytes=0 dl_cache=0/0 dl_cache_mem=0/0/0 dl_evict=0/0 dl_clear=0/0 dl_skip=0 dl_fallback=0 dl_raw=0/0 verts=0 fail=0 dl_template=0/0 draws=0 fallback=0 glyph_fast=0 setup=0 texload=0 glyph_raw=0 glyph_fallback=0 prebegin_us=719688 prebegin_run_clocks=0 prebegin_cpu_us=0 prebegin_offcpu_us=0 prebegin_cpu_permille=0 arm_mhz=0 tail_us=447 copydisp_us=94
+18595 [gx] gx_phase frame=98 prebegin_us=719688 tail_us=447 begins=1
+18596 [gx] gx_begin_hot frame=98 rank=0 lr=802155e0 count=1 total=1 gap_us=0 max_gap_us=0
+18597 [gx] render_present serial=312 target_hz=30 interval_us=720212 swap_us=132
+18598 [hle] CINS: OSIsTitleInstalled(0x00010004524D4350) -> 1 (stubbed as installed)
+18599 [hle] input KPADGetUnifiedWpadStatus bridge active: chan=0 count=1
+18600 [gx] render_present serial=317 target_hz=30 interval_us=141048 swap_us=131
+18601 [os] fiber_slice n=64 from=0x90112660 to=0x80347498 from_entry=0x8024373C to_entry=0x00000000 elapsed_us=95122
+18602 [OSReport] << NW4R    - G3D 	final   build: Mar  8 2008 20:58:12 (0x4201_127) >>
+18603 [os] guest_watchdog_stall serial=318 stalled_us=1008493 interval_us=95827 current_guest=0x80347498 os_current=0x80347498 os_running=0x80347498 thread_state=2 priority=16 pending=0x00000000 idle=0 pc=0x800060A4 srr0=0x00000000 lr=0x8021A058 fiber_entry=0x00000000 task_thread=0x809C5038 task_job=0x809C50B0 task_cb=0x80540038 task_arg=0x00000001 movie_manager=0x00000000 movie_state=0x00000000 movie_result=0x00000000 rfl_manager=0x909999BC rfl_working=0
+18604 [os] guest_watchdog_live os_running=0x90122460 run_state=2 run_prio=24 run_wait_q=0x00000000 os_current=0x90122460 cur_state=2 pending=0x00000000
+18605 [os] guest_live switch_seq=430 switching=0 from=0x80347498 to=0x90122460 from_entry=0x00000000 to_entry=0x8024373C slice_age_us=1008271 last_return_age_us=1008265
+18606 [os] guest_live sched_select_total=656 sched_idle_total=1330 vi_poll_total=1330 last_scheduler_age_us=1008314 last_idle_age_us=1011844 last_vi_poll_age_us=1009776 idle_audio_pending_total=74 idle_vi_after_audio_total=74 idle_break_after_service_total=181
+18607 [os] vi_stall retrace_count=460 last_retrace_age_us=1021619 next_retrace_due_us=-1004953 in_advance=0 pre_cb=0x00000000 post_cb=0x8020FCD4 sSystem=0x802A4080 poll_total=1330 due_total=460 deferred=128/0/87 advance_enter=460 advance_reentry=0 advance_complete=460 pre_cb_total=0 post_cb_total=458 post_cb_no_system=0 post_cb_zero=2 retrace_wake_total=460 last_post_cb=0x8020FCD4 last_post_cb_us=1789080235582212 last_retrace_count=460 last_advance_complete_us=1789080235582234
+18608 [gx] producer_frame=319 interval_us=1103846 queue_wait_us=2 packet_copy_us=10 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=0/0/0 worker=318/219/122/1103502 draws=1 vertices=4 efb_cmds=0 requested_draws=1 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0
+18609 [gx] gx_cpu_perf frame=102 lyt_calls=0 lyt_us=0 lyt_direct=0 lyt_packet=0 lyt_faithful=0 dl_calls=0 dl_us=0 dl_bytes=0 dl_cache=0/0 dl_cache_mem=0/0/0 dl_evict=0/0 dl_clear=0/0 dl_skip=0 dl_fallback=0 dl_raw=0/0 verts=0 fail=0 dl_template=0/0 draws=0 fallback=0 glyph_fast=0 setup=0 texload=0 glyph_raw=0 glyph_fallback=0 prebegin_us=1103295 prebegin_run_clocks=0 prebegin_cpu_us=0 prebegin_offcpu_us=0 prebegin_cpu_permille=0 arm_mhz=0 tail_us=458 copydisp_us=119
+18610 [gx] gx_phase frame=102 prebegin_us=1103295 tail_us=458 begins=1
+18611 [gx] gx_begin_hot frame=102 rank=0 lr=802155e0 count=1 total=1 gap_us=0 max_gap_us=0
+18612 [gx] render_present serial=319 target_hz=30 interval_us=1103979 swap_us=142
+18613 [gx] rfl_shape_dl_burst n=1 bytes=48 total_bytes=48 stride=3 src=0x909C0601
+18614 [gx] rfl_shape_dl_burst n=2 bytes=30 total_bytes=78 stride=3 src=0x909C0633
+18615 [gx] rfl_shape_dl_burst n=3 bytes=27 total_bytes=105 stride=3 src=0x909C0653
+18616 [gx] rfl_shape_dl_burst n=4 bytes=24 total_bytes=129 stride=3 src=0x909C0670
+18617 [gx] rfl_shape_dl_burst n=5 bytes=24 total_bytes=153 stride=3 src=0x909C068A
+18618 [gx] rfl_shape_dl_burst n=6 bytes=24 total_bytes=177 stride=3 src=0x909C06A4
+18619 [gx] rfl_shape_dl_burst n=7 bytes=24 total_bytes=201 stride=3 src=0x909C06BE
+18620 [gx] rfl_shape_dl_burst n=8 bytes=21 total_bytes=222 stride=3 src=0x909C06D8
+18621 [gx] rfl_shape_dl_burst n=64 bytes=15 total_bytes=1442 stride=3 src=0x909C09B0
+18622 [hle] arc_native_cache calls=2048 hits=1866 misses=182 bypass=0 hit_pct=91
+18623 [hle] arc_native_cache calls=4096 hits=3655 misses=441 bypass=0 hit_pct=89
+18624 [OSReport] << RVL_SDK - THP 	release build: Aug  8 2007 01:31:54 (0x4199_60831) >>
+18625 [gx] rfl_shape_dl_burst n=128 bytes=48 total_bytes=3250 stride=3 src=0x909C08CD
+18626 [gx] xf_indexed n=1 dst=0x078 words=12 source=0x634a8730
+18627 [gx] xf_indexed n=2 dst=0x084 words=12 source=0x634a8760
+18628 [gx] xf_indexed n=3 dst=0x090 words=12 source=0x634a86d0
+18629 [gx] xf_indexed n=4 dst=0x09C words=12 source=0x634a8700
+18630 [gx] xf_indexed n=5 dst=0x0A8 words=12 source=0x634a87c0
+18631 [gx] xf_indexed n=6 dst=0x0B4 words=12 source=0x634a87f0
+18632 [gx] xf_indexed n=7 dst=0x0C0 words=12 source=0x634a8790
+18633 [gx] xf_indexed n=8 dst=0x000 words=12 source=0x634a7d30
+18634 [gx] xf_indexed n=9 dst=0x00C words=12 source=0x634a7d60
+18635 [gx] xf_indexed n=10 dst=0x018 words=12 source=0x634a7cd0
+18636 [gx] xf_indexed n=11 dst=0x024 words=12 source=0x634a7d00
+18637 [gx] xf_indexed n=12 dst=0x030 words=12 source=0x634a7dc0
+18638 [gx] xf_indexed n=13 dst=0x03C words=12 source=0x634a7df0
+18639 [gx] xf_indexed n=14 dst=0x048 words=12 source=0x634a7d90
+18640 [gx] xf_indexed n=15 dst=0x400 words=9 source=0x634a81c4
+18641 [gx] xf_indexed n=16 dst=0x409 words=9 source=0x634a81e8
+18642 [gx] xf_indexed n=32 dst=0x024 words=12 source=0x634a7bb0
+18643 [gx] xf_indexed n=64 dst=0x409 words=9 source=0x634a8080
+18644 [gx] rfl_shape_dl_burst n=192 bytes=10 total_bytes=5086 stride=2 src=0x909C030F
+18645 [gx] xf_indexed n=128 dst=0x024 words=12 source=0x634a9310
+18646 [hle] arc_native_cache calls=8192 hits=7496 misses=696 bypass=0 hit_pct=91
+18647 [dvd] brsar_prefetch_hit bytes=2437024 offset=6699712 guest=0x906DF200 wait_us=14 copy_us=7644 stage=3
+18648 [audio] vita_audioout stats real=57 silence=967 underrun=967 drop_oldest=0 high_water=2 queued=0
+18649 [hle] input KPADRead bridge active: chan=0 count=16
+18650 [gx] render_present serial=320 target_hz=30 interval_us=964369 swap_us=114
+18651 [gx] direct_prep serial=322 affinity=USER_2 prep_us=381657 vertex_us=125 vertices=200 texture_us=370563 textures=1 reuse=0 cap_skip=0 budget_skip=13 decode_fail=0 state_us=32 state_runs=16 failures=13
+18652 [audio] audio_backlog_clamp n=16 kept_blocks=3 dropped_total_us=1200654
+18653 [gx] direct_prep serial=323 affinity=USER_2 prep_us=387649 vertex_us=129 vertices=200 texture_us=374012 textures=1 reuse=0 cap_skip=0 budget_skip=13 decode_fail=0 state_us=24 state_runs=16 failures=13
+18654 [gx] render_present serial=322 target_hz=30 interval_us=864826 swap_us=166
+18655 [gx] render_present serial=325 target_hz=30 interval_us=254285 swap_us=164
+18656 [vi] vi_perf present=480 pace_requested=0 pace=0 render_decouple=1 direct_decoupled=0 present30=0 retraces_elapsed=1 submit_us=69 pace_us=7 total_us=83 presented_xfb=1
+18657 [gx] gx_cpu_perf frame=120 lyt_calls=13 lyt_us=1114 lyt_direct=0 lyt_packet=0 lyt_faithful=13 dl_calls=0 dl_us=0 dl_bytes=0 dl_cache=0/0 dl_cache_mem=8/540/540 dl_evict=0/0 dl_clear=0/0 dl_skip=0 dl_fallback=0 dl_raw=0/0 verts=0 fail=0 dl_template=0/0 draws=0 fallback=0 glyph_fast=36 setup=4 texload=2 glyph_raw=36 glyph_fallback=0 prebegin_us=23274 prebegin_run_clocks=0 prebegin_cpu_us=0 prebegin_offcpu_us=0 prebegin_cpu_permille=0 arm_mhz=0 tail_us=243 copydisp_us=124
+18658 [audio] audio_backlog_clamp n=32 kept_blocks=3 dropped_total_us=1502765
+18659 [os] fiber_slice n=128 from=0x902216C8 to=0x90112660 from_entry=0x80176B44 to_entry=0x8024373C elapsed_us=23155
+18660 [gx] direct_prep serial=341 affinity=USER_2 prep_us=234827 vertex_us=120 vertices=196 texture_us=233319 textures=8 reuse=0 cap_skip=6 budget_skip=0 decode_fail=0 state_us=13 state_runs=14 failures=6
+18661 [gx] render_present serial=341 target_hz=30 interval_us=224951 swap_us=134
+18662 [gx] direct_prep serial=343 affinity=USER_2 prep_us=373060 vertex_us=123 vertices=196 texture_us=372879 textures=1 reuse=0 cap_skip=0 budget_skip=13 decode_fail=0 state_us=19 state_runs=15 failures=13
+18663 [gx] render_present serial=343 target_hz=30 interval_us=397535 swap_us=144
+18664 [gx] producer_frame=360 interval_us=22984 queue_wait_us=2 packet_copy_us=32 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=0/0/0 worker=358/33321/32887/5731 draws=15 vertices=196 efb_cmds=0 requested_draws=49 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0
+18665 [gx] direct_prep serial=360 affinity=USER_2 prep_us=152 vertex_us=119 vertices=196 texture_us=0 textures=1 reuse=1 cap_skip=0 budget_skip=13 decode_fail=0 state_us=5 state_runs=15 failures=13
+18666 [audio] audio_backlog_clamp n=64 kept_blocks=3 dropped_total_us=2090946
+18667 [gx] render_present serial=360 target_hz=30 interval_us=33439 swap_us=32871
+18668 [gx] perf_summary serial=360 draws=15 vertices=196 presented=15 physical=14 merged=1 raw_ok=36 raw_fail=0 dropped=0 transform_fail=0 render_us=33382 present_wait_us=0 swap_us=32871 prep=152/119/0/5/1/15/13 prep_tex=1/0/13/0 texprep=0/0 texcache=14/0/0/0/0 live=10820392/25 evict=0/0/0 invalidate=1 direct_upload_us=23 direct_upload=1/0/0 state_skip=1/9/0 tev_direct=0/6 tev_chain=0/11/0/0 tev_draw=6/8/0 efb=0/0 sampled=0 efb_us=0 ring_write=0
+18669 [os] fiber_slice n=256 from=0x90112660 to=0x80347498 from_entry=0x8024373C to_entry=0x00000000 elapsed_us=23273
+18670 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+18671 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+18672 [audio] vita_audioout stats real=263 silence=1273 underrun=1273 drop_oldest=0 high_water=2 queued=0
+18673 [audio] audio_backlog_clamp n=128 kept_blocks=3 dropped_total_us=3733862
+18674 [audio] vita_audioout stats real=340 silence=1708 underrun=1708 drop_oldest=0 high_water=2 queued=0
+18675 [vi] vi_perf present=600 pace_requested=0 pace=0 render_decouple=1 direct_decoupled=0 present30=0 retraces_elapsed=3 submit_us=182 pace_us=8 total_us=197 presented_xfb=1
+18676 [gx] gx_cpu_perf frame=240 lyt_calls=90 lyt_us=6972 lyt_direct=0 lyt_packet=0 lyt_faithful=90 dl_calls=0 dl_us=0 dl_bytes=0 dl_cache=0/0 dl_cache_mem=8/540/540 dl_evict=0/0 dl_clear=0/0 dl_skip=0 dl_fallback=0 dl_raw=0/0 verts=0 fail=0 dl_template=0/0 draws=0 fallback=0 glyph_fast=89 setup=33 texload=21 glyph_raw=89 glyph_fallback=0 prebegin_us=27517 prebegin_run_clocks=0 prebegin_cpu_us=0 prebegin_offcpu_us=0 prebegin_cpu_permille=0 arm_mhz=0 tail_us=1698 copydisp_us=234
+18677 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+18678 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+18679 [os] fiber_slice n=512 from=0x802ECEB0 to=0x902216C8 from_entry=0x800A49C0 to_entry=0x80176B44 elapsed_us=57457
+18680 [hle] movie: open n=1 manager=0x80B0F768 result=1 buffer=0x80B0F880
+18681 [hle] thp: async worker_started affinity=USER_2 slots=4
+18682 [hle] thp: decode_enter n=1 src=0x80B0F88C
+18683 [hle] thp: turbojpeg_standard_fail n=1 jpeg=38862 span=786432 error=Unsupported marker type 0x9e
+18684 [hle] thp: restuffed_decode n=1 512x192 source=38862 candidate=1 packed=38983
+18685 [hle] thp: native decode n=1 512x192 subsamp=2 jpeg=38862 total_us=19784 jpeg_us=16657 tile_us=2355 avg_us=19784 max_us=19784
+18686 [audio] vita_audioout stats real=411 silence=2149 underrun=2149 drop_oldest=0 high_water=2 queued=0
+18687 [hle] thp: async return n=1 result=0 worker_us=19829 fiber_wait_us=125462 overlap_us=105633
+18688 [hle] movie: prepare n=1 memory=874944 result=1 state=1
+18689 [hle] thp: decode_enter n=2 src=0x80B19FEC
+18690 [hle] thp: turbojpeg_standard_fail n=2 jpeg=21570 span=786432 error=Bogus marker length
+18691 [hle] thp: restuffed_decode n=2 512x192 source=38952 candidate=3 packed=39117
+18692 [hle] thp: native decode n=2 512x192 subsamp=2 jpeg=38952 total_us=36221 jpeg_us=33427 tile_us=2358 avg_us=28002 max_us=36221
+18693 [gx] render_present serial=477 target_hz=30 interval_us=317425 swap_us=144
+18694 [hle] thp: async return n=2 result=0 worker_us=36260 fiber_wait_us=139686 overlap_us=103426
+18695 [hle] thp: turbojpeg_standard_fail n=3 jpeg=19941 span=786432 error=Unsupported marker type 0x0c
+18696 [hle] thp: restuffed_decode n=3 512x192 source=38947 candidate=2 packed=39092
+18697 [hle] thp: native decode n=3 512x192 subsamp=2 jpeg=38947 total_us=27665 jpeg_us=24920 tile_us=2312 avg_us=27890 max_us=36221
+18698 [hle] thp: async return n=3 result=0 worker_us=27702 fiber_wait_us=133926 overlap_us=106224
+18699 [gx] render_present serial=479 target_hz=30 interval_us=141864 swap_us=143
+18700 [hle] thp: turbojpeg_standard_fail n=4 jpeg=39065 span=786432 error=Bogus DQT index 9
+18701 [hle] thp: restuffed_decode n=4 512x192 source=39065 candidate=1 packed=39216
+18702 [hle] thp: native decode n=4 512x192 subsamp=2 jpeg=39065 total_us=20017 jpeg_us=16903 tile_us=2431 avg_us=25921 max_us=36221
+18703 [gx] producer_frame=480 interval_us=126164 queue_wait_us=2 packet_copy_us=393 prior_wait_calls=7 prior_wait_us=11 wait_sleep_us=11 wait_gx=7/11 wait_worker=0/0 wait_service=0/0/0 worker=479/4185/143/119208 draws=178 vertices=2656 efb_cmds=0 requested_draws=664 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0
+18704 [gx] direct_prep serial=480 affinity=USER_2 prep_us=2044 vertex_us=1781 vertices=2656 texture_us=0 textures=1 reuse=1 cap_skip=0 budget_skip=141 decode_fail=0 state_us=67 state_runs=178 failures=141
+18705 [hle] thp: async return n=4 result=0 worker_us=20069 fiber_wait_us=125358 overlap_us=105289
+18706 [gx] render_present serial=480 target_hz=30 interval_us=139030 swap_us=159
+18707 [gx] perf_summary serial=480 draws=178 vertices=2656 presented=178 physical=162 merged=16 raw_ok=526 raw_fail=0 dropped=0 transform_fail=0 render_us=17109 present_wait_us=0 swap_us=159 prep=2044/1781/0/67/1/178/141 prep_tex=1/0/141/0 texprep=0/1 texcache=161/1/1/0/393216 live=11362716/53 evict=1/0/1517568 invalidate=8 direct_upload_us=244 direct_upload=1/0/0 state_skip=16/81/0 tev_direct=3/21 tev_chain=0/215/0/0 tev_draw=24/138/0 efb=0/0 sampled=1 efb_us=0 ring_write=0
+18708 [hle] thp: restuffed_decode n=5 512x192 source=39029 candidate=1 packed=39189
+18709 [hle] thp: native decode n=5 512x192 subsamp=2 jpeg=39029 total_us=20039 jpeg_us=16827 tile_us=2413 avg_us=24745 max_us=36221
+18710 [hle] thp: async return n=5 result=0 worker_us=20078 fiber_wait_us=125977 overlap_us=105899
+18711 [gx] render_present serial=481 target_hz=30 interval_us=132840 swap_us=151
+18712 [hle] thp: restuffed_decode n=6 512x192 source=39059 candidate=2 packed=39206
+18713 [hle] thp: native decode n=6 512x192 subsamp=2 jpeg=39059 total_us=23462 jpeg_us=20926 tile_us=2375 avg_us=24531 max_us=36221
+18714 [hle] thp: async return n=6 result=0 worker_us=23504 fiber_wait_us=129783 overlap_us=106279
+18715 [gx] render_present serial=482 target_hz=30 interval_us=131411 swap_us=160
+18716 [hle] thp: restuffed_decode n=7 512x192 source=39095 candidate=1 packed=39246
+18717 [hle] thp: native decode n=7 512x192 subsamp=2 jpeg=39095 total_us=20259 jpeg_us=16903 tile_us=2450 avg_us=23921 max_us=36221
+18718 [hle] thp: async return n=7 result=0 worker_us=20299 fiber_wait_us=127028 overlap_us=106729
+18719 [gx] render_present serial=483 target_hz=30 interval_us=122141 swap_us=162
+18720 [hle] thp: turbojpeg_standard_fail n=8 jpeg=39175 span=786432 error=Unsupported marker type 0x2a
+18721 [hle] thp: restuffed_decode n=8 512x192 source=39175 candidate=1 packed=39306
+18722 [hle] thp: native decode n=8 512x192 subsamp=2 jpeg=39175 total_us=19918 jpeg_us=16899 tile_us=2300 avg_us=23420 max_us=36221
+18723 [hle] thp: async return n=8 result=0 worker_us=19954 fiber_wait_us=126310 overlap_us=106356
+18724 [gx] render_present serial=484 target_hz=30 interval_us=133821 swap_us=158
+18725 [gx] render_present serial=485 target_hz=30 interval_us=131551 swap_us=160
+18726 [gx] render_present serial=486 target_hz=30 interval_us=139509 swap_us=183
+18727 [gx] render_present serial=487 target_hz=30 interval_us=138390 swap_us=204
+18728 [gx] render_present serial=488 target_hz=30 interval_us=147377 swap_us=135
+18729 [gx] render_present serial=489 target_hz=30 interval_us=149819 swap_us=168
+18730 [gx] render_present serial=490 target_hz=30 interval_us=127199 swap_us=172
+18731 [gx] render_present serial=491 target_hz=30 interval_us=134340 swap_us=160
+18732 [hle] thp: turbojpeg_standard_fail n=16 jpeg=39378 span=786432 error=Unsupported marker type 0xbc
+18733 [hle] thp: restuffed_decode n=16 512x192 source=39378 candidate=1 packed=39517
+18734 [hle] thp: native decode n=16 512x192 subsamp=2 jpeg=39378 total_us=20108 jpeg_us=16944 tile_us=2445 avg_us=23965 max_us=36271
+18735 [hle] thp: async return n=16 result=0 worker_us=20150 fiber_wait_us=123732 overlap_us=103582
+18736 [gx] render_present serial=492 target_hz=30 interval_us=123536 swap_us=140
+18737 [gx] render_present serial=493 target_hz=30 interval_us=143139 swap_us=223
+18738 [gx] render_present serial=494 target_hz=30 interval_us=135846 swap_us=162
+18739 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+18740 [gx] render_present serial=495 target_hz=30 interval_us=148469 swap_us=161
+18741 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+18742 [gx] render_present serial=496 target_hz=30 interval_us=135762 swap_us=169
+18743 [gx] render_present serial=497 target_hz=30 interval_us=138936 swap_us=142
+18744 [gx] render_present serial=498 target_hz=30 interval_us=120603 swap_us=225
+18745 [gx] render_present serial=499 target_hz=30 interval_us=136363 swap_us=172
+18746 [audio] vita_audioout stats real=450 silence=2622 underrun=2622 drop_oldest=0 high_water=2 queued=0
+18747 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+18748 [gx] render_present serial=500 target_hz=30 interval_us=126358 swap_us=147
+18749 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+18750 [gx] render_present serial=501 target_hz=30 interval_us=145034 swap_us=161
+18751 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+18752 [gx] render_present serial=502 target_hz=30 interval_us=135741 swap_us=234
+18753 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+18754 [gx] render_present serial=503 target_hz=30 interval_us=128387 swap_us=164
+18755 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+18756 [gx] render_present serial=504 target_hz=30 interval_us=136751 swap_us=256
+18757 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+18758 [gx] render_present serial=505 target_hz=30 interval_us=126669 swap_us=161
+18759 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+18760 [gx] render_present serial=506 target_hz=30 interval_us=134985 swap_us=154
+18761 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+18762 [gx] render_present serial=507 target_hz=30 interval_us=133360 swap_us=167
+18763 [hle] thp: turbojpeg_standard_fail n=32 jpeg=23117 span=786432 error=Unsupported marker type 0x79
+18764 [hle] thp: restuffed_decode n=32 512x192 source=38682 candidate=2 packed=38794
+18765 [hle] thp: native decode n=32 512x192 subsamp=2 jpeg=38682 total_us=28589 jpeg_us=25886 tile_us=2230 avg_us=24094 max_us=44226
+18766 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+18767 [hle] thp: async return n=32 result=0 worker_us=28628 fiber_wait_us=137026 overlap_us=108398
+18768 [gx] render_present serial=508 target_hz=30 interval_us=137566 swap_us=160
+18769 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+18770 [gx] render_present serial=509 target_hz=30 interval_us=147687 swap_us=165
+18771 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+18772 [gx] render_present serial=510 target_hz=30 interval_us=124316 swap_us=161
+18773 [gx] render_present serial=511 target_hz=30 interval_us=141491 swap_us=178
+18774 [gx] render_present serial=512 target_hz=30 interval_us=136997 swap_us=163
+18775 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+18776 [gx] render_present serial=513 target_hz=30 interval_us=147954 swap_us=191
+18777 [gx] render_present serial=514 target_hz=30 interval_us=131413 swap_us=163
+18778 [gx] render_present serial=515 target_hz=30 interval_us=144377 swap_us=164
+18779 [gx] render_present serial=516 target_hz=30 interval_us=148816 swap_us=153
+18780 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+18781 [gx] render_present serial=517 target_hz=30 interval_us=152055 swap_us=154
+18782 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+18783 [gx] render_present serial=518 target_hz=30 interval_us=155005 swap_us=175
+18784 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+18785 [gx] render_present serial=519 target_hz=30 interval_us=136621 swap_us=170
+18786 [hle] input Vita state core=0000 classic=0000 stick=(0.17,-0.00)
+18787 [gx] render_present serial=520 target_hz=30 interval_us=143732 swap_us=156
+18788 [gx] render_present serial=521 target_hz=30 interval_us=146289 swap_us=147
+18789 [gx] render_present serial=522 target_hz=30 interval_us=139617 swap_us=171
+18790 [audio] vita_audioout stats real=489 silence=3095 underrun=3095 drop_oldest=0 high_water=2 queued=0
+18791 [gx] render_present serial=523 target_hz=30 interval_us=146747 swap_us=167
+18792 [gx] render_present serial=524 target_hz=30 interval_us=140918 swap_us=213
+18793 [gx] render_present serial=525 target_hz=30 interval_us=149172 swap_us=165
+18794 [gx] render_present serial=526 target_hz=30 interval_us=154942 swap_us=183
+18795 [gx] render_present serial=527 target_hz=30 interval_us=154497 swap_us=134
+18796 [gx] render_present serial=528 target_hz=30 interval_us=122873 swap_us=211
+18797 [gx] render_present serial=529 target_hz=30 interval_us=143174 swap_us=139
+18798 [gx] render_present serial=530 target_hz=30 interval_us=154279 swap_us=209
+18799 [gx] render_present serial=531 target_hz=30 interval_us=135770 swap_us=184
+18800 [gx] render_present serial=532 target_hz=30 interval_us=145325 swap_us=158
+18801 [gx] render_present serial=533 target_hz=30 interval_us=136305 swap_us=189
+18802 [gx] render_present serial=534 target_hz=30 interval_us=144766 swap_us=149
+18803 [audio] audio_backlog_clamp n=256 kept_blocks=3 dropped_total_us=12838613
+18804 [gx] render_present serial=535 target_hz=30 interval_us=148490 swap_us=161
+18805 [gx] render_present serial=536 target_hz=30 interval_us=137828 swap_us=157
+18806 [gx] render_present serial=537 target_hz=30 interval_us=145548 swap_us=244
+18807 [gx] render_present serial=538 target_hz=30 interval_us=146326 swap_us=175
+18808 [hle] thp: turbojpeg_standard_fail n=64 jpeg=40902 span=786432 error=Unsupported marker type 0x9f
+18809 [gx] render_present serial=539 target_hz=30 interval_us=151220 swap_us=167
+18810 [hle] thp: restuffed_decode n=64 512x192 source=40902 candidate=1 packed=41047
+18811 [hle] thp: native decode n=64 512x192 subsamp=2 jpeg=40902 total_us=20481 jpeg_us=17375 tile_us=2290 avg_us=24674 max_us=44226
+18812 [hle] thp: async return n=64 result=0 worker_us=20519 fiber_wait_us=138823 overlap_us=118304
+18813 [gx] render_present serial=540 target_hz=30 interval_us=133921 swap_us=161
+18814 [os] fiber_slice n=1024 from=0x90112660 to=0x80347498 from_entry=0x8024373C to_entry=0x00000000 elapsed_us=82986
+18815 [gx] render_present serial=541 target_hz=30 interval_us=143825 swap_us=164
+18816 [gx] direct_prep serial=542 affinity=USER_2 prep_us=232461 vertex_us=45 vertices=48 texture_us=230927 textures=8 reuse=0 cap_skip=3 budget_skip=0 decode_fail=0 state_us=12 state_runs=12 failures=3
+18817 [gx] render_present serial=542 target_hz=30 interval_us=273667 swap_us=157
+18818 [gx] direct_prep serial=543 affinity=USER_2 prep_us=234510 vertex_us=44 vertices=48 texture_us=234382 textures=8 reuse=0 cap_skip=3 budget_skip=0 decode_fail=0 state_us=17 state_runs=12 failures=3
+18819 [gx] render_present serial=543 target_hz=30 interval_us=280516 swap_us=142
+18820 [OSReport] ------------------- 1 Scene Exit -------------------
+18821 [audio] vita_audioout stats real=531 silence=3565 underrun=3565 drop_oldest=0 high_water=2 queued=0
+18822 [gx] gx_cpu_perf frame=352 lyt_calls=0 lyt_us=0 lyt_direct=0 lyt_packet=0 lyt_faithful=0 dl_calls=0 dl_us=0 dl_bytes=0 dl_cache=0/0 dl_cache_mem=8/540/540 dl_evict=0/0 dl_clear=0/0 dl_skip=0 dl_fallback=0 dl_raw=0/0 verts=0 fail=0 dl_template=0/0 draws=0 fallback=0 glyph_fast=0 setup=0 texload=0 glyph_raw=0 glyph_fallback=0 prebegin_us=595045 prebegin_run_clocks=0 prebegin_cpu_us=0 prebegin_offcpu_us=0 prebegin_cpu_permille=0 arm_mhz=0 tail_us=617 copydisp_us=94
+18823 [gx] gx_phase frame=352 prebegin_us=595045 tail_us=617 begins=1
+18824 [gx] gx_begin_hot frame=352 rank=0 lr=802155e0 count=1 total=1 gap_us=0 max_gap_us=0
+18825 [gx] render_present serial=549 target_hz=30 interval_us=595498 swap_us=138
+18826 [gx] gx_cpu_perf frame=353 lyt_calls=0 lyt_us=0 lyt_direct=0 lyt_packet=0 lyt_faithful=0 dl_calls=0 dl_us=0 dl_bytes=0 dl_cache=0/0 dl_cache_mem=8/540/540 dl_evict=0/0 dl_clear=0/0 dl_skip=0 dl_fallback=0 dl_raw=0/0 verts=0 fail=0 dl_template=0/0 draws=0 fallback=0 glyph_fast=0 setup=0 texload=0 glyph_raw=0 glyph_fallback=0 prebegin_us=588674 prebegin_run_clocks=0 prebegin_cpu_us=0 prebegin_offcpu_us=0 prebegin_cpu_permille=0 arm_mhz=0 tail_us=595 copydisp_us=96
+18827 [gx] gx_phase frame=353 prebegin_us=588674 tail_us=595 begins=1
+18828 [gx] gx_begin_hot frame=353 rank=0 lr=802155e0 count=1 total=1 gap_us=0 max_gap_us=0
+18829 [gx] render_present serial=550 target_hz=30 interval_us=589330 swap_us=135
+18830 [gx] render_present serial=551 target_hz=30 interval_us=146575 swap_us=123
+18831 [gx] render_present serial=552 target_hz=30 interval_us=123157 swap_us=116
+18832 [gx] gx_cpu_perf frame=356 lyt_calls=0 lyt_us=0 lyt_direct=0 lyt_packet=0 lyt_faithful=0 dl_calls=0 dl_us=0 dl_bytes=0 dl_cache=0/0 dl_cache_mem=8/540/540 dl_evict=0/0 dl_clear=0/0 dl_skip=0 dl_fallback=0 dl_raw=0/0 verts=0 fail=0 dl_template=0/0 draws=0 fallback=0 glyph_fast=0 setup=0 texload=0 glyph_raw=0 glyph_fallback=0 prebegin_us=777152 prebegin_run_clocks=0 prebegin_cpu_us=0 prebegin_offcpu_us=0 prebegin_cpu_permille=0 arm_mhz=0 tail_us=547 copydisp_us=83
+18833 [gx] gx_phase frame=356 prebegin_us=777152 tail_us=547 begins=1
+18834 [gx] gx_begin_hot frame=356 rank=0 lr=802155e0 count=1 total=1 gap_us=0 max_gap_us=0
+18835 [gx] render_present serial=553 target_hz=30 interval_us=777817 swap_us=131
+18836 [OSReport] << NW4R    - G3D 	final   build: Mar  8 2008 20:58:12 (0x4201_127) >>
+18837 [gx] rfl_shape_dl_burst n=256 bytes=8 total_bytes=6902 stride=2 src=0x909C0821
+18838 [audio] vita_audioout stats real=540 silence=4068 underrun=4068 drop_oldest=0 high_water=2 queued=0
+18839 [OSReport] << RVL_SDK - THP 	release build: Aug  8 2007 01:31:54 (0x4199_60831) >>
+18840 [os] guest_watchdog_stall serial=553 stalled_us=1007737 interval_us=777822 current_guest=0x80347498 os_current=0x80347498 os_running=0x80347498 thread_state=2 priority=16 pending=0x02000000 idle=0 pc=0x800060A4 srr0=0x00000000 lr=0x8021A058 fiber_entry=0x00000000 task_thread=0x809C5038 task_job=0x00000000 task_cb=0x00000000 task_arg=0x00000000 movie_manager=0x80B0F768 movie_state=0x00000001 movie_result=0x00000001 rfl_manager=0x909999BC rfl_working=0
+18841 [os] guest_watchdog_live os_running=0x80347498 run_state=2 run_prio=16 run_wait_q=0x00000000 os_current=0x80347498 cur_state=2 pending=0x00002000
+18842 [os] guest_live switch_seq=1981 switching=0 from=0x90112660 to=0x80347498 from_entry=0x8024373C to_entry=0x00000000 slice_age_us=68128 last_return_age_us=68123
+18843 [os] guest_live sched_select_total=4478 sched_idle_total=1632 vi_poll_total=1632 last_scheduler_age_us=68191 last_idle_age_us=1041150 last_vi_poll_age_us=1028222 idle_audio_pending_total=376 idle_vi_after_audio_total=376 idle_break_after_service_total=483
+18844 [os] vi_stall retrace_count=1871 last_retrace_age_us=1122846 next_retrace_due_us=-1106180 in_advance=0 pre_cb=0x00000000 post_cb=0x8020FCD4 sSystem=0x802A4080 poll_total=1632 due_total=1871 deferred=5062/0/1012 advance_enter=1871 advance_reentry=0 advance_complete=1871 pre_cb_total=0 post_cb_total=1869 post_cb_no_system=0 post_cb_zero=2 retrace_wake_total=1871 last_post_cb=0x8020FCD4 last_post_cb_us=1789080259634340 last_retrace_count=1871 last_advance_complete_us=1789080259634360
+18845 [gx] rfl_shape_dl_burst n=320 bytes=8 total_bytes=8834 stride=2 src=0x909C07DB
+18846 [gx] rfl_shape_dl_burst n=384 bytes=12 total_bytes=10762 stride=2 src=0x909C078D
+18847 [gx] xf_indexed n=256 dst=0x424 words=9 source=0x632b3ccc
+18848 [hle] arc_native_cache calls=16384 hits=15085 misses=1299 bypass=0 hit_pct=92
+18849 [audio] vita_audioout stats real=540 silence=4580 underrun=4580 drop_oldest=0 high_water=2 queued=0
+18850 [hle] arc_native_cache calls=32768 hits=30828 misses=1940 bypass=0 hit_pct=94
+18851 [gx] rfl_shape_dl_burst n=448 bytes=16 total_bytes=12658 stride=2 src=0x909C071F
+18852 [gx] producer_frame=554 interval_us=5520123 queue_wait_us=3 packet_copy_us=681 prior_wait_calls=11 prior_wait_us=16 wait_sleep_us=16 wait_gx=11/16 wait_worker=0/0 wait_service=0/0/0 worker=553/255/131/5519721 draws=391 vertices=2084 efb_cmds=45 requested_draws=393 begin_cap=0 raw_cap=0 dropped=0 efb_calls=28 efb_recorded=28 efb_cap_fail=0 efb_destroy=17
+18853 [gx] gx_cpu_perf frame=357 lyt_calls=0 lyt_us=0 lyt_direct=0 lyt_packet=0 lyt_faithful=0 dl_calls=40 dl_us=12465 dl_bytes=14828 dl_cache=8/32 dl_cache_mem=16/1080/1080 dl_evict=0/0 dl_clear=0/0 dl_skip=0 dl_fallback=0 dl_raw=238/238 verts=1464 fail=0 dl_template=3/7 draws=3 fallback=0 glyph_fast=0 setup=0 texload=0 glyph_raw=0 glyph_fallback=0 prebegin_us=411870 prebegin_run_clocks=0 prebegin_cpu_us=0 prebegin_offcpu_us=0 prebegin_cpu_permille=0 arm_mhz=0 tail_us=655 copydisp_us=848
+18854 [gx] gx_phase frame=357 prebegin_us=411870 tail_us=655 begins=439
+18855 [gx] gx_begin_hot frame=357 rank=0 lr=800c23c0 count=284 total=439 gap_us=4968731 max_gap_us=4320592
+18856 [gx] gx_begin_hot frame=357 rank=1 lr=800c4ca4 count=144 total=439 gap_us=71447 max_gap_us=11824
+18857 [gx] gx_begin_hot frame=357 rank=2 lr=8022dea4 count=4 total=439 gap_us=10874 max_gap_us=5440
+18858 [gx] gx_begin_hot frame=357 rank=3 lr=8022e230 count=4 total=439 gap_us=1894 max_gap_us=894
+18859 [gx] gx_begin_hot frame=357 rank=4 lr=8022dd34 count=2 total=439 gap_us=649 max_gap_us=507
+18860 [gx] gx_begin_hot frame=357 rank=5 lr=802155e0 count=1 total=439 gap_us=53903 max_gap_us=53903
+18861 [gx] gx_gap_hot frame=357 rank=0 lr=800c23c0 gap_us=4968731 max_gap_us=4320592 count=284
+18862 [gx] gx_gap_hot frame=357 rank=1 lr=800c4ca4 gap_us=71447 max_gap_us=11824 count=144
+18863 [gx] gx_gap_hot frame=357 rank=2 lr=802155e0 gap_us=53903 max_gap_us=53903 count=1
+18864 [gx] gx_gap_hot frame=357 rank=3 lr=8022dea4 gap_us=10874 max_gap_us=5440 count=4
+18865 [gx] gx_gap_hot frame=357 rank=4 lr=8022e230 gap_us=1894 max_gap_us=894 count=4
+18866 [gx] gx_gap_hot frame=357 rank=5 lr=8022dd34 gap_us=649 max_gap_us=507 count=2
+18867 [gx] render_present serial=554 target_hz=30 interval_us=5595647 swap_us=112
+18868 [vi] vi_perf present=720 pace_requested=0 pace=0 render_decouple=1 direct_decoupled=0 present30=0 retraces_elapsed=16 submit_us=43 pace_us=7 total_us=99 presented_xfb=1
+18869 [gx] gx_cpu_perf frame=360 lyt_calls=0 lyt_us=0 lyt_direct=0 lyt_packet=0 lyt_faithful=0 dl_calls=0 dl_us=0 dl_bytes=0 dl_cache=0/0 dl_cache_mem=16/1080/1080 dl_evict=0/0 dl_clear=0/0 dl_skip=0 dl_fallback=0 dl_raw=0/0 verts=0 fail=0 dl_template=0/0 draws=0 fallback=0 glyph_fast=0 setup=0 texload=0 glyph_raw=0 glyph_fallback=0 prebegin_us=40868 prebegin_run_clocks=0 prebegin_cpu_us=0 prebegin_offcpu_us=0 prebegin_cpu_permille=0 arm_mhz=0 tail_us=808 copydisp_us=142
+18870 [audio] vita_audioout stats real=565 silence=5067 underrun=5067 drop_oldest=0 high_water=2 queued=0
+18871 [gx] producer_frame=600 interval_us=27817 queue_wait_us=2 packet_copy_us=7 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=0/0/0 worker=599/25767/25686/1933 draws=1 vertices=4 efb_cmds=[ requested_draws=erial=c600perf frame=3601lyt begin_cap=0 affinity=USER_2 prep_us=16aw_cap=0_f dropped=s=5_calls=00d efb_calls=0 vertices=4 efb_recorded= texture_us=80 efb_cap_fail=0 textures=0 reuse=stroy=00 dl_fa0
+18872 c budget_skip=0 decode_fail=0 state_us=2 state_runs=1 failures=0
+18873 [gx] render_present serial=600 target_hz=30 interval_us=33313 swap_us=31156
+18874 [gx] perf_summary serial=600 draws=1 vertices=4 presented=1 physical=1 merged=0 raw_ok=0 raw_fail=0 dropped=0 transform_fail=0 render_us=31245 present_wait_us=0 swap_us=31156 prep=16/5/0/2/0/1/0 prep_tex=0/0/0/0 texprep=0/0 texcache=0/0/0/0/0 live=11944092/59 evict=0/0/0 invalidate=0 direct_upload_us=2 direct_upload=1/0/0 state_skip=0/0/0 tev_direct=0/0 tev_chain=0/0/0/0 tev_draw=0/0/0 efb=0/0 sampled=0 efb_us=0 ring_write=0
+18875 [dvd] brsar_prefetch_hit bytes=7044512 offset=9178144 guest=0x91AAC140 wait_us=14 copy_us=24682 stage=3
+18876 [hle] movie: open n=2 manager=0x80B1F550 result=1 buffer=0x80B1F660
+18877 [hle] movie: prepare n=2 memory=1836864 result=1 state=1
+18878 [gx] direct_3d_texture_rescue active=1 white=1 tex0=replace texture_fail=white cull=0 blend=0 alpha=always depth=0 z_neutral=1
+18879 [gx] direct_texture_rescue sample=1 serial=615 idx=4 tex_enabled=1 resolved=1 gl_texture=72 fmt=0xE size=256x128 texgen=1 uv=0.740,0.762..0.820,0.949 gl_error=0x0
+18880 [gx] direct_texture_rescue sample=2 serial=615 idx=158 tex_enabled=1 resolved=1 gl_texture=73 fmt=0xE size=32x128 texgen=1 uv=-0.011,0.029..1.986,0.437 gl_error=0x0
+18881 [gx] direct_texture_rescue sample=3 serial=615 idx=169 tex_enabled=1 resolved=1 gl_texture=72 fmt=0xE size=256x128 texgen=1 uv=0.740,0.762..0.820,0.949 gl_error=0x0
+18882 [gx] direct_texture_rescue sample=4 serial=615 idx=323 tex_enabled=1 resolved=1 gl_texture=73 fmt=0xE size=32x128 texgen=1 uv=-0.011,0.029..1.986,0.437 gl_error=0x0
+18883 [gx] direct_texture_rescue sample=5 serial=615 idx=334 tex_enabled=1 resolved=1 gl_texture=75 fmt=0x1 size=32x16 texgen=2 uv=0.000,0.000..0.000,0.000 gl_error=0x0
+18884 [gx] direct_texture_rescue sample=6 serial=615 idx=586 tex_enabled=1 resolved=1 gl_texture=75 fmt=0x1 size=32x16 texgen=2 uv=0.000,0.000..0.000,0.000 gl_error=0x0
+18885 [gx] direct_texture_rescue sample=7 serial=615 idx=588 tex_enabled=1 resolved=1 gl_texture=76 fmt=0x4 size=256x256 texgen=1 uv=0.091,0.017..0.500,0.500 gl_error=0x0
+18886 [gx] direct_texture_rescue sample=8 serial=615 idx=603 tex_enabled=1 resolved=1 gl_texture=77 fmt=0xE size=32x32 texgen=1 uv=0.010,0.010..0.501,0.714 gl_error=0x0
+18887 [gx] direct_texture_rescue sample=9 serial=615 idx=629 tex_enabled=1 resolved=1 gl_texture=78 fmt=0x1 size=32x16 texgen=2 uv=0.000,0.000..0.000,0.000 gl_error=0x0
+18888 [gx] direct_texture_rescue sample=10 serial=615 idx=786 tex_enabled=1 resolved=1 gl_texture=79 fmt=0x1 size=64x64 texgen=2 uv=0.000,0.000..0.000,0.000 gl_error=0x0
+18889 [gx] direct_texture_rescue sample=11 serial=615 idx=827 tex_enabled=1 resolved=1 gl_texture=75 fmt=0x1 size=32x16 texgen=2 uv=0.000,0.000..0.000,0.000 gl_error=0x0
+18890 [gx] direct_texture_rescue sample=12 serial=615 idx=1079 tex_enabled=1 resolved=1 gl_texture=75 fmt=0x1 size=32x16 texgen=2 uv=0.000,0.000..0.000,0.000 gl_error=0x0
+18891 [gx] direct_texture_rescue sample=13 serial=615 idx=1081 tex_enabled=1 resolved=1 gl_texture=76 fmt=0x4 size=256x256 texgen=1 uv=0.091,0.017..0.500,0.500 gl_error=0x0
+18892 [gx] direct_texture_rescue sample=14 serial=615 idx=1096 tex_enabled=1 resolved=1 gl_texture=77 fmt=0xE size=32x32 texgen=1 uv=0.010,0.010..0.501,0.714 gl_error=0x0
+18893 [gx] direct_texture_rescue sample=15 serial=615 idx=1122 tex_enabled=1 resolved=1 gl_texture=78 fmt=0x1 size=32x16 texgen=2 uv=0.000,0.000..0.000,0.000 gl_error=0x0
+18894 [gx] direct_texture_rescue sample=16 serial=615 idx=1279 tex_enabled=1 resolved=1 gl_texture=79 fmt=0x1 size=64x64 texgen=2 uv=0.000,0.000..0.000,0.000 gl_error=0x0
+18895 [gx] render_present serial=615 target_hz=30 interval_us=495559 swap_us=147
+18896 [gx] direct_texture_rescue sample=17 serial=616 idx=4 tex_enabled=1 resolved=1 gl_texture=72 fmt=0xE size=256x128 texgen=1 uv=0.740,0.762..0.820,0.949 gl_error=0x0
+18897 [gx] direct_texture_rescue sample=18 serial=616 idx=158 tex_enabled=1 resolved=1 gl_texture=73 fmt=0xE size=32x128 texgen=1 uv=-0.011,0.029..1.986,0.437 gl_error=0x0
+18898 [gx] direct_texture_rescue sample=19 serial=616 idx=169 tex_enabled=1 resolved=1 gl_texture=72 fmt=0xE size=256x128 texgen=1 uv=0.740,0.762..0.820,0.949 gl_error=0x0
+18899 [gx] direct_texture_rescue sample=20 serial=616 idx=323 tex_enabled=1 resolved=1 gl_texture=73 fmt=0xE size=32x128 texgen=1 uv=-0.011,0.029..1.986,0.437 gl_error=0x0
+18900 [gx] direct_texture_rescue sample=21 serial=616 idx=334 tex_enabled=1 resolved=1 gl_texture=81 fmt=0xE size=16x32 texgen=1 uv=-0.015,0.115..0.882,0.865 gl_error=0x0
+18901 [gx] direct_texture_rescue sample=22 serial=616 idx=397 tex_enabled=1 resolved=1 gl_texture=82 fmt=0x4 size=16x16 texgen=1 uv=0.375,0.604..0.625,0.646 gl_error=0x0
+18902 [gx] direct_texture_rescue sample=23 serial=616 idx=1378 tex_enabled=1 resolved=1 gl_texture=83 fmt=0xE size=32x64 texgen=1 uv=0.848,0.102..0.926,0.443 gl_error=0x0
+18903 [gx] direct_texture_rescue sample=24 serial=616 idx=1564 tex_enabled=1 resolved=1 gl_texture=84 fmt=0xE size=32x32 texgen=1 uv=0.000,0.071..2.000,1.307 gl_error=0x0
+18904 [gx] direct_texture_rescue sample=25 serial=616 idx=1565 tex_enabled=1 resolved=1 gl_texture=85 fmt=0xE size=32x32 texgen=1 uv=0.174,-0.629..1.825,0.602 gl_error=0x0
+18905 [gx] direct_texture_rescue sample=26 serial=616 idx=1585 tex_enabled=1 resolved=1 gl_texture=82 fmt=0x4 size=16x16 texgen=1 uv=0.375,0.650..0.475,0.750 gl_error=0x0
+18906 [gx] direct_texture_rescue sample=27 serial=616 idx=1708 tex_enabled=1 resolved=1 gl_texture=81 fmt=0xE size=16x32 texgen=1 uv=-0.015,0.115..0.882,0.865 gl_error=0x0
+18907 [gx] direct_texture_rescue sample=28 serial=616 idx=1771 tex_enabled=1 resolved=1 gl_texture=82 fmt=0x4 size=16x16 texgen=1 uv=0.375,0.604..0.625,0.646 gl_error=0x0
+18908 [gx] direct_texture_rescue sample=29 serial=616 idx=2752 tex_enabled=1 resolved=1 gl_texture=83 fmt=0xE size=32x64 texgen=1 uv=0.848,0.102..0.926,0.443 gl_error=0x0
+18909 [gx] direct_texture_rescue sample=30 serial=616 idx=2938 tex_enabled=1 resolved=1 gl_texture=84 fmt=0xE size=32x32 texgen=1 uv=0.000,0.071..2.000,1.307 gl_error=0x0
+18910 [gx] direct_texture_rescue sample=31 serial=616 idx=2939 tex_enabled=1 resolved=1 gl_texture=85 fmt=0xE size=32x32 texgen=1 uv=0.174,-0.629..1.825,0.602 gl_error=0x0
+18911 [gx] direct_texture_rescue sample=32 serial=616 idx=2959 tex_enabled=1 resolved=1 gl_texture=82 fmt=0x4 size=16x16 texgen=1 uv=0.375,0.650..0.475,0.750 gl_error=0x0
+18912 [gx] xf_indexed n=512 dst=0x0CC words=12 source=0x883110b0
+18913 [gx] render_present serial=616 target_hz=30 interval_us=385399 swap_us=148
+18914 [gx] render_present serial=617 target_hz=30 interval_us=192970 swap_us=117
+18915 [gx] render_present serial=618 target_hz=30 interval_us=335815 swap_us=160
+18916 [gx] render_present serial=619 target_hz=30 interval_us=243495 swap_us=185
+18917 [audio] vita_audioout stats real=659 silence=5485 underrun=5485 drop_oldest=0 high_water=2 queued=0
+18918 [gx] render_present serial=620 target_hz=30 interval_us=264005 swap_us=173
+18919 [gx] xf_indexed n=1024 dst=0x0C0 words=12 source=0x88311240
+18920 [gx] render_present serial=621 target_hz=30 interval_us=205299 swap_us=119
+18921 [gx] render_present serial=622 target_hz=30 interval_us=254373 swap_us=122
+18922 [gx] render_present serial=623 target_hz=30 interval_us=297290 swap_us=120
+18923 [gx] render_present serial=624 target_hz=30 interval_us=234780 swap_us=117
+18924 [gx] render_present serial=625 target_hz=30 interval_us=244300 swap_us=129
+18925 [gx] render_present serial=626 target_hz=30 interval_us=264916 swap_us=171
+18926 [gx] render_present serial=627 target_hz=30 interval_us=226018 swap_us=142
+18927 [gx] render_present serial=628 target_hz=30 interval_us=268515 swap_us=119
+18928 [gx] render_present serial=629 target_hz=30 interval_us=243235 swap_us=128
+18929 [gx] render_present serial=630 target_hz=30 interval_us=232838 swap_us=124
+18930 [gx] xf_indexed n=2048 dst=0x0A8 words=12 source=0x88310f00
+18931 [gx] render_present serial=631 target_hz=30 interval_us=233476 swap_us=134
+18932 [gx] render_present serial=632 target_hz=30 interval_us=233491 swap_us=127
+18933 [gx] render_present serial=633 target_hz=30 interval_us=253499 swap_us=122
+18934 [gx] render_present serial=634 target_hz=30 interval_us=232292 swap_us=119
+18935 [gx] render_present serial=635 target_hz=30 interval_us=264985 swap_us=174
+18936 [audio] vita_audioout stats real=686 silence=5970 underrun=5970 drop_oldest=0 high_water=2 queued=0
+18937 [gx] render_present serial=636 target_hz=30 interval_us=228677 swap_us=123
+18938 [gx] render_present serial=637 target_hz=30 interval_us=233078 swap_us=118
+18939 [gx] render_present serial=638 target_hz=30 interval_us=288677 swap_us=127
+18940 [gx] render_present serial=639 target_hz=30 interval_us=270413 swap_us=123
+18941 [gx] render_present serial=640 target_hz=30 interval_us=232376 swap_us=126
+18942 [gx] render_present serial=641 target_hz=30 interval_us=308793 swap_us=121
+18943 [gx] render_present serial=642 target_hz=30 interval_us=230142 swap_us=122
+18944 [gx] render_present serial=643 target_hz=30 interval_us=250001 swap_us=122
+18945 [gx] render_present serial=644 target_hz=30 interval_us=224342 swap_us=122
+18946 [gx] render_present serial=645 target_hz=30 interval_us=210569 swap_us=126
+18947 [gx] render_present serial=646 target_hz=30 interval_us=230114 swap_us=125
+18948 [gx] render_present serial=647 target_hz=30 interval_us=238254 swap_us=162
+18949 [gx] render_present serial=648 target_hz=30 interval_us=154219 swap_us=128
+18950 [gx] render_present serial=649 target_hz=30 interval_us=186428 swap_us=149
+18951 [gx] xf_indexed n=4096 dst=0x078 words=12 source=0x88312a60
+18952 [gx] render_present serial=650 target_hz=30 interval_us=187049 swap_us=122
+18953 [gx] render_present serial=651 target_hz=30 interval_us=229499 swap_us=155
+18954 [gx] render_present serial=652 target_hz=30 interval_us=185730 swap_us=172
+18955 [gx] render_present serial=653 target_hz=30 interval_us=185112 swap_us=125
+18956 [audio] vita_audioout stats real=717 silence=6451 underrun=6451 drop_oldest=0 high_water=2 queued=0
+18957 [gx] render_present serial=654 target_hz=30 interval_us=183678 swap_us=121
+18958 [gx] render_present serial=655 target_hz=30 interval_us=184344 swap_us=127
+18959 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+18960 [gx] render_present serial=656 target_hz=30 interval_us=224984 swap_us=182
+18961 [gx] render_present serial=657 target_hz=30 interval_us=153408 swap_us=129
+18962 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+18963 [gx] render_present serial=658 target_hz=30 interval_us=204182 swap_us=123
+18964 [gx] render_present serial=659 target_hz=30 interval_us=183572 swap_us=132
+18965 [gx] render_present serial=660 target_hz=30 interval_us=181492 swap_us=136
+18966 [gx] render_present serial=661 target_hz=30 interval_us=201651 swap_us=129
+18967 [gx] render_present serial=662 target_hz=30 interval_us=223880 swap_us=124
+18968 [gx] render_present serial=663 target_hz=30 interval_us=182882 swap_us=128
+18969 [gx] render_present serial=664 target_hz=30 interval_us=179891 swap_us=124
+18970 [gx] render_present serial=665 target_hz=30 interval_us=214298 swap_us=271
+18971 [gx] render_present serial=666 target_hz=30 interval_us=149851 swap_us=130
+18972 [gx] render_present serial=667 target_hz=30 interval_us=180894 swap_us=170
+18973 [gx] render_present serial=668 target_hz=30 interval_us=179992 swap_us=118
+18974 [gx] render_present serial=669 target_hz=30 interval_us=173984 swap_us=123
+18975 [gx] render_present serial=670 target_hz=30 interval_us=181336 swap_us=149
+18976 [gx] render_present serial=671 target_hz=30 interval_us=178787 swap_us=128
+18977 [gx] render_present serial=672 target_hz=30 interval_us=182898 swap_us=130
+18978 [audio] vita_audioout stats real=749 silence=6931 underrun=6931 drop_oldest=0 high_water=2 queued=0
+18979 [vi] vi_perf present=840 pace_requested=0 pace=0 render_decouple=1 direct_decoupled=0 present30=0 retraces_elapsed=13 submit_us=1490 pace_us=12 total_us=1510 presented_xfb=1
+18980 [gx] gx_cpu_perf frame=480 lyt_calls=76 lyt_us=6326 lyt_direct=0 lyt_packet=0 lyt_faithful=76 dl_calls=132 dl_us=14643 dl_bytes=58432 dl_cache=60/72 dl_cache_mem=63/27376/27376 dl_evict=0/0 dl_clear=0/0 dl_skip=0 dl_fallback=0 dl_raw=1300/1300 verts=9176 fail=0 dl_template=28/2 draws=992 fallback=0 glyph_fast=202 setup=45 texload=27 glyph_raw=202 glyph_fallback=0 prebegin_us=120803 prebegin_run_clocks=0 prebegin_cpu_us=0 prebegin_offcpu_us=0 prebegin_cpu_permille=0 arm_mhz=0 tail_us=3452 copydisp_us=1560
+18981 [gx] render_present serial=673 target_hz=30 interval_us=218353 swap_us=124
+18982 [gx] render_present serial=674 target_hz=30 interval_us=191094 swap_us=124
+18983 [gx] render_present serial=675 target_hz=30 interval_us=182292 swap_us=119
+18984 [hle] thp: turbojpeg_standard_fail n=128 jpeg=62620 span=786432 error=Unsupported marker type 0xaf
+18985 [gx] render_present serial=676 target_hz=30 interval_us=183099 swap_us=126
+18986 [hle] thp: restuffed_decode n=128 512x512 source=62620 candidate=1 packed=62853
+18987 [hle] thp: native decode n=128 512x512 subsamp=2 jpeg=62620 total_us=42427 jpeg_us=35150 tile_us=6196 avg_us=39430 max_us=118398
+18988 [gx] render_present serial=677 target_hz=30 interval_us=210543 swap_us=164
+18989 [hle] thp: async return n=128 result=0 worker_us=92498 fiber_wait_us=223527 overlap_us=131029
+18990 [gx] render_present serial=678 target_hz=30 interval_us=200244 swap_us=126
+18991 [gx] render_present serial=679 target_hz=30 interval_us=189731 swap_us=123
+18992 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+18993 [gx] render_present serial=680 target_hz=30 interval_us=180540 swap_us=131
+18994 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+18995 [gx] render_present serial=681 target_hz=30 interval_us=240192 swap_us=128
+18996 [gx] render_present serial=682 target_hz=30 interval_us=182447 swap_us=122
+18997 [gx] render_present serial=683 target_hz=30 interval_us=192936 swap_us=128
+18998 [gx] render_present serial=684 target_hz=30 interval_us=181824 swap_us=128
+18999 [gx] render_present serial=685 target_hz=30 interval_us=182760 swap_us=126
+19000 [gx] render_present serial=686 target_hz=30 interval_us=230566 swap_us=162
+19001 [gx] render_present serial=687 target_hz=30 interval_us=151677 swap_us=126
+19002 [gx] xf_indexed n=8192 dst=0x409 words=9 source=0x8831262c
+19003 [gx] render_present serial=688 target_hz=30 interval_us=183033 swap_us=124
+19004 [gx] render_present serial=689 target_hz=30 interval_us=191151 swap_us=145
+19005 [gx] render_present serial=690 target_hz=30 interval_us=182612 swap_us=137
+19006 [gx] render_present serial=691 target_hz=30 interval_us=185874 swap_us=123
+19007 [audio] vita_audioout stats real=781 silence=7411 underrun=7411 drop_oldest=0 high_water=2 queued=0
+19008 [gx] render_present serial=692 target_hz=30 interval_us=171006 swap_us=129
+19009 [gx] render_present serial=693 target_hz=30 interval_us=206279 swap_us=127
+19010 [gx] render_present serial=694 target_hz=30 interval_us=193535 swap_us=127
+19011 [gx] render_present serial=695 target_hz=30 interval_us=227987 swap_us=172
+19012 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19013 [gx] render_present serial=696 target_hz=30 interval_us=163082 swap_us=125
+19014 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19015 [gx] render_present serial=697 target_hz=30 interval_us=228525 swap_us=130
+19016 [gx] render_present serial=698 target_hz=30 interval_us=203075 swap_us=128
+19017 [gx] render_present serial=699 target_hz=30 interval_us=183284 swap_us=127
+19018 [gx] render_present serial=700 target_hz=30 interval_us=182762 swap_us=122
+19019 [gx] render_present serial=701 target_hz=30 interval_us=183585 swap_us=123
+19020 [gx] render_present serial=702 target_hz=30 interval_us=188011 swap_us=131
+19021 [gx] render_present serial=703 target_hz=30 interval_us=200202 swap_us=125
+19022 [gx] render_present serial=704 target_hz=30 interval_us=214772 swap_us=170
+19023 [gx] render_present serial=705 target_hz=30 interval_us=327122 swap_us=134
+19024 [gx] render_present serial=707 target_hz=30 interval_us=170419 swap_us=133
+19025 [gx] render_present serial=708 target_hz=30 interval_us=167919 swap_us=137
+19026 [audio] vita_audioout stats real=810 silence=7894 underrun=7894 drop_oldest=0 high_water=2 queued=1
+19027 [gx] render_present serial=709 target_hz=30 interval_us=167990 swap_us=142
+19028 [gx] render_present serial=710 target_hz=30 interval_us=167049 swap_us=140
+19029 [gx] render_present serial=711 target_hz=30 interval_us=167884 swap_us=153
+19030 [gx] render_present serial=712 target_hz=30 interval_us=166938 swap_us=143
+19031 [os] fiber_slice n=2048 from=0x90112660 to=0x80347498 from_entry=0x8024373C to_entry=0x00000000 elapsed_us=149067
+19032 [gx] render_present serial=713 target_hz=30 interval_us=167082 swap_us=142
+19033 [gx] render_present serial=714 target_hz=30 interval_us=167355 swap_us=192
+19034 [gx] render_present serial=715 target_hz=30 interval_us=166444 swap_us=152
+19035 [gx] render_present serial=716 target_hz=30 interval_us=166876 swap_us=153
+19036 [gx] render_present serial=717 target_hz=30 interval_us=166514 swap_us=150
+19037 [gx] render_present serial=718 target_hz=30 interval_us=166174 swap_us=144
+19038 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19039 [gx] render_present serial=719 target_hz=30 interval_us=167040 swap_us=145
+19040 [gx] producer_frame=720 interval_us=166143 queue_wait_us=3 packet_copy_us=1593 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=0/0/0 worker=719/22515/145/131082 draws=1548 vertices=10320 efb_cmds=12 requested_draws=1586 begin_cap=0 raw_cap=0 dropped=0 efb_calls=12 efb_recorded=12 efb_cap_fail=0 efb_destroy=0
+19041 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19042 [gx] direct_prep serial=720 affinity=USER_2 prep_us=10465 vertex_us=9526 vertices=10320 texture_us=0 textures=8 reuse=8 cap_skip=223 budget_skip=2 decode_fail=0 state_us=315 state_runs=1548 failures=225
+19043 [gx] render_present serial=720 target_hz=30 interval_us=166299 swap_us=143
+19044 [gx] perf_summary serial=720 draws=1548 vertices=10320 presented=1548 physical=1546 merged=2 raw_ok=1344 raw_fail=0 dropped=0 transform_fail=0 render_us=22586 present_wait_us=0 swap_us=143 prep=10465/9526/0/315/8/1548/225 prep_tex=8/223/2/0 texprep=0/0 texcache=242/0/0/0/0 live=12101592/68 evict=0/0/0 invalidate=6 direct_upload_us=1097 direct_upload=2/0/0 state_skip=2/1441/1280 tev_direct=3/30 tev_chain=0/234/0/0 tev_draw=115/1103/0 efb=2/10 sampled=2 efb_us=8263 ring_write=0
+19045 [gx] render_present serial=721 target_hz=30 interval_us=166971 swap_us=149
+19046 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19047 [gx] render_present serial=722 target_hz=30 interval_us=166437 swap_us=141
+19048 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19049 [gx] render_present serial=723 target_hz=30 interval_us=166504 swap_us=132
+19050 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19051 [gx] render_present serial=724 target_hz=30 interval_us=165631 swap_us=140
+19052 [gx] render_present serial=725 target_hz=30 interval_us=166924 swap_us=134
+19053 [audio] vita_audioout stats real=838 silence=8378 underrun=8378 drop_oldest=0 high_water=2 queued=0
+19054 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19055 [gx] render_present serial=726 target_hz=30 interval_us=165262 swap_us=140
+19056 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19057 [gx] render_present serial=727 target_hz=30 interval_us=166797 swap_us=133
+19058 [gx] rfl_shape_dl_burst n=512 bytes=50 total_bytes=14470 stride=2 src=0x909C063F
+19059 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19060 [gx] rfl_shape_dl_burst n=576 bytes=21 total_bytes=16126 stride=3 src=0x909C06D8
+19061 [gx] render_present serial=728 target_hz=30 interval_us=481436 swap_us=127
+19062 [gx] render_present serial=729 target_hz=30 interval_us=411514 swap_us=129
+19063 [gx] render_present serial=730 target_hz=30 interval_us=312704 swap_us=140
+19064 [gx] render_present serial=731 target_hz=30 interval_us=304920 swap_us=136
+19065 [gx] render_present serial=732 target_hz=30 interval_us=167363 swap_us=142
+19066 [gx] render_present serial=733 target_hz=30 interval_us=200972 swap_us=140
+19067 [gx] render_present serial=734 target_hz=30 interval_us=171862 swap_us=123
+19068 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19069 [gx] render_present serial=735 target_hz=30 interval_us=173496 swap_us=125
+19070 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19071 [gx] render_present serial=736 target_hz=30 interval_us=175272 swap_us=125
+19072 [gx] render_present serial=737 target_hz=30 interval_us=173794 swap_us=131
+19073 [audio] vita_audioout stats real=861 silence=8867 underrun=8867 drop_oldest=0 high_water=2 queued=1
+19074 [gx] render_present serial=738 target_hz=30 interval_us=173379 swap_us=120
+19075 [gx] render_present serial=739 target_hz=30 interval_us=171693 swap_us=122
+19076 [gx] render_present serial=740 target_hz=30 interval_us=171616 swap_us=126
+19077 [gx] render_present serial=741 target_hz=30 interval_us=173253 swap_us=122
+19078 [gx] render_present serial=742 target_hz=30 interval_us=174829 swap_us=120
+19079 [gx] render_present serial=743 target_hz=30 interval_us=177235 swap_us=119
+19080 [gx] render_present serial=744 target_hz=30 interval_us=175931 swap_us=134
+19081 [gx] render_present serial=745 target_hz=30 interval_us=178302 swap_us=125
+19082 [gx] render_present serial=746 target_hz=30 interval_us=176489 swap_us=124
+19083 [gx] render_present serial=747 target_hz=30 interval_us=175835 swap_us=122
+19084 [gx] render_present serial=748 target_hz=30 interval_us=175885 swap_us=122
+19085 [gx] render_present serial=749 target_hz=30 interval_us=175965 swap_us=118
+19086 [gx] render_present serial=750 target_hz=30 interval_us=176894 swap_us=122
+19087 [gx] render_present serial=751 target_hz=30 interval_us=179622 swap_us=121
+19088 [gx] render_present serial=752 target_hz=30 interval_us=178986 swap_us=131
+19089 [gx] render_present serial=753 target_hz=30 interval_us=179448 swap_us=123
+19090 [audio] vita_audioout stats real=887 silence=9353 underrun=9353 drop_oldest=0 high_water=2 queued=0
+19091 [gx] render_present serial=754 target_hz=30 interval_us=178990 swap_us=121
+19092 [gx] render_present serial=755 target_hz=30 interval_us=179932 swap_us=123
+19093 [gx] render_present serial=756 target_hz=30 interval_us=177122 swap_us=122
+19094 [gx] render_present serial=757 target_hz=30 interval_us=180499 swap_us=125
+19095 [gx] render_present serial=758 target_hz=30 interval_us=180634 swap_us=123
+19096 [gx] render_present serial=759 target_hz=30 interval_us=178301 swap_us=124
+19097 [gx] render_present serial=760 target_hz=30 interval_us=179580 swap_us=132
+19098 [gx] render_present serial=761 target_hz=30 interval_us=179563 swap_us=133
+19099 [gx] xf_indexed n=16384 dst=0x41B words=9 source=0x88312454
+19100 [gx] render_present serial=762 target_hz=30 interval_us=176540 swap_us=123
+19101 [gx] render_present serial=763 target_hz=30 interval_us=176516 swap_us=124
+19102 [gx] render_present serial=764 target_hz=30 interval_us=180103 swap_us=129
+19103 [gx] render_present serial=765 target_hz=30 interval_us=177670 swap_us=121
+19104 [gx] render_present serial=766 target_hz=30 interval_us=178010 swap_us=133
+19105 [gx] render_present serial=767 target_hz=30 interval_us=178761 swap_us=127
+19106 [gx] render_present serial=768 target_hz=30 interval_us=176398 swap_us=125
+19107 [audio] vita_audioout stats real=914 silence=9838 underrun=9838 drop_oldest=0 high_water=2 queued=0
+19108 [gx] render_present serial=769 target_hz=30 interval_us=179335 swap_us=127
+19109 [gx] render_present serial=770 target_hz=30 interval_us=178982 swap_us=123
+19110 [gx] render_present serial=771 target_hz=30 interval_us=180450 swap_us=125
+19111 [gx] render_present serial=772 target_hz=30 interval_us=177524 swap_us=122
+19112 [gx] render_present serial=773 target_hz=30 interval_us=178359 swap_us=134
+19113 [gx] render_present serial=774 target_hz=30 interval_us=179254 swap_us=121
+19114 [gx] render_present serial=775 target_hz=30 interval_us=178879 swap_us=125
+19115 [gx] render_present serial=776 target_hz=30 interval_us=179605 swap_us=118
+19116 [gx] render_present serial=777 target_hz=30 interval_us=178598 swap_us=125
+19117 [gx] render_present serial=778 target_hz=30 interval_us=179958 swap_us=122
+19118 [gx] render_present serial=779 target_hz=30 interval_us=177184 swap_us=122
+19119 [gx] render_present serial=780 target_hz=30 interval_us=176310 swap_us=124
+19120 [gx] render_present serial=781 target_hz=30 interval_us=177313 swap_us=128
+19121 [gx] render_present serial=782 target_hz=30 interval_us=175643 swap_us=130
+19122 [gx] render_present serial=783 target_hz=30 interval_us=179082 swap_us=134
+19123 [gx] render_present serial=784 target_hz=30 interval_us=176036 swap_us=122
+19124 [audio] vita_audioout stats real=939 silence=10325 underrun=10325 drop_oldest=0 high_water=2 queued=0
+19125 [audio] audio_backlog_clamp n=512 kept_blocks=3 dropped_total_us=31574569
+19126 [gx] render_present serial=785 target_hz=30 interval_us=177352 swap_us=120
+19127 [gx] render_present serial=786 target_hz=30 interval_us=177952 swap_us=122
+19128 [gx] render_present serial=787 target_hz=30 interval_us=176281 swap_us=126
+19129 [gx] render_present serial=788 target_hz=30 interval_us=176016 swap_us=126
+19130 [gx] render_present serial=789 target_hz=30 interval_us=176103 swap_us=121
+19131 [gx] render_present serial=790 target_hz=30 interval_us=175691 swap_us=122
+19132 [gx] render_present serial=791 target_hz=30 interval_us=177891 swap_us=123
+19133 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19134 [gx] render_present serial=792 target_hz=30 interval_us=176800 swap_us=153
+19135 [vi] vi_perf present=960 pace_requested=0 pace=0 render_decouple=1 direct_decoupled=0 present30=0 retraces_elapsed=11 submit_us=1662 pace_us=11 total_us=1681 presented_xfb=1
+19136 [gx] gx_cpu_perf frame=600 lyt_calls=217 lyt_us=17950 lyt_direct=0 lyt_packet=0 lyt_faithful=217 dl_calls=132 dl_us=15054 dl_bytes=58432 dl_cache=60/72 dl_cache_mem=119/57044/57044 dl_evict=0/0 dl_clear=0/0 dl_skip=0 dl_fallback=0 dl_raw=1300/1300 verts=9176 fail=0 dl_template=28/2 draws=992 fallback=0 glyph_fast=44 setup=15 texload=12 glyph_raw=44 glyph_fallback=0 prebegin_us=41081 prebegin_run_clocks=0 prebegin_cpu_us=0 prebegin_offcpu_us=0 prebegin_cpu_permille=0 arm_mhz=0 tail_us=3633 copydisp_us=1729
+19137 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19138 [gx] render_present serial=793 target_hz=30 interval_us=177153 swap_us=122
+19139 [gx] render_present serial=794 target_hz=30 interval_us=176722 swap_us=160
+19140 [gx] render_present serial=795 target_hz=30 interval_us=176560 swap_us=128
+19141 [gx] render_present serial=796 target_hz=30 interval_us=177364 swap_us=164
+19142 [gx] render_present serial=797 target_hz=30 interval_us=176207 swap_us=137
+19143 [gx] render_present serial=798 target_hz=30 interval_us=178532 swap_us=123
+19144 [gx] render_present serial=799 target_hz=30 interval_us=175919 swap_us=124
+19145 [gx] render_present serial=800 target_hz=30 interval_us=176271 swap_us=122
+19146 [audio] vita_audioout stats real=966 silence=10810 underrun=10810 drop_oldest=0 high_water=2 queued=0
+19147 [gx] render_present serial=801 target_hz=30 interval_us=175837 swap_us=120
+19148 [gx] render_present serial=802 target_hz=30 interval_us=176350 swap_us=192
+19149 [gx] render_present serial=803 target_hz=30 interval_us=177901 swap_us=125
+19150 [gx] render_present serial=804 target_hz=30 interval_us=176216 swap_us=120
+19151 [gx] render_present serial=805 target_hz=30 interval_us=176494 swap_us=123
+19152 [gx] render_present serial=806 target_hz=30 interval_us=177042 swap_us=123
+19153 [gx] render_present serial=807 target_hz=30 interval_us=175534 swap_us=123
+19154 [gx] render_present serial=808 target_hz=30 interval_us=177652 swap_us=124
+19155 [gx] render_present serial=810 target_hz=30 interval_us=178265 swap_us=137
+19156 [gx] render_present serial=810 target_hz=30 interval_us=178265 swap_us=137
+19157 [gx] render_present serial=811 target_hz=30 interval_us=175586 swap_us=124
+19158 [gx] render_present serial=812 target_hz=30 interval_us=176604 swap_us=126
+19159 [gx] render_present serial=813 target_hz=30 interval_us=177925 swap_us=124
+19160 [gx] render_present serial=814 target_hz=30 interval_us=175588 swap_us=174
+19161 [gx] render_present serial=815 target_hz=30 interval_us=177045 swap_us=125
+19162 [audio] vita_audioout stats real=992 silence=11296 underrun=11296 drop_oldest=0 high_water=2 queued=0
+19163 [gx] render_present serial=816 target_hz=30 interval_us=175007 swap_us=123
+19164 [gx] render_present serial=817 target_hz=30 interval_us=175917 swap_us=122
+19165 [gx] render_present serial=818 target_hz=30 interval_us=174921 swap_us=118
+19166 [gx] render_present serial=819 target_hz=30 interval_us=175936 swap_us=126
+19167 [gx] render_present serial=820 target_hz=30 interval_us=174977 swap_us=126
+19168 [gx] render_present serial=821 target_hz=30 interval_us=175728 swap_us=122
+19169 [gx] render_present serial=822 target_hz=30 interval_us=174733 swap_us=123
+19170 [gx] render_present serial=823 target_hz=30 interval_us=174554 swap_us=121
+19171 [gx] render_present serial=824 target_hz=30 interval_us=174919 swap_us=119
+19172 [gx] render_present serial=825 target_hz=30 interval_us=176404 swap_us=123
+19173 [gx] render_present serial=826 target_hz=30 interval_us=173883 swap_us=116
+19174 [gx] render_present serial=827 target_hz=30 interval_us=262543 swap_us=134
+19175 [gx] render_present serial=828 target_hz=30 interval_us=215021 swap_us=139
+19176 [gx] render_present serial=829 target_hz=30 interval_us=174507 swap_us=143
+19177 [gx] render_present serial=830 target_hz=30 interval_us=176425 swap_us=137
+19178 [gx] render_present serial=831 target_hz=30 interval_us=175441 swap_us=134
+19179 [audio] vita_audioout stats real=1019 silence=11781 underrun=11781 drop_oldest=0 high_water=2 queued=0
+19180 [gx] render_present serial=832 target_hz=30 interval_us=174917 swap_us=136
+19181 [gx] render_present serial=833 target_hz=30 interval_us=174454 swap_us=129
+19182 [gx] render_present serial=834 target_hz=30 interval_us=173822 swap_us=140
+19183 [gx] render_present serial=835 target_hz=30 interval_us=174530 swap_us=126
+19184 [gx] render_present serial=836 target_hz=30 interval_us=174017 swap_us=138
+19185 [gx] render_present serial=837 target_hz=30 interval_us=174707 swap_us=177
+19186 [gx] render_present serial=838 target_hz=30 interval_us=173817 swap_us=136
+19187 [gx] render_present serial=839 target_hz=30 interval_us=174373 swap_us=258
+19188 [gx] producer_frame=840 interval_us=174133 queue_wait_us=3 packet_copy_us=2073 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=0/0/0 worker=839/28612/258/127206 draws=2304 vertices=15188 efb_cmds=12 requested_draws=2449 begin_cap=0 raw_cap=0 dropped=0 efb_calls=12 efb_recorded=12 efb_cap_fail=0 efb_destroy=0
+19189 [gx] direct_prep serial=840 affinity=USER_2 prep_us=15364 vertex_us=14344 vertices=15188 texture_us=0 textures=8 reuse=8 cap_skip=160 budget_skip=0 decode_fail=0 state_us=394 state_runs=2304 failures=160
+19190 [gx] render_present serial=840 target_hz=30 interval_us=174055 swap_us=139
+19191 [gx] perf_summary serial=840 draws=2304 vertices=15188 presented=2304 physical=2302 merged=2 raw_ok=2226 raw_fail=0 dropped=0 transform_fail=0 render_us=28825 present_wait_us=0 swap_us=139 prep=15364/14344/0/394/8/2304/160 prep_tex=8/160/0/0 texprep=0/0 texcache=178/0/0/0/0 live=12513368/101 evict=0/0/0 invalidate=6 direct_upload_us=1512 direct_upload=2/0/0 state_skip=2/2231/2086 tev_direct=3/32 tev_chain=0/177/0/0 tev_draw=117/1843/0 efb=2/10 sampled=32 efb_us=10232 ring_write=0
+19192 [gx] render_present serial=841 target_hz=30 interval_us=173799 swap_us=135
+19193 [gx] render_present serial=842 target_hz=30 interval_us=175155 swap_us=152
+19194 [gx] render_present serial=843 target_hz=30 interval_us=173550 swap_us=137
+19195 [gx] render_present serial=844 target_hz=30 interval_us=174845 swap_us=128
+19196 [gx] render_present serial=845 target_hz=30 interval_us=173283 swap_us=143
+19197 [gx] render_present serial=846 target_hz=30 interval_us=172335 swap_us=130
+19198 [gx] render_present serial=847 target_hz=30 interval_us=193756 swap_us=137
+19199 [audio] vita_audioout stats real=1046 silence=12266 underrun=12266 drop_oldest=0 high_water=2 queued=0
+19200 [gx] render_present serial=848 target_hz=30 interval_us=180710 swap_us=135
+19201 [gx] render_present serial=849 target_hz=30 interval_us=172093 swap_us=134
+19202 [gx] render_present serial=850 target_hz=30 interval_us=175527 swap_us=131
+19203 [gx] render_present serial=851 target_hz=30 interval_us=173167 swap_us=133
+19204 [gx] render_present serial=852 target_hz=30 interval_us=175509 swap_us=175
+19205 [gx] render_present serial=853 target_hz=30 interval_us=200584 swap_us=151
+19206 [gx] render_present serial=854 target_hz=30 interval_us=183345 swap_us=132
+19207 [gx] render_present serial=855 target_hz=30 interval_us=177433 swap_us=127
+19208 [gx] render_present serial=856 target_hz=30 interval_us=180500 swap_us=139
+19209 [gx] render_present serial=857 target_hz=30 interval_us=178511 swap_us=137
+19210 [gx] render_present serial=858 target_hz=30 interval_us=178895 swap_us=140
+19211 [gx] render_present serial=859 target_hz=30 interval_us=178591 swap_us=136
+19212 [gx] render_present serial=860 target_hz=30 interval_us=180201 swap_us=131
+19213 [gx] render_present serial=861 target_hz=30 interval_us=192180 swap_us=149
+19214 [gx] render_present serial=862 target_hz=30 interval_us=179654 swap_us=136
+19215 [gx] render_present serial=863 target_hz=30 interval_us=174784 swap_us=130
+19216 [audio] vita_audioout stats real=1073 silence=12751 underrun=12751 drop_oldest=0 high_water=2 queued=0
+19217 [gx] render_present serial=864 target_hz=30 interval_us=175472 swap_us=119
+19218 [gx] render_present serial=865 target_hz=30 interval_us=176768 swap_us=130
+19219 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19220 [gx] render_present serial=866 target_hz=30 interval_us=177392 swap_us=136
+19221 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19222 [gx] render_present serial=867 target_hz=30 interval_us=180430 swap_us=124
+19223 [gx] render_present serial=868 target_hz=30 interval_us=177569 swap_us=163
+19224 [gx] render_present serial=869 target_hz=30 interval_us=176565 swap_us=134
+19225 [gx] render_present serial=870 target_hz=30 interval_us=176537 swap_us=132
+19226 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19227 [gx] render_present serial=871 target_hz=30 interval_us=177452 swap_us=119
+19228 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19229 [gx] render_present serial=872 target_hz=30 interval_us=178040 swap_us=120
+19230 [gx] render_present serial=873 target_hz=30 interval_us=176953 swap_us=121
+19231 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19232 [gx] render_present serial=874 target_hz=30 interval_us=179325 swap_us=122
+19233 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19234 [gx] render_present serial=875 target_hz=30 interval_us=176907 swap_us=117
+19235 [gx] render_present serial=876 target_hz=30 interval_us=177879 swap_us=128
+19236 [gx] render_present serial=877 target_hz=30 interval_us=177728 swap_us=120
+19237 [gx] render_present serial=878 target_hz=30 interval_us=177934 swap_us=132
+19238 [gx] render_present serial=879 target_hz=30 interval_us=177008 swap_us=162
+19239 [audio] vita_audioout stats real=1100 silence=13236 underrun=13236 drop_oldest=0 high_water=2 queued=0
+19240 [gx] render_present serial=880 target_hz=30 interval_us=177037 swap_us=153
+19241 [gx] render_present serial=881 target_hz=30 interval_us=175098 swap_us=126
+19242 [gx] render_present serial=882 target_hz=30 interval_us=176834 swap_us=155
+19243 [gx] render_present serial=883 target_hz=30 interval_us=176699 swap_us=123
+19244 [gx] render_present serial=884 target_hz=30 interval_us=178974 swap_us=126
+19245 [gx] render_present serial=885 target_hz=30 interval_us=178362 swap_us=117
+19246 [gx] render_present serial=886 target_hz=30 interval_us=174784 swap_us=117
+19247 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19248 [gx] render_present serial=887 target_hz=30 interval_us=178125 swap_us=120
+19249 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19250 [gx] render_present serial=888 target_hz=30 interval_us=177079 swap_us=120
+19251 [gx] render_present serial=889 target_hz=30 interval_us=178034 swap_us=122
+19252 [gx] render_present serial=890 target_hz=30 interval_us=178493 swap_us=131
+19253 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19254 [gx] render_present serial=891 target_hz=30 interval_us=179755 swap_us=128
+19255 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19256 [gx] render_present serial=892 target_hz=30 interval_us=178810 swap_us=120
+19257 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19258 [gx] render_present serial=893 target_hz=30 interval_us=181028 swap_us=120
+19259 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19260 [gx] render_present serial=894 target_hz=30 interval_us=180030 swap_us=163
+19261 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19262 [gx] render_present serial=895 target_hz=30 interval_us=179983 swap_us=119
+19263 [audio] vita_audioout stats real=1127 silence=13721 underrun=13721 drop_oldest=0 high_water=2 queued=0
+19264 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19265 [gx] render_present serial=896 target_hz=30 interval_us=177626 swap_us=127
+19266 [gx] render_present serial=897 target_hz=30 interval_us=179345 swap_us=118
+19267 [gx] render_present serial=898 target_hz=30 interval_us=180993 swap_us=124
+19268 [gx] render_present serial=899 target_hz=30 interval_us=179533 swap_us=122
+19269 [gx] render_present serial=900 target_hz=30 interval_us=178995 swap_us=130
+19270 [gx] render_present serial=901 target_hz=30 interval_us=178206 swap_us=120
+19271 [gx] render_present serial=902 target_hz=30 interval_us=179949 swap_us=120
+19272 [gx] render_present serial=903 target_hz=30 interval_us=178396 swap_us=119
+19273 [gx] render_present serial=904 target_hz=30 interval_us=177837 swap_us=125
+19274 [gx] render_present serial=905 target_hz=30 interval_us=178511 swap_us=121
+19275 [gx] render_present serial=906 target_hz=30 interval_us=179589 swap_us=122
+19276 [gx] render_present serial=907 target_hz=30 interval_us=177227 swap_us=118
+19277 [gx] render_present serial=908 target_hz=30 interval_us=179416 swap_us=125
+19278 [gx] render_present serial=909 target_hz=30 interval_us=180935 swap_us=165
+19279 [gx] render_present serial=910 target_hz=30 interval_us=179870 swap_us=120
+19280 [gx] render_present serial=911 target_hz=30 interval_us=180541 swap_us=133
+19281 [audio] vita_audioout stats real=1154 silence=14206 underrun=14206 drop_oldest=0 high_water=2 queued=0
+19282 [gx] render_present serial=912 target_hz=30 interval_us=179617 swap_us=118
+19283 [vi] vi_perf present=1080 pace_requested=0 pace=0 render_decouple=1 direct_decoupled=0 present30=0 retraces_elapsed=11 submit_us=2228 pace_us=16 total_us=2253 presented_xfb=1
+19284 [gx] gx_cpu_perf frame=720 lyt_calls=198 lyt_us=15034 lyt_direct=0 lyt_packet=0 lyt_faithful=198 dl_calls=184 dl_us=22532 dl_bytes=87808 dl_cache=80/104 dl_cache_mem=130/58964/58964 dl_evict=0/0 dl_clear=0/0 dl_skip=0 dl_fallback=0 dl_raw=1908/1908 verts=13360 fail=0 dl_template=38/2 draws=1600 fallback=0 glyph_fast=100 setup=29 texload=19 glyph_raw=100 glyph_fallback=0 prebegin_us=49386 prebegin_run_clocks=0 prebegin_cpu_us=0 prebegin_offcpu_us=0 prebegin_cpu_permille=0 arm_mhz=0 tail_us=3659 copydisp_us=2307
+19285 [gx] render_present serial=913 target_hz=30 interval_us=179999 swap_us=118
+19286 [gx] xf_indexed n=32768 dst=0x054 words=12 source=0x88312150
+19287 [gx] render_present serial=914 target_hz=30 interval_us=180581 swap_us=124
+19288 [hle] movie: open n=3 manager=0x80B1F550 result=1 buffer=0x80B1F660
+19289 [gx] render_present serial=915 target_hz=30 interval_us=180696 swap_us=162
+19290 [hle] movie: prepare n=3 memory=837440 result=1 state=1
+19291 [gx] render_present serial=916 target_hz=30 interval_us=265164 swap_us=139
+19292 [gx] render_present serial=917 target_hz=30 interval_us=137759 swap_us=148
+19293 [gx] render_present serial=918 target_hz=30 interval_us=152086 swap_us=115
+19294 [gx] render_present serial=919 target_hz=30 interval_us=169687 swap_us=117
+19295 [gx] render_present serial=920 target_hz=30 interval_us=179853 swap_us=161
+19296 [gx] render_present serial=921 target_hz=30 interval_us=165946 swap_us=144
+19297 [gx] render_present serial=922 target_hz=30 interval_us=163484 swap_us=137
+19298 [gx] render_present serial=923 target_hz=30 interval_us=171362 swap_us=116
+19299 [gx] render_present serial=924 target_hz=30 interval_us=172424 swap_us=133
+19300 [gx] render_present serial=925 target_hz=30 interval_us=161348 swap_us=120
+19301 [gx] render_present serial=926 target_hz=30 interval_us=176875 swap_us=116
+19302 [gx] render_present serial=927 target_hz=30 interval_us=186841 swap_us=138
+19303 [gx] render_present serial=928 target_hz=30 interval_us=150397 swap_us=121
+19304 [gx] render_present serial=929 target_hz=30 interval_us=165482 swap_us=125
+19305 [audio] vita_audioout stats real=1184 silence=14688 underrun=14688 drop_oldest=0 high_water=2 queued=0
+19306 [gx] render_present serial=930 target_hz=30 interval_us=160060 swap_us=126
+19307 [gx] render_present serial=931 target_hz=30 interval_us=165963 swap_us=115
+19308 [gx] render_present serial=932 target_hz=30 interval_us=183127 swap_us=114
+19309 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19310 [gx] render_present serial=933 target_hz=30 interval_us=167481 swap_us=115
+19311 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19312 [gx] render_present serial=934 target_hz=30 interval_us=172770 swap_us=133
+19313 [gx] render_present serial=935 target_hz=30 interval_us=161984 swap_us=126
+19314 [hle] input Vita state core=0800 classic=0010 stick=(0.00,0.16)
+19315 [gx] render_present serial=936 target_hz=30 interval_us=176958 swap_us=139
+19316 [gx] render_present serial=937 target_hz=30 interval_us=184108 swap_us=124
+19317 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19318 [gx] render_present serial=938 target_hz=30 interval_us=161598 swap_us=123
+19319 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19320 [gx] render_present serial=939 target_hz=30 interval_us=164473 swap_us=118
+19321 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19322 [gx] render_present serial=940 target_hz=30 interval_us=172348 swap_us=126
+19323 [gx] render_present serial=941 target_hz=30 interval_us=166788 swap_us=117
+19324 [gx] render_present serial=942 target_hz=30 interval_us=177286 swap_us=131
+19325 [gx] render_present serial=943 target_hz=30 interval_us=165670 swap_us=138
+19326 [gx] render_present serial=944 target_hz=30 interval_us=168364 swap_us=123
+19327 [gx] render_present serial=945 target_hz=30 interval_us=172444 swap_us=128
+19328 [gx] render_present serial=946 target_hz=30 interval_us=167362 swap_us=124
+19329 [gx] render_present serial=947 target_hz=30 interval_us=161232 swap_us=119
+19330 [gx] render_present serial=948 target_hz=30 interval_us=178445 swap_us=149
+19331 [audio] vita_audioout stats real=1216 silence=15168 underrun=15168 drop_oldest=0 high_water=2 queued=0
+19332 [gx] render_present serial=949 target_hz=30 interval_us=156296 swap_us=122
+19333 [gx] render_present serial=950 target_hz=30 interval_us=164359 swap_us=123
+19334 [gx] render_present serial=951 target_hz=30 interval_us=171472 swap_us=118
+19335 [gx] render_present serial=952 target_hz=30 interval_us=167974 swap_us=125
+19336 [gx] render_present serial=953 target_hz=30 interval_us=166603 swap_us=125
+19337 [gx] render_present serial=954 target_hz=30 interval_us=165741 swap_us=117
+19338 [gx] render_present serial=955 target_hz=30 interval_us=174417 swap_us=123
+19339 [gx] render_present serial=956 target_hz=30 interval_us=160391 swap_us=117
+19340 [gx] render_present serial=957 target_hz=30 interval_us=180800 swap_us=139
+19341 [gx] render_present serial=958 target_hz=30 interval_us=169415 swap_us=125
+19342 [gx] render_present serial=959 target_hz=30 interval_us=170342 swap_us=119
+19343 [gx] producer_frame=960 interval_us=168215 queue_wait_us=2 packet_copy_us=1837 prior_wait_calls=2 prior_wait_us=4 wait_sleep_us=4 wait_gx=2/4 wait_worker=0/0 wait_service=0/0/0 worker=959/26242/119/125475 draws=2006 vertices=14252 efb_cmds=12 requested_draws=2131 begin_cap=0 raw_cap=0 dropped=0 efb_calls=12 efb_recorded=12 efb_cap_fail=0 efb_destroy=0
+19344 [gx] direct_prep serial=960 affinity=USER_2 prep_us=14096 vertex_us=13122 vertices=14252 texture_us=0 textures=8 reuse=8 cap_skip=72 budget_skip=0 decode_fail=0 state_us=323 state_runs=2006 failures=72
+19345 [gx] render_present serial=960 target_hz=30 interval_us=166877 swap_us=116
+19346 [gx] perf_summary serial=960 draws=2006 vertices=14252 presented=2006 physical=1998 merged=8 raw_ok=2048 raw_fail=0 dropped=0 transform_fail=0 render_us=25001 present_wait_us=0 swap_us=116 prep=14096/13122/0/323/8/2006/72 prep_tex=8/72/0/0 texprep=0/0 texcache=92/0/0/0/0 live=12226556/111 evict=0/0/0 invalidate=8 direct_upload_us=1606 direct_upload=2/0/0 state_skip=8/1945/1882 tev_direct=3/9 tev_chain=0/126/0/0 tev_draw=94/1576/0 efb=2/10 sampled=2 efb_us=9276 ring_write=0
+19347 [gx] render_present serial=961 target_hz=30 interval_us=170031 swap_us=125
+19348 [gx] render_present serial=962 target_hz=30 interval_us=167332 swap_us=119
+19349 [gx] render_present serial=963 target_hz=30 interval_us=162929 swap_us=124
+19350 [gx] render_present serial=964 target_hz=30 interval_us=166931 swap_us=124
+19351 [gx] render_present serial=965 target_hz=30 interval_us=169630 swap_us=120
+19352 [gx] render_present serial=966 target_hz=30 interval_us=181382 swap_us=149
+19353 [gx] render_present serial=967 target_hz=30 interval_us=158551 swap_us=127
+19354 [gx] render_present serial=968 target_hz=30 interval_us=166436 swap_us=189
+19355 [audio] vita_audioout stats real=1250 silence=15646 underrun=15646 drop_oldest=0 high_water=2 queued=0
+19356 [gx] render_present serial=969 target_hz=30 interval_us=159263 swap_us=119
+19357 [gx] render_present serial=970 target_hz=30 interval_us=192939 swap_us=121
+19358 [gx] render_present serial=971 target_hz=30 interval_us=166387 swap_us=141
+19359 [gx] render_present serial=972 target_hz=30 interval_us=158356 swap_us=124
+19360 [gx] render_present serial=973 target_hz=30 interval_us=166574 swap_us=118
+19361 [gx] render_present serial=974 target_hz=30 interval_us=159598 swap_us=115
+19362 [gx] render_present serial=975 target_hz=30 interval_us=172725 swap_us=122
+19363 [gx] render_present serial=976 target_hz=30 interval_us=161682 swap_us=124
+19364 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19365 [gx] render_present serial=977 target_hz=30 interval_us=167956 swap_us=125
+19366 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19367 [gx] render_present serial=978 target_hz=30 interval_us=173171 swap_us=165
+19368 [gx] render_present serial=979 target_hz=30 interval_us=157153 swap_us=118
+19369 [gx] render_present serial=980 target_hz=30 interval_us=166423 swap_us=126
+19370 [hle] movie: open n=4 manager=0x80B1F550 result=1 buffer=0x80B1F660
+19371 [gx] render_present serial=981 target_hz=30 interval_us=365744 swap_us=142
+19372 [hle] movie: prepare n=4 memory=3107840 result=1 state=1
+19373 [gx] render_present serial=982 target_hz=30 interval_us=426847 swap_us=157
+19374 [gx] render_present serial=983 target_hz=30 interval_us=434486 swap_us=170
+19375 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19376 [gx] render_present serial=984 target_hz=30 interval_us=332140 swap_us=135
+19377 [audio] vita_audioout stats real=1277 silence=16131 underrun=16131 drop_oldest=0 high_water=2 queued=0
+19378 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19379 [gx] render_present serial=985 target_hz=30 interval_us=436924 swap_us=172
+19380 [gx] render_present serial=986 target_hz=30 interval_us=307098 swap_us=173
+19381 [gx] render_present serial=987 target_hz=30 interval_us=239428 swap_us=140
+19382 [gx] render_present serial=988 target_hz=30 interval_us=335777 swap_us=127
+19383 [gx] render_present serial=989 target_hz=30 interval_us=280927 swap_us=131
+19384 [gx] render_present serial=990 target_hz=30 interval_us=263653 swap_us=138
+19385 [gx] render_present serial=991 target_hz=30 interval_us=270486 swap_us=124
+19386 [gx] render_present serial=992 target_hz=30 interval_us=324213 swap_us=134
+19387 [gx] render_present serial=993 target_hz=30 interval_us=347171 swap_us=198
+19388 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19389 [gx] render_present serial=994 target_hz=30 interval_us=243260 swap_us=123
+19390 [gx] render_present serial=995 target_hz=30 interval_us=326660 swap_us=127
+19391 [gx] render_present serial=996 target_hz=30 interval_us=411204 swap_us=141
+19392 [gx] render_present serial=997 target_hz=30 interval_us=344344 swap_us=124
+19393 [gx] render_present serial=998 target_hz=30 interval_us=353024 swap_us=127
+19394 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19395 [audio] vita_audioout stats real=1301 silence=16619 underrun=16619 drop_oldest=0 high_water=2 queued=0
+19396 [gx] render_present serial=999 target_hz=30 interval_us=282402 swap_us=126
+19397 [gx] render_present serial=1000 target_hz=30 interval_us=284204 swap_us=121
+19398 [gx] render_present serial=1001 target_hz=30 interval_us=387278 swap_us=129
+19399 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19400 [gx] render_present serial=1002 target_hz=30 interval_us=390325 swap_us=176
+19401 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19402 [gx] render_present serial=1003 target_hz=30 interval_us=279419 swap_us=119
+19403 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19404 [gx] render_present serial=1004 target_hz=30 interval_us=315747 swap_us=133
+19405 [hle] input Vita state core=0000 classic=0000 stick=(-0.34,-1.00)
+19406 [gx] render_present serial=1005 target_hz=30 interval_us=245980 swap_us=129
+19407 [gx] render_present serial=1006 target_hz=30 interval_us=283101 swap_us=141
+19408 [gx] render_present serial=1007 target_hz=30 interval_us=222835 swap_us=119
+19409 [gx] render_present serial=1008 target_hz=30 interval_us=265593 swap_us=157
+19410 [gx] render_present serial=1009 target_hz=30 interval_us=219450 swap_us=154
+19411 [gx] render_present serial=1010 target_hz=30 interval_us=264244 swap_us=180
+19412 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19413 [gx] render_present serial=1011 target_hz=30 interval_us=212317 swap_us=122
+19414 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19415 [gx] render_present serial=1012 target_hz=30 interval_us=233621 swap_us=119
+19416 [audio] vita_audioout stats real=1324 silence=17108 underrun=17108 drop_oldest=0 high_water=2 queued=0
+19417 [gx] render_present serial=1013 target_hz=30 interval_us=255803 swap_us=123
+19418 [gx] render_present serial=1014 target_hz=30 interval_us=252897 swap_us=119
+19419 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19420 [gx] render_present serial=1015 target_hz=30 interval_us=232685 swap_us=119
+19421 [gx] render_present serial=1016 target_hz=30 interval_us=267560 swap_us=164
+19422 [hle] thp: turbojpeg_standard_fail n=256 jpeg=2727 span=786432 error=Unsupported marker type 0x52
+19423 [gx] render_present serial=1017 target_hz=30 interval_us=211159 swap_us=123
+19424 [hle] thp: restuffed_decode n=256 400x576 source=42003 candidate=3 packed=42170
+19425 [hle] thp: native decode n=256 400x576 subsamp=2 jpeg=42003 total_us=58966 jpeg_us=53306 tile_us=5528 avg_us=45529 max_us=220421
+19426 [gx] render_present serial=1018 target_hz=30 interval_us=259497 swap_us=128
+19427 [gx] render_present serial=1019 target_hz=30 interval_us=240545 swap_us=121
+19428 [gx] render_present serial=1020 target_hz=30 interval_us=259390 swap_us=130
+19429 [gx] render_present serial=1021 target_hz=30 interval_us=248735 swap_us=123
+19430 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19431 [hle] thp: async return n=256 result=0 worker_us=34138 fiber_wait_us=232363 overlap_us=198225
+19432 [gx] render_present serial=1022 target_hz=30 interval_us=241507 swap_us=121
+19433 [gx] render_present serial=1023 target_hz=30 interval_us=236975 swap_us=126
+19434 [gx] render_present serial=1024 target_hz=30 interval_us=250408 swap_us=126
+19435 [gx] render_present serial=1025 target_hz=30 interval_us=280053 swap_us=137
+19436 [gx] render_present serial=1026 target_hz=30 interval_us=210546 swap_us=121
+19437 [audio] vita_audioout stats real=1348 silence=17596 underrun=17596 drop_oldest=0 high_water=2 queued=0
+19438 [gx] render_present serial=1027 target_hz=30 interval_us=245551 swap_us=119
+19439 [gx] render_present serial=1028 target_hz=30 interval_us=245409 swap_us=124
+19440 [gx] render_present serial=1029 target_hz=30 interval_us=253040 swap_us=121
+19441 [gx] render_present serial=1030 target_hz=30 interval_us=244986 swap_us=148
+19442 [gx] render_present serial=1031 target_hz=30 interval_us=251376 swap_us=119
+19443 [gx] render_present serial=1032 target_hz=30 interval_us=246678 swap_us=134
+19444 [vi] vi_perf present=1200 pace_requested=0 pace=0 render_decouple=1 direct_decoupled=0 present30=0 retraces_elapsed=15 submit_us=2560 pace_us=12 total_us=2580 presented_xfb=1
+19445 [gx] gx_cpu_perf frame=840 lyt_calls=169 lyt_us=14282 lyt_direct=0 lyt_packet=0 lyt_faithful=169 dl_calls=184 dl_us=22941 dl_bytes=87808 dl_cache=80/104 dl_cache_mem=130/58964/58964 dl_evict=0/0 dl_clear=0/0 dl_skip=0 dl_fallback=0 dl_raw=1908/1908 verts=13360 fail=0 dl_template=38/2 draws=1600 fallback=0 glyph_fast=428 setup=77 texload=43 glyph_raw=428 glyph_fallback=0 prebegin_us=93339 prebegin_run_clocks=0 prebegin_cpu_us=0 prebegin_offcpu_us=0 prebegin_cpu_permille=0 arm_mhz=0 tail_us=3712 copydisp_us=2635
+19446 [gx] render_present serial=1033 target_hz=30 interval_us=244899 swap_us=118
+19447 [gx] render_present serial=1034 target_hz=30 interval_us=242766 swap_us=120
+19448 [gx] render_present serial=1035 target_hz=30 interval_us=274007 swap_us=121
+19449 [gx] render_present serial=1036 target_hz=30 interval_us=247957 swap_us=121
+19450 [gx] render_present serial=1037 target_hz=30 interval_us=267868 swap_us=163
+19451 [gx] render_present serial=1038 target_hz=30 interval_us=219326 swap_us=120
+19452 [gx] render_present serial=1039 target_hz=30 interval_us=246783 swap_us=124
+19453 [audio] vita_audioout stats real=1370 silence=18086 underrun=18086 drop_oldest=0 high_water=2 queued=0
+19454 [gx] render_present serial=1040 target_hz=30 interval_us=241992 swap_us=117
+19455 [gx] render_present serial=1041 target_hz=30 interval_us=246525 swap_us=122
+19456 [gx] render_present serial=1042 target_hz=30 interval_us=242097 swap_us=121
+19457 [gx] render_present serial=1043 target_hz=30 interval_us=265407 swap_us=121
+19458 [gx] render_present serial=1044 target_hz=30 interval_us=247181 swap_us=783
+19459 [gx] render_present serial=1045 target_hz=30 interval_us=242911 swap_us=118
+19460 [gx] render_present serial=1046 target_hz=30 interval_us=278333 swap_us=149
+19461 [gx] render_present serial=1047 target_hz=30 interval_us=237629 swap_us=121
+19462 [gx] render_present serial=1048 target_hz=30 interval_us=265198 swap_us=120
+19463 [gx] render_present serial=1049 target_hz=30 interval_us=286571 swap_us=147
+19464 [gx] render_present serial=1050 target_hz=30 interval_us=296936 swap_us=121
+19465 [gx] render_present serial=1051 target_hz=30 interval_us=245133 swap_us=121
+19466 [gx] render_present serial=1052 target_hz=30 interval_us=250170 swap_us=117
+19467 [gx] render_present serial=1053 target_hz=30 interval_us=244883 swap_us=125
+19468 [audio] vita_audioout stats real=1393 silence=18575 underrun=18575 drop_oldest=0 high_water=2 queued=0
+19469 [gx] render_present serial=1054 target_hz=30 interval_us=265845 swap_us=121
+19470 [gx] render_present serial=1055 target_hz=30 interval_us=280249 swap_us=157
+19471 [gx] render_present serial=1056 target_hz=30 interval_us=219661 swap_us=123
+19472 [gx] render_present serial=1057 target_hz=30 interval_us=248011 swap_us=155
+19473 [gx] render_present serial=1058 target_hz=30 interval_us=245091 swap_us=120
+19474 [gx] render_present serial=1059 target_hz=30 interval_us=259074 swap_us=121
+19475 [gx] render_present serial=1060 target_hz=30 interval_us=265508 swap_us=119
+19476 [gx] render_present serial=1061 target_hz=30 interval_us=262796 swap_us=123
+19477 [gx] render_present serial=1062 target_hz=30 interval_us=240590 swap_us=121
+19478 [gx] render_present serial=1063 target_hz=30 interval_us=248329 swap_us=120
+19479 [gx] render_present serial=1064 target_hz=30 interval_us=248825 swap_us=120
+19480 [gx] render_present serial=1065 target_hz=30 interval_us=242864 swap_us=120
+19481 [gx] render_present serial=1066 target_hz=30 interval_us=248534 swap_us=117
+19482 [audio] vita_audioout stats real=1415 silence=19065 underrun=19065 drop_oldest=0 high_water=2 queued=0
+19483 [gx] render_present serial=1067 target_hz=30 interval_us=276142 swap_us=165
+19484 [gx] render_present serial=1068 target_hz=30 interval_us=226460 swap_us=122
+19485 [gx] render_present serial=1069 target_hz=30 interval_us=258826 swap_us=120
+19486 [gx] render_present serial=1070 target_hz=30 interval_us=243596 swap_us=123
+19487 [gx] render_present serial=1071 target_hz=30 interval_us=248453 swap_us=119
+19488 [gx] render_present serial=1072 target_hz=30 interval_us=247229 swap_us=123
+19489 [gx] render_present serial=1073 target_hz=30 interval_us=240541 swap_us=127
+19490 [gx] render_present serial=1074 target_hz=30 interval_us=117407 swap_us=127
+19491 [gx] rfl_shape_dl_burst n=640 bytes=27 total_bytes=17919 stride=3 src=0x909C06B1
+19492 [gx] rfl_shape_dl_burst n=704 bytes=8 total_bytes=19092 stride=2 src=0x909C0A9B
+19493 [gx] render_present serial=1075 target_hz=30 interval_us=349466 swap_us=147
+19494 [gx] render_present serial=1077 target_hz=30 interval_us=161971 swap_us=119
+19495 [gx] render_present serial=1078 target_hz=30 interval_us=160886 swap_us=119
+19496 [gx] render_present serial=1079 target_hz=30 interval_us=160086 swap_us=126
+19497 [gx] producer_frame=1080 interval_us=160652 queue_wait_us=2 packet_copy_us=1988 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=0/0/0 worker=1079/25337/126/118050 draws=2037 vertices=14932 efb_cmds=12 requested_draws=2301 begin_cap=0 raw_cap=0 dropped=0 efb_calls=12 efb_recorded=12 efb_cap_fail=0 efb_destroy=0
+19498 [gx] direct_prep serial=1080 affinity=USER_2 prep_us=14745 vertex_us=13907 vertices=14932 texture_us=0 textures=8 reuse=8 cap_skip=104 budget_skip=0 decode_fail=0 state_us=311 state_runs=2037 failures=104
+19499 [gx] render_present serial=1080 target_hz=30 interval_us=161690 swap_us=121
+19500 [gx] perf_summary serial=1080 draws=2037 vertices=14932 presented=2037 physical=2030 merged=7 raw_ok=2187 raw_fail=0 dropped=0 transform_fail=0 render_us=26344 present_wait_us=0 swap_us=121 prep=14745/13907/0/311/8/2037/104 prep_tex=8/104/0/0 texprep=0/0 texcache=124/0/0/0/0 live=12163504/58 evict=0/0/0 invalidate=6 direct_upload_us=1553 direct_upload=2/0/0 state_skip=7/1959/1882 tev_direct=3/14 tev_chain=0/160/0/0 tev_draw=99/1603/0 efb=2/10 sampled=2 efb_us=10115 ring_write=0
+19501 [gx] render_present serial=1081 target_hz=30 interval_us=160820 swap_us=118
+19502 [gx] render_present serial=1082 target_hz=30 interval_us=159571 swap_us=123
+19503 [audio] vita_audioout stats real=1442 silence=19550 underrun=19550 drop_oldest=0 high_water=2 queued=0
+19504 [gx] render_present serial=1083 target_hz=30 interval_us=162293 swap_us=131
+19505 [gx] render_present serial=1084 target_hz=30 interval_us=159584 swap_us=126
+19506 [gx] render_present serial=1085 target_hz=30 interval_us=159846 swap_us=122
+19507 [gx] render_present serial=1086 target_hz=30 interval_us=160941 swap_us=119
+19508 [gx] render_present serial=1087 target_hz=30 interval_us=158744 swap_us=123
+19509 [gx] render_present serial=1088 target_hz=30 interval_us=160833 swap_us=120
+19510 [gx] render_present serial=1089 target_hz=30 interval_us=159713 swap_us=120
+19511 [gx] render_present serial=1090 target_hz=30 interval_us=159172 swap_us=118
+19512 [gx] render_present serial=1091 target_hz=30 interval_us=159520 swap_us=147
+19513 [gx] render_present serial=1092 target_hz=30 interval_us=159096 swap_us=121
+19514 [gx] render_present serial=1093 target_hz=30 interval_us=160387 swap_us=124
+19515 [gx] render_present serial=1094 target_hz=30 interval_us=160886 swap_us=163
+19516 [gx] render_present serial=1095 target_hz=30 interval_us=161998 swap_us=117
+19517 [gx] render_present serial=1096 target_hz=30 interval_us=160002 swap_us=129
+19518 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19519 [gx] render_present serial=1097 target_hz=30 interval_us=159664 swap_us=126
+19520 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19521 [gx] render_present serial=1098 target_hz=30 interval_us=162412 swap_us=119
+19522 [gx] render_present serial=1099 target_hz=30 interval_us=438731 swap_us=158
+19523 [audio] vita_audioout stats real=1485 silence=20019 underrun=20019 drop_oldest=0 high_water=2 queued=0
+19524 [gx] render_present serial=1101 target_hz=30 interval_us=191263 swap_us=155
+19525 [gx] render_present serial=1102 target_hz=30 interval_us=173030 swap_us=128
+19526 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19527 [gx] render_present serial=1103 target_hz=30 interval_us=172623 swap_us=122
+19528 [gx] render_present serial=1104 target_hz=30 interval_us=174065 swap_us=120
+19529 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19530 [gx] render_present serial=1105 target_hz=30 interval_us=172149 swap_us=120
+19531 [gx] render_present serial=1106 target_hz=30 interval_us=172580 swap_us=119
+19532 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19533 [os] fiber_slice n=4096 from=0x802ECEB0 to=0x902216C8 from_entry=0x800A49C0 to_entry=0x80176B44 elapsed_us=154286
+19534 [gx] render_present serial=1107 target_hz=30 interval_us=172276 swap_us=122
+19535 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19536 [gx] render_present serial=1108 target_hz=30 interval_us=172738 swap_us=121
+19537 [gx] render_present serial=1109 target_hz=30 interval_us=169226 swap_us=118
+19538 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19539 [gx] render_present serial=1110 target_hz=30 interval_us=172011 swap_us=142
+19540 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19541 [gx] render_present serial=1111 target_hz=30 interval_us=170578 swap_us=121
+19542 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19543 [gx] render_present serial=1112 target_hz=30 interval_us=172396 swap_us=120
+19544 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19545 [gx] render_present serial=1113 target_hz=30 interval_us=169898 swap_us=130
+19546 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19547 [gx] render_present serial=1114 target_hz=30 interval_us=172896 swap_us=124
+19548 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19549 [gx] render_present serial=1115 target_hz=30 interval_us=173604 swap_us=117
+19550 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19551 [gx] render_present serial=1116 target_hz=30 interval_us=173177 swap_us=121
+19552 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19553 [audio] vita_audioout stats real=1513 silence=20503 underrun=20503 drop_oldest=0 high_water=2 queued=1
+19554 [gx] render_present serial=1117 target_hz=30 interval_us=172710 swap_us=120
+19555 [gx] render_present serial=1118 target_hz=30 interval_us=172905 swap_us=120
+19556 [gx] render_present serial=1119 target_hz=30 interval_us=174738 swap_us=126
+19557 [gx] render_present serial=1120 target_hz=30 interval_us=175733 swap_us=120
+19558 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19559 [gx] render_present serial=1121 target_hz=30 interval_us=176080 swap_us=117
+19560 [gx] render_present serial=1122 target_hz=30 interval_us=176946 swap_us=123
+19561 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19562 [gx] render_present serial=1123 target_hz=30 interval_us=177870 swap_us=121
+19563 [gx] render_present serial=1124 target_hz=30 interval_us=177905 swap_us=124
+19564 [gx] render_present serial=1125 target_hz=30 interval_us=176485 swap_us=128
+19565 [gx] render_present serial=1126 target_hz=30 interval_us=176809 swap_us=119
+19566 [gx] render_present serial=1127 target_hz=30 interval_us=176740 swap_us=122
+19567 [gx] render_present serial=1128 target_hz=30 interval_us=178690 swap_us=127
+19568 [gx] render_present serial=1129 target_hz=30 interval_us=177482 swap_us=122
+19569 [gx] render_present serial=1130 target_hz=30 interval_us=178601 swap_us=123
+19570 [gx] render_present serial=1131 target_hz=30 interval_us=177870 swap_us=166
+19571 [gx] render_present serial=1132 target_hz=30 interval_us=176770 swap_us=122
+19572 [gx] render_present serial=1133 target_hz=30 interval_us=176440 swap_us=121
+19573 [audio] vita_audioout stats real=1542 silence=20986 underrun=20986 drop_oldest=0 high_water=2 queued=0
+19574 [gx] render_present serial=1134 target_hz=30 interval_us=175623 swap_us=129
+19575 [gx] render_present serial=1135 target_hz=30 interval_us=177263 swap_us=122
+19576 [gx] render_present serial=1136 target_hz=30 interval_us=177745 swap_us=120
+19577 [gx] render_present serial=1137 target_hz=30 interval_us=177548 swap_us=120
+19578 [gx] render_present serial=1138 target_hz=30 interval_us=177980 swap_us=129
+19579 [gx] render_present serial=1139 target_hz=30 interval_us=179587 swap_us=133
+19580 [gx] render_present serial=1140 target_hz=30 interval_us=180082 swap_us=123
+19581 [gx] render_present serial=1141 target_hz=30 interval_us=179975 swap_us=121
+19582 [gx] render_present serial=1142 target_hz=30 interval_us=177687 swap_us=125
+19583 [gx] render_present serial=1143 target_hz=30 interval_us=179521 swap_us=121
+19584 [gx] render_present serial=1144 target_hz=30 interval_us=177996 swap_us=125
+19585 [gx] render_present serial=1145 target_hz=30 interval_us=179307 swap_us=150
+19586 [gx] render_present serial=1146 target_hz=30 interval_us=179690 swap_us=128
+19587 [gx] render_present serial=1147 target_hz=30 interval_us=181406 swap_us=122
+19588 [gx] render_present serial=1148 target_hz=30 interval_us=182695 swap_us=161
+19589 [gx] render_present serial=1149 target_hz=30 interval_us=178712 swap_us=127
+19590 [audio] vita_audioout stats real=1569 silence=21471 underrun=21471 drop_oldest=0 high_water=2 queued=1
+19591 [gx] render_present serial=1150 target_hz=30 interval_us=183179 swap_us=125
+19592 [gx] render_present serial=1151 target_hz=30 interval_us=181311 swap_us=118
+19593 [gx] render_present serial=1152 target_hz=30 interval_us=181712 swap_us=125
+19594 [vi] vi_perf present=1320 pace_requested=0 pace=0 render_decouple=1 direct_decoupled=0 present30=0 retraces_elapsed=11 submit_us=1975 pace_us=11 total_us=1994 presented_xfb=1
+19595 [gx] gx_cpu_perf frame=960 lyt_calls=108 lyt_us=9417 lyt_direct=0 lyt_packet=0 lyt_faithful=108 dl_calls=184 dl_us=22608 dl_bytes=87808 dl_cache=80/104 dl_cache_mem=130/58964/58964 dl_evict=0/0 dl_clear=0/0 dl_skip=0 dl_fallback=0 dl_raw=1908/1908 verts=13360 fail=0 dl_template=38/2 draws=1600 fallback=0 glyph_fast=311 setup=64 texload=41 glyph_raw=311 glyph_fallback=0 prebegin_us=59934 prebegin_run_clocks=0 prebegin_cpu_us=0 prebegin_offcpu_us=0 prebegin_cpu_permille=0 arm_mhz=0 tail_us=3795 copydisp_us=2046
+19596 [gx] render_present serial=1153 target_hz=30 interval_us=181892 swap_us=133
+19597 [gx] render_present serial=1154 target_hz=30 interval_us=180261 swap_us=127
+19598 [gx] render_present serial=1155 target_hz=30 interval_us=181057 swap_us=129
+19599 [gx] render_present serial=1156 target_hz=30 interval_us=182490 swap_us=120
+19600 [gx] render_present serial=1157 target_hz=30 interval_us=180101 swap_us=125
+19601 [gx] render_present serial=1158 target_hz=30 interval_us=179463 swap_us=128
+19602 [gx] render_present serial=1159 target_hz=30 interval_us=178442 swap_us=122
+19603 [gx] render_present serial=1160 target_hz=30 interval_us=180486 swap_us=129
+19604 [gx] render_present serial=1161 target_hz=30 interval_us=180367 swap_us=123
+19605 [gx] render_present serial=1162 target_hz=30 interval_us=179284 swap_us=116
+19606 [gx] render_present serial=1163 target_hz=30 interval_us=180520 swap_us=144
+19607 [gx] render_present serial=1164 target_hz=30 interval_us=180194 swap_us=124
+19608 [gx] render_present serial=1165 target_hz=30 interval_us=181625 swap_us=134
+19609 [gx] render_present serial=1166 target_hz=30 interval_us=181651 swap_us=121
+19610 [audio] vita_audioout stats real=1598 silence=21954 underrun=21954 drop_oldest=0 high_water=2 queued=0
+19611 [gx] render_present serial=1167 target_hz=30 interval_us=179839 swap_us=128
+19612 [gx] render_present serial=1168 target_hz=30 interval_us=180654 swap_us=118
+19613 [gx] render_present serial=1169 target_hz=30 interval_us=183140 swap_us=136
+19614 [gx] render_present serial=1170 target_hz=30 interval_us=183400 swap_us=119
+19615 [gx] render_present serial=1171 target_hz=30 interval_us=182765 swap_us=123
+19616 [gx] render_present serial=1172 target_hz=30 interval_us=183735 swap_us=120
+19617 [gx] render_present serial=1173 target_hz=30 interval_us=181479 swap_us=126
+19618 [gx] render_present serial=1174 target_hz=30 interval_us=181081 swap_us=129
+19619 [gx] render_present serial=1175 target_hz=30 interval_us=180539 swap_us=127
+19620 [gx] render_present serial=1176 target_hz=30 interval_us=182138 swap_us=123
+19621 [gx] render_present serial=1177 target_hz=30 interval_us=182263 swap_us=121
+19622 [gx] render_present serial=1178 target_hz=30 interval_us=182162 swap_us=122
+19623 [gx] render_present serial=1179 target_hz=30 interval_us=180886 swap_us=129
+19624 [gx] render_present serial=1180 target_hz=30 interval_us=183545 swap_us=124
+19625 [gx] render_present serial=1181 target_hz=30 interval_us=182076 swap_us=124
+19626 [gx] render_present serial=1182 target_hz=30 interval_us=183221 swap_us=122
+19627 [audio] vita_audioout stats real=1625 silence=22439 underrun=22439 drop_oldest=0 high_water=2 queued=0
+19628 [gx] render_present serial=1183 target_hz=30 interval_us=184425 swap_us=122
+19629 [gx] render_present serial=1184 target_hz=30 interval_us=183179 swap_us=126
+19630 [gx] render_present serial=1185 target_hz=30 interval_us=169175 swap_us=117
+19631 [os] guest_watchdog_stall serial=1185 stalled_us=1050212 interval_us=169541 current_guest=0x80347498 os_current=0x80347498 os_running=0x80347498 thread_state=2 priority=16 pending=0x02000000 idle=0 pc=0x800060A4 srr0=0x00000000 lr=0x8021A058 fiber_entry=0x00000000 task_thread=0x90329B08 task_job=0x90339ED8 task_cb=0x80544A5C task_arg=0x00000000 movie_manager=0x80B1F550 movie_state=0x00000001 movie_result=0x00000001 rfl_manager=0x909999BC rfl_working=0
+19632 [os] guest_watchdog_live os_running=0x90339BA0 run_state=2 run_prio=20 run_wait_q=0x00000000 os_current=0x90339BA0 cur_state=2 pending=0x00000000
+19633 [os] guest_live switch_seq=6159 switching=0 from=0x80347498 to=0x90339BA0 from_entry=0x00000000 to_entry=0x8024373C slice_age_us=1033137 last_return_age_us=1033128
+19634 [os] guest_live sched_select_total=19183 sched_idle_total=2268 vi_poll_total=2268 last_scheduler_age_us=1033195 last_idle_age_us=1207297 last_vi_poll_age_us=1185511 idle_audio_pending_total=1012 idle_vi_after_audio_total=1012 idle_break_after_service_total=1119
+19635 [os] vi_stall retrace_count=9147 last_retrace_age_us=1064609 next_retrace_due_us=-1047943 in_advance=0 pre_cb=0x00000000 post_cb=0x8020FCD4 sSystem=0x802A4080 poll_total=2268 due_total=9147 deferred=32969/0/6162 advance_enter=9147 advance_reentry=0 advance_complete=9147 pre_cb_total=0 post_cb_total=9145 post_cb_no_system=0 post_cb_zero=2 retrace_wake_total=9147 last_post_cb=0x8020FCD4 last_post_cb_us=1789080380352063 last_retrace_count=9147 last_advance_complete_us=1789080380352088
+19636 [nand] RKSYS: close via=NANDClose mode=2 reads=0/0 writes=1/163840 nonzero=183 hash=60F3EFB867BCBA4A first=0x90339F20@0 shadow=1
+19637 [audio] vita_audioout stats real=1628 silence=22948 underrun=22948 drop_oldest=0 high_water=2 queued=0
+19638 [os] guest_watchdog_stall serial=1185 stalled_us=2662925 interval_us=169541 current_guest=0x80347498 os_current=0x80347498 os_running=0x80347498 thread_state=2 priority=16 pending=0x02000000 idle=0 pc=0x800060A4 srr0=0x00000000 lr=0x8021A058 fiber_entry=0x00000000 task_thread=0x90329B08 task_job=0x00000000 task_cb=0x00000000 task_arg=0x00000000 movie_manager=0x80B1F550 movie_state=0x00000001 movie_result=0x00000001 rfl_manager=0x909999BC rfl_working=0
+19639 [os] guest_watchdog_live os_running=0x802ECEB0 run_state=2 run_prio=4 run_wait_q=0x00000000 os_current=0x802ECEB0 cur_state=2 pending=0x0A008000
+19640 [os] guest_live switch_seq=6160 switching=0 from=0x90339BA0 to=0x802ECEB0 from_entry=0x8024373C to_entry=0x800A49C0 slice_age_us=16430 last_return_age_us=16419
+19641 [os] guest_live sched_select_total=19187 sched_idle_total=2269 vi_poll_total=2269 last_scheduler_age_us=16527 last_idle_age_us=36884 last_vi_poll_age_us=17039 idle_audio_pending_total=1013 idle_vi_after_audio_total=1013 idle_break_after_service_total=1120
+19642 [os] vi_stall retrace_count=9155 last_retrace_age_us=2543988 next_retrace_due_us=-2527322 in_advance=0 pre_cb=0x00000000 post_cb=0x8020FCD4 sSystem=0x802A4080 poll_total=2269 due_total=9155 deferred=32969/0/6162 advance_enter=9155 advance_reentry=0 advance_complete=9155 pre_cb_total=0 post_cb_total=9153 post_cb_no_system=0 post_cb_zero=2 retrace_wake_total=9155 last_post_cb=0x8020FCD4 last_post_cb_us=1789080383008336 last_retrace_count=9155 last_advance_complete_us=1789080383008358
+19643 [gx] producer_frame=1186 interval_us=2786371 queue_wait_us=3 packet_copy_us=1868 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=0/0/0 worker=1185/26717/117/2742578 draws=2038 vertices=14936 efb_cmds=12 requested_draws=2302 begin_cap=0 raw_cap=0 dropped=0 efb_calls=12 efb_recorded=12 efb_cap_fail=0 efb_destroy=0
+19644 [gx] gx_cpu_perf frame=993 lyt_calls=89 lyt_us=11266 lyt_direct=0 lyt_packet=0 lyt_faithful=89 dl_calls=184 dl_us=22639 dl_bytes=87808 dl_cache=80/104 dl_cache_mem=130/58964/58964 dl_evict=0/0 dl_clear=0/0 dl_skip=0 dl_fallback=0 dl_raw=1908/1908 verts=13360 fail=0 dl_template=38/2 draws=1600 fallback=0 glyph_fast=279 setup=45 texload=27 glyph_raw=279 glyph_fallback=0 prebegin_us=2668965 prebegin_run_clocks=0 prebegin_cpu_us=0 prebegin_offcpu_us=0 prebegin_cpu_permille=0 arm_mhz=0 tail_us=319 copydisp_us=2006
+19645 [gx] gx_phase frame=993 prebegin_us=2668965 tail_us=319 begins=394
+19646 [gx] gx_begin_hot frame=993 rank=0 lr=805cf604 count=279 total=394 gap_us=9320 max_gap_us=487
+19647 [gx] gx_begin_hot frame=993 rank=1 lr=8007b294 count=89 total=394 gap_us=41190 max_gap_us=4481
+19648 [gx] gx_begin_hot frame=993 rank=2 lr=8022dea4 count=10 total=394 gap_us=53022 max_gap_us=14049
+19649 [gx] gx_begin_hot frame=993 rank=3 lr=8022e230 count=10 total=394 gap_us=5797 max_gap_us=867
+19650 [gx] gx_begin_hot frame=993 rank=4 lr=8022dd34 count=5 total=394 gap_us=2201 max_gap_us=644
+19651 [gx] gx_begin_hot frame=993 rank=5 lr=802155e0 count=1 total=394 gap_us=3650 max_gap_us=3650
+19652 [gx] gx_gap_hot frame=993 rank=0 lr=8022dea4 gap_us=53022 max_gap_us=14049 count=10
+19653 [gx] gx_gap_hot frame=993 rank=1 lr=8007b294 gap_us=41190 max_gap_us=4481 count=89
+19654 [gx] gx_gap_hot frame=993 rank=2 lr=805cf604 gap_us=9320 max_gap_us=487 count=279
+19655 [gx] gx_gap_hot frame=993 rank=3 lr=8022e230 gap_us=5797 max_gap_us=867 count=10
+19656 [gx] gx_gap_hot frame=993 rank=4 lr=802155e0 gap_us=3650 max_gap_us=3650 count=1
+19657 [gx] gx_gap_hot frame=993 rank=5 lr=8022dd34 gap_us=2201 max_gap_us=644 count=5
+19658 [gx] render_present serial=1186 target_hz=30 interval_us=2786198 swap_us=125
+19659 [gx] render_present serial=1187 target_hz=30 interval_us=168288 swap_us=121
+19660 [gx] render_present serial=1188 target_hz=30 interval_us=168156 swap_us=125
+19661 [gx] render_present serial=1189 target_hz=30 interval_us=167111 swap_us=128
+19662 [gx] render_present serial=1190 target_hz=30 interval_us=167254 swap_us=129
+19663 [gx] render_present serial=1191 target_hz=30 interval_us=167558 swap_us=126
+19664 [gx] render_present serial=1192 target_hz=30 interval_us=168913 swap_us=124
+19665 [gx] render_present serial=1193 target_hz=30 interval_us=170128 swap_us=132
+19666 [gx] render_present serial=1194 target_hz=30 interval_us=168259 swap_us=125
+19667 [gx] render_present serial=1195 target_hz=30 interval_us=168689 swap_us=126
+19668 [gx] render_present serial=1196 target_hz=30 interval_us=168121 swap_us=125
+19669 [gx] render_present serial=1197 target_hz=30 interval_us=168173 swap_us=126
+19670 [gx] render_present serial=1198 target_hz=30 interval_us=168773 swap_us=127
+19671 [gx] render_present serial=1199 target_hz=30 interval_us=168252 swap_us=121
+19672 [gx] producer_frame=1200 interval_us=168543 queue_wait_us=3 packet_copy_us=2018 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=0/0/0 worker=1199/26606/121/124963 draws=2038 vertices=14936 efb_cmds=12 requested_draws=2302 begin_cap=0 raw_cap=0 dropped=0 efb_calls=12 efb_recorded=12 efb_cap_fail=0 efb_destroy=0
+19673 [gx] direct_prep serial=1200 affinity=USER_2 prep_us=14296 vertex_us=13487 vertices=14936 texture_us=0 textures=8 reuse=8 cap_skip=104 budget_skip=0 decode_fail=0 state_us=311 state_runs=2038 failures=104
+19674 [gx] render_present serial=1200 target_hz=30 interval_us=168271 swap_us=124
+19675 [gx] perf_summary serial=1200 draws=2038 vertices=14936 presented=2038 physical=2031 merged=7 raw_ok=2187 raw_fail=0 dropped=0 transform_fail=0 render_us=26484 present_wait_us=0 swap_us=124 prep=14296/13487/0/311/8/2038/104 prep_tex=8/104/0/0 texprep=0/0 texcache=124/0/0/0/0 live=11813696/62 evict=0/0/0 invalidate=6 direct_upload_us=1595 direct_upload=2/0/0 state_skip=7/1959/1882 tev_direct=3/14 tev_chain=0/160/0/0 tev_draw=99/1603/0 efb=2/10 sampled=2 efb_us=9997 ring_write=0
+19676 [audio] vita_audioout stats real=1655 silence=23433 underrun=23433 drop_oldest=0 high_water=2 queued=0
+19677 [gx] render_present serial=1201 target_hz=30 interval_us=125091 swap_us=127
+19678 [gx] render_present serial=1202 target_hz=30 interval_us=128300 swap_us=131
+19679 [gx] render_present serial=1203 target_hz=30 interval_us=127671 swap_us=129
+19680 [gx] render_present serial=1204 target_hz=30 interval_us=120297 swap_us=113
+19681 [gx] render_present serial=1205 target_hz=30 interval_us=121782 swap_us=131
+19682 [gx] render_present serial=1206 target_hz=30 interval_us=118855 swap_us=121
+19683 [os] guest_watchdog_stall serial=1206 stalled_us=1048922 interval_us=118302 current_guest=0x80347498 os_current=0x80347498 os_running=0x80347498 thread_state=2 priority=16 pending=0x02000000 idle=0 pc=0x800060A4 srr0=0x00000000 lr=0x8021A058 fiber_entry=0x00000000 task_thread=0x90329B08 task_job=0x90339ED8 task_cb=0x80544A5C task_arg=0x00000000 movie_manager=0x80B1F550 movie_state=0x00000001 movie_result=0x00000001 rfl_manager=0x909999BC rfl_working=0
+19684 [os] guest_watchdog_live os_running=0x90339BA0 run_state=2 run_prio=20 run_wait_q=0x00000000 os_current=0x90339BA0 cur_state=2 pending=0x00000000
+19685 [os] guest_live switch_seq=6266 switching=0 from=0x80347498 to=0x90339BA0 from_entry=0x00000000 to_entry=0x8024373C slice_age_us=637826 last_return_age_us=637819
+19686 [os] guest_live sched_select_total=19601 sched_idle_total=2289 vi_poll_total=2289 last_scheduler_age_us=637870 last_idle_age_us=1159559 last_vi_poll_age_us=1136755 idle_audio_pending_total=1033 idle_vi_after_audio_total=1033 idle_break_after_service_total=1140
+19687 [os] vi_stall retrace_count=9501 last_retrace_age_us=1051425 next_retrace_due_us=-1034759 in_advance=0 pre_cb=0x00000000 post_cb=0x8020FCD4 sSystem=0x802A4080 poll_total=2289 due_total=9501 deferred=33597/0/6465 advance_enter=9501 advance_reentry=0 advance_complete=9501 pre_cb_total=0 post_cb_total=9499 post_cb_no_system=0 post_cb_zero=2 retrace_wake_total=9501 last_post_cb=0x8020FCD4 last_post_cb_us=1789080386248149 last_retrace_count=9501 last_advance_complete_us=1789080386248176
+19688 [audio] vita_audioout stats real=1663 silence=23937 underrun=23937 drop_oldest=0 high_water=2 queued=0
+19689 [nand] RKSYS: close via=NANDClose mode=2 reads=0/0 writes=1/163840 nonzero=183 hash=60F3EFB867BCBA4A first=0x90339F20@0 shadow=1
+19690 [OSReport] ------------------- 1 Scene Exit -------------------
+19691 [os] guest_watchdog_stall serial=1206 stalled_us=2660447 interval_us=118302 current_guest=0x80347498 os_current=0x80347498 os_running=0x80347498 thread_state=2 priority=16 pending=0x02000000 idle=0 pc=0x800060A4 srr0=0x00000000 lr=0x8021A058 fiber_entry=0x00000000 task_thread=0x90329B08 task_job=0x00000000 task_cb=0x00000000 task_arg=0x00000000 movie_manager=0x80B1F550 movie_state=0x00000001 movie_result=0x00000001 rfl_manager=0x909999BC rfl_working=0
+19692 [os] guest_watchdog_live os_running=0x80347498 run_state=2 run_prio=16 run_wait_q=0x00000000 os_current=0x80347498 cur_state=2 pending=0x00000000
+19693 [os] guest_live switch_seq=6270 switching=0 from=0x90112660 to=0x80347498 from_entry=0x8024373C to_entry=0x00000000 slice_age_us=11553 last_return_age_us=11547
+19694 [os] guest_live sched_select_total=19608 sched_idle_total=2290 vi_poll_total=2290 last_scheduler_age_us=11592 last_idle_age_us=42835 last_vi_poll_age_us=24854 idle_audio_pending_total=1034 idle_vi_after_audio_total=1034 idle_break_after_service_total=1141
+19695 [os] vi_stall retrace_count=9509 last_retrace_age_us=2529618 next_retrace_due_us=-2512952 in_advance=0 pre_cb=0x00000000 post_cb=0x8020FCD4 sSystem=0x802A4080 poll_total=2290 due_total=9509 deferred=33597/0/6465 advance_enter=9509 advance_reentry=0 advance_complete=9509 pre_cb_total=0 post_cb_total=9507 post_cb_no_system=0 post_cb_zero=2 retrace_wake_total=9509 last_post_cb=0x8020FCD4 last_post_cb_us=1789080388885889 last_retrace_count=9509 last_advance_complete_us=1789080388885911
+19696 [gx] producer_frame=1207 interval_us=3319349 queue_wait_us=4 packet_copy_us=13 prior_wait_calls=4 prior_wait_us=6 wait_sleep_us=6 wait_gx=4/6 wait_worker=0/0 wait_service=0/0/0 worker=1206/24724/121/3279560 draws=1 vertices=4 efb_cmds=0 requested_draws=1 begin_cap=0 raw_cap=0 dropped=0 efb_calls=0 efb_recorded=0 efb_cap_fail=0 efb_destroy=0
+19697 [gx] gx_cpu_perf frame=1014 lyt_calls=0 lyt_us=0 lyt_direct=0 lyt_packet=0 lyt_faithful=0 dl_calls=0 dl_us=0 dl_bytes=0 dl_cache=0/0 dl_cache_mem=130/58964/58964 dl_evict=0/0 dl_clear=0/0 dl_skip=0 dl_fallback=0 dl_raw=0/0 verts=0 fail=0 dl_template=0/0 draws=0 fallback=0 glyph_fast=0 setup=0 texload=0 glyph_raw=0 glyph_fallback=0 prebegin_us=3317071 prebegin_run_clocks=0 prebegin_cpu_us=0 prebegin_offcpu_us=0 prebegin_cpu_permille=0 arm_mhz=0 tail_us=622 copydisp_us=136
+19698 [gx] gx_phase frame=1014 prebegin_us=3317071 tail_us=622 begins=1
+19699 [gx] gx_begin_hot frame=1014 rank=0 lr=802155e0 count=1 total=1 gap_us=0 max_gap_us=0
+19700 [gx] render_present serial=1207 target_hz=30 interval_us=3280065 swap_us=161
+19701 [gx] gx_cpu_perf frame=1015 lyt_calls=0 lyt_us=0 lyt_direct=0 lyt_packet=0 lyt_faithful=0 dl_calls=0 dl_us=0 dl_bytes=0 dl_cache=0/0 dl_cache_mem=130/58964/58964 dl_evict=0/0 dl_clear=0/0 dl_skip=0 dl_fallback=0 dl_raw=0/0 verts=0 fail=0 dl_template=0/0 draws=0 fallback=0 glyph_fast=0 setup=0 texload=0 glyph_raw=0 glyph_fallback=0 prebegin_us=795321 prebegin_run_clocks=0 prebegin_cpu_us=0 prebegin_offcpu_us=0 prebegin_cpu_permille=0 arm_mhz=0 tail_us=592 copydisp_us=89
+19702 [gx] gx_phase frame=1015 prebegin_us=795321 tail_us=592 begins=1
+19703 [gx] gx_begin_hot frame=1015 rank=0 lr=802155e0 count=1 total=1 gap_us=0 max_gap_us=0
+19704 [gx] render_present serial=1208 target_hz=30 interval_us=795994 swap_us=134
+19705 [gx] render_present serial=1209 target_hz=30 interval_us=164040 swap_us=122
+19706 [audio] vita_audioout stats real=1670 silence=24442 underrun=24442 drop_oldest=0 high_water=2 queued=0
+19707 [gx] gx_cpu_perf frame=1017 lyt_calls=0 lyt_us=0 lyt_direct=0 lyt_packet=0 lyt_faithful=0 dl_calls=0 dl_us=0 dl_bytes=0 dl_cache=0/0 dl_cache_mem=130/58964/58964 dl_evict=0/0 dl_clear=0/0 dl_skip=0 dl_fallback=0 dl_raw=0/0 verts=0 fail=0 dl_template=0/0 draws=0 fallback=0 glyph_fast=0 setup=0 texload=0 glyph_raw=0 glyph_fallback=0 prebegin_us=710661 prebegin_run_clocks=0 prebegin_cpu_us=0 prebegin_offcpu_us=0 prebegin_cpu_permille=0 arm_mhz=0 tail_us=544 copydisp_us=83
+19708 [gx] gx_phase frame=1017 prebegin_us=710661 tail_us=544 begins=1
+19709 [gx] gx_begin_hot frame=1017 rank=0 lr=802155e0 count=1 total=1 gap_us=0 max_gap_us=0
+19710 [gx] render_present serial=1210 target_hz=30 interval_us=711324 swap_us=130
+19711 [OSReport] << NW4R    - G3D 	final   build: Mar  8 2008 20:58:12 (0x4201_127) >>
+19712 [gx] rfl_shape_dl_burst n=768 bytes=12 total_bytes=20988 stride=2 src=0x909C0771
+19713 [gx] rfl_shape_dl_burst n=832 bytes=12 total_bytes=22538 stride=3 src=0x909C0837
+19714 [gx] rfl_shape_dl_burst n=896 bytes=36 total_bytes=24298 stride=3 src=0x909C0661
+19715 [gx] rfl_shape_dl_burst n=960 bytes=12 total_bytes=25432 stride=3 src=0x909C01FB
+19716 [gx] rfl_shape_dl_burst n=1024 bytes=8 total_bytes=27312 stride=2 src=0x909C0A17
+19717 [gx] rfl_shape_dl_burst n=1088 bytes=20 total_bytes=29102 stride=2 src=0x909C079B
+19718 [gx] rfl_shape_dl_burst n=1152 bytes=21 total_bytes=30636 stride=3 src=0x909C06D8
+19719 [gx] rfl_shape_dl_burst n=1216 bytes=15 total_bytes=31842 stride=3 src=0x909C09B0
+19720 [gx] rfl_shape_dl_burst n=1280 bytes=8 total_bytes=33472 stride=2 src=0x909C02BF
+19721 [gx] rfl_shape_dl_burst n=1344 bytes=10 total_bytes=35430 stride=2 src=0x909C09FB
+19722 [gx] rfl_shape_dl_burst n=1408 bytes=12 total_bytes=37202 stride=3 src=0x909C0375
+19723 [gx] rfl_shape_dl_burst n=1472 bytes=27 total_bytes=38316 stride=3 src=0x909C0968
+19724 [gx] rfl_shape_dl_burst n=1536 bytes=8 total_bytes=39988 stride=2 src=0x909C093D
+19725 [gx] rfl_shape_dl_burst n=1600 bytes=8 total_bytes=41788 stride=2 src=0x909C079D
+19726 [gx] rfl_shape_dl_burst n=1664 bytes=12 total_bytes=43586 stride=2 src=0x909C0877
+19727 [gx] rfl_shape_dl_burst n=1728 bytes=12 total_bytes=45026 stride=3 src=0x909C07EB
+19728 [gx] rfl_shape_dl_burst n=1792 bytes=18 total_bytes=46179 stride=3 src=0x909C09A8
+19729 [gx] rfl_shape_dl_burst n=1856 bytes=12 total_bytes=47856 stride=3 src=0x909C089F
+19730 [gx] rfl_shape_dl_burst n=1920 bytes=52 total_bytes=49844 stride=2 src=0x909C05D3
+19731 [gx] rfl_shape_dl_burst n=1984 bytes=24 total_bytes=51301 stride=3 src=0x909C0702
+19732 [gx] rfl_shape_dl_burst n=2048 bytes=8 total_bytes=52430 stride=2 src=0x909C0A57
+19733 [gx] rfl_shape_dl_burst n=2112 bytes=20 total_bytes=54216 stride=2 src=0x909C07A5
+19734 [gx] rfl_shape_dl_burst n=2176 bytes=12 total_bytes=55748 stride=3 src=0x909C07F9
+19735 [gx] rfl_shape_dl_burst n=2240 bytes=12 total_bytes=56984 stride=3 src=0x909C09EF
+19736 [gx] rfl_shape_dl_burst n=2304 bytes=8 total_bytes=58598 stride=2 src=0x909C0AF9
+19737 [gx] rfl_shape_dl_burst n=2368 bytes=22 total_bytes=60360 stride=2 src=0x909C0A8F
+19738 [gx] rfl_shape_dl_burst n=2432 bytes=18 total_bytes=61283 stride=3 src=0x909C09A8
+19739 [gx] rfl_shape_dl_burst n=2496 bytes=8 total_bytes=62976 stride=2 src=0x909C096B
+19740 [gx] rfl_shape_dl_burst n=2560 bytes=16 total_bytes=64762 stride=2 src=0x909C0B33
+19741 [gx] rfl_shape_dl_burst n=2624 bytes=8 total_bytes=65420 stride=2 src=0x909C0E4D
+19742 [gx] rfl_shape_dl_burst n=2688 bytes=10 total_bytes=67348 stride=2 src=0x909C07A5
+19743 [gx] rfl_shape_dl_burst n=2752 bytes=12 total_bytes=69248 stride=2 src=0x909C0A5F
+19744 [gx] rfl_shape_dl_burst n=2816 bytes=21 total_bytes=70695 stride=3 src=0x909C0735
+19745 [gx] rfl_shape_dl_burst n=2880 bytes=8 total_bytes=71828 stride=2 src=0x909C02FF
+19746 [gx] rfl_shape_dl_burst n=2944 bytes=12 total_bytes=73830 stride=2 src=0x909C0BD9
+19747 [gx] rfl_shape_dl_burst n=3008 bytes=18 total_bytes=75331 stride=3 src=0x909C0796
+19748 [gx] rfl_shape_dl_burst n=3072 bytes=30 total_bytes=76460 stride=2 src=0x909C0A61
+19749 [gx] rfl_shape_dl_burst n=3136 bytes=12 total_bytes=78352 stride=2 src=0x909C07DF
+19750 [gx] rfl_shape_dl_burst n=3200 bytes=18 total_bytes=79775 stride=3 src=0x909C076E
+19751 [gx] rfl_shape_dl_burst n=3264 bytes=48 total_bytes=80994 stride=3 src=0x909C08D9
+19752 [gx] rfl_shape_dl_burst n=3328 bytes=8 total_bytes=82742 stride=2 src=0x909C0445
+19753 [gx] rfl_shape_dl_burst n=3392 bytes=36 total_bytes=84514 stride=2 src=0x909C0953
+19754 [gx] rfl_shape_dl_burst n=3456 bytes=27 total_bytes=85451 stride=3 src=0x909C0957
+19755 [gx] rfl_shape_dl_burst n=3520 bytes=10 total_bytes=87156 stride=2 src=0x909C0AC7
+19756 [gx] rfl_shape_dl_burst n=3584 bytes=28 total_bytes=88826 stride=2 src=0x909C0783
+19757 [gx] rfl_shape_dl_burst n=3648 bytes=15 total_bytes=90417 stride=3 src=0x909C0773
+19758 [gx] rfl_shape_dl_burst n=3712 bytes=27 total_bytes=91504 stride=3 src=0x909C0974
+19759 [gx] rfl_shape_dl_burst n=3776 bytes=8 total_bytes=93126 stride=2 src=0x909C09D5
+19760 [gx] rfl_shape_dl_burst n=3840 bytes=12 total_bytes=94606 stride=3 src=0x909C0829
+19761 [gx] rfl_shape_dl_burst n=3904 bytes=468 total_bytes=96350 stride=3 src=0x909C0A19
+19762 [gx] rfl_shape_dl_burst n=3968 bytes=8 total_bytes=97532 stride=2 src=0x909C0BC3
+19763 [gx] rfl_shape_dl_burst n=4032 bytes=198 total_bytes=99218 stride=3 src=0x909C085B
+19764 [gx] rfl_shape_dl_burst n=4096 bytes=468 total_bytes=100730 stride=3 src=0x909C0A19
+19765 [gx] rfl_shape_dl_burst n=4160 bytes=8 total_bytes=101828 stride=2 src=0x909C0A49
+19766 [gx] rfl_shape_dl_burst n=4224 bytes=12 total_bytes=103316 stride=3 src=0x909C0845
+19767 [gx] rfl_shape_dl_burst n=4288 bytes=12 total_bytes=104644 stride=3 src=0x909C09EF
+19768 [gx] rfl_shape_dl_burst n=4352 bytes=8 total_bytes=106332 stride=2 src=0x909C0C15
+19769 [gx] rfl_shape_dl_burst n=4416 bytes=18 total_bytes=108113 stride=3 src=0x909C06F4
+19770 [gx] rfl_shape_dl_burst n=4480 bytes=10 total_bytes=109116 stride=2 src=0x909C04ED
+19771 [gx] rfl_shape_dl_burst n=4544 bytes=12 total_bytes=110832 stride=2 src=0x909C0555
+19772 [gx] rfl_shape_dl_burst n=4608 bytes=48 total_bytes=112586 stride=2 src=0x909C08C7
+19773 [gx] rfl_shape_dl_burst n=4672 bytes=27 total_bytes=113550 stride=3 src=0x909C0974
+19774 [gx] rfl_shape_dl_burst n=4736 bytes=8 total_bytes=115204 stride=2 src=0x909C0913
+19775 [audio] vita_audioout stats real=1672 silence=24952 underrun=24952 drop_oldest=0 high_water=2 queued=0
+19776 [gx] rfl_shape_dl_burst n=4800 bytes=28 total_bytes=117024 stride=2 src=0x909C08E9
+19777 [gx] rfl_shape_dl_burst n=4864 bytes=27 total_bytes=118499 stride=3 src=0x909C06B1
+19778 [gx] rfl_shape_dl_burst n=4928 bytes=10 total_bytes=119686 stride=2 src=0x909C04F9
+19779 [gx] rfl_shape_dl_burst n=4992 bytes=14 total_bytes=121530 stride=2 src=0x909C0941
+19780 [gx] rfl_shape_dl_burst n=5056 bytes=24 total_bytes=122933 stride=3 src=0x909C06E8
+19781 [gx] rfl_shape_dl_burst n=5120 bytes=12 total_bytes=124060 stride=2 src=0x909C0309
+19782 [gx] producer_frame=1211 interval_us=4255742 queue_wait_us=2 packet_copy_us=7265 prior_wait_calls=150 prior_wait_us=230 wait_sleep_us=230 wait_gx=150/230 wait_worker=0/0 wait_service=0/0/0 worker=1210/257/130/4255341 draws=2090 vertices=9847 efb_cmds=512 requested_draws=2090 begin_cap=0 raw_cap=0 dropped=0 efb_calls=399 efb_recorded=303 efb_cap_fail=169 efb_destroy=209
+19783 [gx] gx_cpu_perf frame=1018 lyt_calls=0 lyt_us=0 lyt_direct=0 lyt_packet=0 lyt_faithful=0 dl_calls=401 dl_us=31885 dl_bytes=37888 dl_cache=200/201 dl_cache_mem=136/62540/62540 dl_evict=0/0 dl_clear=0/0 dl_skip=0 dl_fallback=0 dl_raw=421/421 verts=3171 fail=0 dl_template=153/4 draws=153 fallback=0 glyph_fast=0 setup=0 texload=0 glyph_raw=0 glyph_fallback=0 prebegin_us=1294736 prebegin_run_clocks=0 prebegin_cpu_us=0 prebegin_offcpu_us=0 prebegin_cpu_permille=0 arm_mhz=0 tail_us=656 copydisp_us=7427
+19784 [gx] gx_phase frame=1018 prebegin_us=1294736 tail_us=656 begins=6072
+19785 [gx] gx_begin_hot frame=1018 rank=0 lr=800c23c0 count=4403 total=6072 gap_us=502592 max_gap_us=20537
+19786 [gx] gx_begin_hot frame=1018 rank=1 lr=800c4ca4 count=1568 total=6072 gap_us=763776 max_gap_us=11898
+19787 [gx] gx_begin_hot frame=1018 rank=2 lr=8022dea4 count=98 total=6072 gap_us=172902 max_gap_us=6875
+19788 [gx] gx_begin_hot frame=1018 rank=3 lr=80236670 count=2 total=6072 gap_us=22217 max_gap_us=21599
+19789 [gx] gx_begin_hot frame=1018 rank=4 lr=802155e0 count=1 total=6072 gap_us=1498763 max_gap_us=1498763
+19790 [gx] gx_gap_hot frame=1018 rank=0 lr=802155e0 gap_us=1498763 max_gap_us=1498763 count=1
+19791 [gx] gx_gap_hot frame=1018 rank=1 lr=800c4ca4 gap_us=763776 max_gap_us=11898 count=1568
+19792 [gx] gx_gap_hot frame=1018 rank=2 lr=800c23c0 gap_us=502592 max_gap_us=20537 count=4403
+19793 [gx] gx_gap_hot frame=1018 rank=3 lr=8022dea4 gap_us=172902 max_gap_us=6875 count=98
+19794 [gx] gx_gap_hot frame=1018 rank=4 lr=80236670 gap_us=22217 max_gap_us=21599 count=2
+19795 [gx] render_present serial=1211 target_hz=30 interval_us=4951680 swap_us=125
+19796 [audio] vita_audioout stats real=1753 silence=25383 underrun=25383 drop_oldest=0 high_water=2 queued=0
+19797 [vi] vi_perf present=1440 pace_requested=0 pace=0 render_decouple=1 direct_decoupled=0 present30=0 retraces_elapsed=2 submit_us=42 pace_us=7 total_us=56 presented_xfb=1
+19798 [gx] gx_cpu_perf frame=1080 lyt_calls=0 lyt_us=0 lyt_direct=0 lyt_packet=0 lyt_faithful=0 dl_calls=0 dl_us=0 dl_bytes=0 dl_cache=0/0 dl_cache_mem=136/62540/62540 dl_evict=0/0 dl_clear=0/0 dl_skip=0 dl_fallback=0 dl_raw=0/0 verts=0 fail=0 dl_template=0/0 draws=0 fallback=0 glyph_fast=0 setup=0 texload=0 glyph_raw=0 glyph_fallback=0 prebegin_us=32818 prebegin_run_clocks=0 prebegin_cpu_us=0 prebegin_offcpu_us=0 prebegin_cpu_permille=0 arm_mhz=0 tail_us=375 copydisp_us=108
+19799 [gx] render_present serial=1242 target_hz=30 interval_us=306480 swap_us=131
+19800 [gx] render_present serial=1243 target_hz=30 interval_us=299625 swap_us=140
+19801 [audio] audio_backlog_clamp n=1024 kept_blocks=3 dropped_total_us=71670776
+19802 [gx] direct_prep serial=1244 affinity=USER_2 prep_us=180032 vertex_us=40497 vertices=35169 texture_us=132552 textures=8 reuse=0 cap_skip=69 budget_skip=0 decode_fail=0 state_us=1893 state_runs=5586 failures=69
+19803 [gx] render_present serial=1244 target_hz=30 interval_us=1216191 swap_us=121
+19804 [gx] direct_prep serial=1245 affinity=USER_2 prep_us=185019 vertex_us=43114 vertices=36226 texture_us=133532 textures=8 reuse=0 cap_skip=85 budget_skip=0 decode_fail=0 state_us=1917 state_runs=5678 failures=85
+19805 [audio] vita_audioout stats real=1877 silence=25771 underrun=25771 drop_oldest=0 high_water=2 queued=1
+19806 [gx] render_present serial=1245 target_hz=30 interval_us=924434 swap_us=144
+19807 [gx] render_present serial=1246 target_hz=30 interval_us=1062889 swap_us=143
+19808 [gx] render_present serial=1247 target_hz=30 interval_us=947997 swap_us=168
+19809 [gx] producer_frame=1248 interval_us=1068150 queue_wait_us=552475 packet_copy_us=6713 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=47/582059/15379 worker=1246/1002877/143/407568 draws=5984 vertices=38116 efb_cmds=13 requested_draws=5989 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19810 [audio] vita_audioout stats real=2077 silence=26083 underrun=26083 drop_oldest=0 high_water=2 queued=1
+19811 [gx] render_present serial=1248 target_hz=30 interval_us=1062365 swap_us=204
+19812 [gx] render_present serial=1249 target_hz=30 interval_us=1048868 swap_us=262
+19813 [gx] producer_frame=1250 interval_us=1072432 queue_wait_us=627524 packet_copy_us=6569 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=46/575498/14134 worker=1248/996283/204/425745 draws=5984 vertices=38116 efb_cmds=13 requested_draws=5989 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19814 [gx] render_present serial=1250 target_hz=30 interval_us=1095503 swap_us=260
+19815 [gx] producer_frame=1251 interval_us=1022474 queue_wait_us=702155 packet_copy_us=5979 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=47/555893/13543 worker=1249/992655/262/399350 draws=5988 vertices=38140 efb_cmds=13 requested_draws=5993 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19816 [audio] vita_audioout stats real=2303 silence=26369 underrun=26369 drop_oldest=0 high_water=2 queued=0
+19817 [gx] render_present serial=1251 target_hz=30 interval_us=953960 swap_us=251
+19818 [gx] producer_frame=1252 interval_us=1084199 queue_wait_us=566065 packet_copy_us=6195 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=53/607203/14962 worker=1250/1036869/260/388044 draws=5980 vertices=38108 efb_cmds=13 requested_draws=5985 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19819 [gx] xf_indexed n=65536 dst=0x42D words=9 source=0x8833cba8
+19820 [gx] render_present serial=1252 target_hz=30 interval_us=1047500 swap_us=226
+19821 [gx] render_present serial=1253 target_hz=30 interval_us=1057326 swap_us=245
+19822 [gx] producer_frame=1254 interval_us=1054722 queue_wait_us=675924 packet_copy_us=6974 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=56/576214/13165 worker=1252/993226/226/383223 draws=5982 vertices=38116 efb_cmds=13 requested_draws=5987 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19823 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19824 [audio] vita_audioout stats real=2573 silence=26611 underrun=26611 drop_oldest=0 high_water=2 queued=0
+19825 [gx] render_present serial=1254 target_hz=30 interval_us=1093865 swap_us=293
+19826 [gx] producer_frame=1255 interval_us=1054120 queue_wait_us=715150 packet_copy_us=6136 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=58/569181/12069 worker=1253/993805/245/380014 draws=5983 vertices=38120 efb_cmds=13 requested_draws=5988 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19827 [gx] render_present serial=1255 target_hz=30 interval_us=954632 swap_us=279
+19828 [gx] producer_frame=1256 interval_us=1091217 queue_wait_us=586352 packet_copy_us=5985 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=63/606289/11991 worker=1254/1035021/293/377357 draws=5988 vertices=38148 efb_cmds=13 requested_draws=5993 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19829 [audio] vita_audioout stats real=2846 silence=26850 underrun=26850 drop_oldest=0 high_water=2 queued=1
+19830 [gx] render_present serial=1256 target_hz=30 interval_us=1065468 swap_us=253
+19831 [gx] render_present serial=1257 target_hz=30 interval_us=1059830 swap_us=245
+19832 [gx] producer_frame=1258 interval_us=1059262 queue_wait_us=691809 packet_copy_us=5996 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=65/571042/10817 worker=1256/1002890/253/374823 draws=5983 vertices=38120 efb_cmds=13 requested_draws=5988 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19833 [gx] render_present serial=1258 target_hz=30 interval_us=1096274 swap_us=255
+19834 [gx] producer_frame=1259 interval_us=1065272 queue_wait_us=722947 packet_copy_us=6191 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=65/569757/10982 worker=1257/1000912/245/380269 draws=5983 vertices=38120 efb_cmds=13 requested_draws=5988 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19835 [audio] vita_audioout stats real=3132 silence=27076 underrun=27076 drop_oldest=0 high_water=2 queued=1
+19836 [gx] render_present serial=1259 target_hz=30 interval_us=963502 swap_us=291
+19837 [gx] producer_frame=1260 interval_us=1094200 queue_wait_us=591531 packet_copy_us=6447 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=71/595933/10881 worker=1258/1035941/255/378186 draws=5988 vertices=38140 efb_cmds=13 requested_draws=5993 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19838 [hle] input Vita state core=0800 classic=0214 stick=(0.00,-0.00)
+19839 [gx] render_present serial=1260 target_hz=30 interval_us=1064775 swap_us=282
+19840 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19841 [gx] render_present serial=1261 target_hz=30 interval_us=1059955 swap_us=263
+19842 [gx] producer_frame=1262 interval_us=1057764 queue_wait_us=699195 packet_copy_us=6299 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=96/516676/9510 worker=1260/1004852/282/365720 draws=5983 vertices=38120 efb_cmds=13 requested_draws=5988 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19843 [audio] vita_audioout stats real=3463 silence=27257 underrun=27257 drop_oldest=0 high_water=2 queued=0
+19844 [gx] render_present serial=1262 target_hz=30 interval_us=1102080 swap_us=250
+19845 [gx] producer_frame=1263 interval_us=1068858 queue_wait_us=727636 packet_copy_us=6465 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=98/516400/9811 worker=1261/1003943/263/374625 draws=5983 vertices=38120 efb_cmds=13 requested_draws=5988 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19846 [audio] audio_backlog_clamp n=2048 kept_blocks=3 dropped_total_us=77583213
+19847 [gx] render_present serial=1263 target_hz=30 interval_us=956669 swap_us=288
+19848 [gx] producer_frame=1264 interval_us=1095217 queue_wait_us=592226 packet_copy_us=6233 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=103/544247/9516 worker=1262/1043335/250/367765 draws=5987 vertices=38136 efb_cmds=13 requested_draws=5992 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19849 [audio] vita_audioout stats real=3800 silence=27432 underrun=27432 drop_oldest=0 high_water=2 queued=1
+19850 [gx] render_present serial=1264 target_hz=30 interval_us=1068063 swap_us=332
+19851 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19852 [gx] render_present serial=1265 target_hz=30 interval_us=1064707 swap_us=288
+19853 [gx] producer_frame=1266 interval_us=1069812 queue_wait_us=698210 packet_copy_us=6147 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=108/487082/8175 worker=1264/1007966/332/369951 draws=5987 vertices=38144 efb_cmds=13 requested_draws=5992 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19854 [gx] render_present serial=1266 target_hz=30 interval_us=1099921 swap_us=274
+19855 [gx] producer_frame=1267 interval_us=1067234 queue_wait_us=727888 packet_copy_us=6483 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=104/496451/8440 worker=1265/1007491/288/372474 draws=5984 vertices=38124 efb_cmds=13 requested_draws=5989 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19856 [audio] vita_audioout stats real=4115 silence=27629 underrun=27629 drop_oldest=0 high_water=2 queued=1
+19857 [gx] render_present serial=1267 target_hz=30 interval_us=956814 swap_us=254
+19858 [gx] producer_frame=1268 interval_us=1094978 queue_wait_us=589316 packet_copy_us=6297 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=125/483814/8041 worker=1266/1042545/274/367527 draws=5985 vertices=38128 efb_cmds=13 requested_draws=5990 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19859 [gx] render_present serial=1268 target_hz=30 interval_us=1066034 swap_us=314
+19860 [gx] render_present serial=1269 target_hz=30 interval_us=1068199 swap_us=283
+19861 [gx] producer_frame=1270 interval_us=1060252 queue_wait_us=711097 packet_copy_us=6272 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=133/449959/7276 worker=1268/1011736/314/359056 draws=5982 vertices=38116 efb_cmds=13 requested_draws=5987 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19862 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19863 [audio] vita_audioout stats real=4449 silence=27807 underrun=27807 drop_oldest=0 high_water=2 queued=0
+19864 [gx] render_present serial=1270 target_hz=30 interval_us=1103947 swap_us=271
+19865 [gx] producer_frame=1271 interval_us=1072438 queue_wait_us=740761 packet_copy_us=5982 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=150/421029/7026 worker=1269/1011019/283/363287 draws=5986 vertices=38140 efb_cmds=13 requested_draws=5991 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19866 [gx] render_present serial=1271 target_hz=30 interval_us=964850 swap_us=263
+19867 [gx] producer_frame=1272 interval_us=1097907 queue_wait_us=607769 packet_copy_us=6234 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=166/409723/6394 worker=1270/1048014/271/357248 draws=5981 vertices=38112 efb_cmds=13 requested_draws=5986 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19868 [audio] vita_audioout stats real=4823 silence=27945 underrun=27945 drop_oldest=0 high_water=2 queued=2
+19869 [gx] render_present serial=1272 target_hz=30 interval_us=1067322 swap_us=313
+19870 [gx] render_present serial=1273 target_hz=30 interval_us=1068258 swap_us=332
+19871 [gx] producer_frame=1274 interval_us=1066879 queue_wait_us=712927 packet_copy_us=6309 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=160/394645/5752 worker=1272/1013047/313/355464 draws=5980 vertices=38108 efb_cmds=13 requested_draws=5985 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19872 [gx] render_present serial=1274 target_hz=30 interval_us=1111092 swap_us=278
+19873 [gx] producer_frame=1275 interval_us=1073192 queue_wait_us=753658 packet_copy_us=6426 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=162/398218/6970 worker=1273/1011903/332/360391 draws=5980 vertices=38108 efb_cmds=13 requested_draws=5985 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19874 [audio] vita_audioout stats real=5151 silence=28129 underrun=28129 drop_oldest=0 high_water=2 queued=2
+19875 [gx] render_present serial=1275 target_hz=30 interval_us=963774 swap_us=278
+19876 [gx] producer_frame=1276 interval_us=1113589 queue_wait_us=602267 packet_copy_us=6384 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=186/399141/5441 worker=1274/1054061/278/362882 draws=5986 vertices=38140 efb_cmds=13 requested_draws=5991 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19877 [gx] render_present serial=1276 target_hz=30 interval_us=1070514 swap_us=272
+19878 [gx] render_present serial=1277 target_hz=30 interval_us=1068504 swap_us=268
+19879 [gx] producer_frame=1278 interval_us=1072079 queue_wait_us=709807 packet_copy_us=6771 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=171/387737/5840 worker=1276/1015242/272/359208 draws=5985 vertices=38128 efb_cmds=13 requested_draws=5990 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19880 [audio] vita_audioout stats real=5481 silence=28311 underrun=28311 drop_oldest=0 high_water=2 queued=2
+19881 [gx] render_present serial=1278 target_hz=30 interval_us=1104503 swap_us=269
+19882 [gx] producer_frame=1279 interval_us=1071810 queue_wait_us=745425 packet_copy_us=5784 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=176/380035/6801 worker=1277/1014605/268/362512 draws=5982 vertices=38116 efb_cmds=13 requested_draws=5987 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19883 [gx] render_present serial=1279 target_hz=30 interval_us=969342 swap_us=311
+19884 [gx] producer_frame=1280 interval_us=1104503 queue_wait_us=607124 packet_copy_us=6460 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=183/401556/6688 worker=1278/1049758/269/362513 draws=5984 vertices=38124 efb_cmds=13 requested_draws=5989 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19885 [hle] input Vita state core=0800 classic=0010 stick=(0.00,-0.00)
+19886 [gx] render_present serial=1280 target_hz=30 interval_us=1072555 swap_us=266
+19887 [audio] vita_audioout stats real=5855 silence=28449 underrun=28449 drop_oldest=0 high_water=2 queued=0
+19888 [gx] render_present serial=1281 target_hz=30 interval_us=1064699 swap_us=318
+19889 [gx] producer_frame=1282 interval_us=1074298 queue_wait_us=705157 packet_copy_us=6158 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=175/376833/6761 worker=1280/1018298/266/359822 draws=5984 vertices=38124 efb_cmds=13 requested_draws=5989 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19890 [gx] render_present serial=1282 target_hz=30 interval_us=1105837 swap_us=273
+19891 [gx] producer_frame=1283 interval_us=1070410 queue_wait_us=741682 packet_copy_us=5949 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=165/386228/5764 worker=1281/1010820/318/365536 draws=5983 vertices=38120 efb_cmds=13 requested_draws=5988 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19892 [hle] input Vita state core=0000 classic=0000 stick=(0.00,-0.00)
+19893 [audio] vita_audioout stats real=6190 silence=28626 underrun=28626 drop_oldest=0 high_water=2 queued=2
+19894 [gx] render_present serial=1283 target_hz=30 interval_us=966743 swap_us=277
+19895 [gx] producer_frame=1284 interval_us=1103962 queue_wait_us=608161 packet_copy_us=6328 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=172/408896/5650 worker=1282/1049087/273/363658 draws=5985 vertices=38128 efb_cmds=13 requested_draws=5990 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19896 [gx] render_present serial=1284 target_hz=30 interval_us=1075754 swap_us=293
+19897 [gx] render_present serial=1285 target_hz=30 interval_us=1062821 swap_us=279
+19898 [gx] producer_frame=1286 interval_us=1069863 queue_wait_us=699658 packet_copy_us=6221 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=158/397348/6690 worker=1284/1017092/293/363308 draws=5988 vertices=38148 efb_cmds=13 requested_draws=5993 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19899 [audio] vita_audioout stats real=6513 silence=28815 underrun=28815 drop_oldest=0 high_water=2 queued=2
+19900 [gx] render_present serial=1286 target_hz=30 interval_us=1107235 swap_us=276
+19901 [gx] producer_frame=1287 interval_us=1065172 queue_wait_us=742910 packet_copy_us=6127 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=168/390076/6246 worker=1285/1008893/279/365615 draws=5988 vertices=38140 efb_cmds=13 requested_draws=5993 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19902 [gx] render_present serial=1287 target_hz=30 interval_us=1069864 swap_us=283
+19903 [gx] producer_frame=1288 interval_us=1100273 queue_wait_us=711274 packet_copy_us=6377 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=179/400620/5694 worker=1286/1053116/276/358695 draws=5985 vertices=38128 efb_cmds=13 requested_draws=5990 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19904 [gx] render_present serial=1288 target_hz=30 interval_us=1066778 swap_us=298
+19905 [gx] producer_frame=1289 interval_us=1069777 queue_wait_us=713137 packet_copy_us=5803 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=176/382806/6507 worker=1287/1014828/283/358607 draws=5987 vertices=38136 efb_cmds=13 requested_draws=5992 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19906 [audio] vita_audioout stats real=6892 silence=28948 underrun=28948 drop_oldest=0 high_water=2 queued=0
+19907 [gx] render_present serial=1289 target_hz=30 interval_us=1110136 swap_us=145
+19908 [gx] producer_frame=1290 interval_us=1074221 queue_wait_us=745594 packet_copy_us=6320 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=172/385438/6718 worker=1288/1012698/298/366047 draws=5986 vertices=38132 efb_cmds=13 requested_draws=5991 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19909 [gx] render_present serial=1290 target_hz=30 interval_us=962952 swap_us=289
+19910 [gx] producer_frame=1291 interval_us=1103757 queue_wait_us=603378 packet_copy_us=6061 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=186/394898/6998 worker=1289/1051630/145/359679 draws=5987 vertices=38144 efb_cmds=13 requested_draws=5992 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19911 [audio] vita_audioout stats real=7227 silence=29125 underrun=29125 drop_oldest=0 high_water=2 queued=2
+19912 [gx] render_present serial=1291 target_hz=30 interval_us=1064347 swap_us=294
+19913 [gx] render_present serial=1292 target_hz=30 interval_us=1108819 swap_us=276
+19914 [gx] producer_frame=1293 interval_us=1068441 queue_wait_us=748070 packet_copy_us=5990 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=178/373600/6377 worker=1291/1010353/294/360850 draws=5982 vertices=38116 efb_cmds=13 requested_draws=5987 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19915 [gx] render_present serial=1293 target_hz=30 interval_us=963678 swap_us=302
+19916 [gx] producer_frame=1294 interval_us=1103035 queue_wait_us=608766 packet_copy_us=6162 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=190/396425/7039 worker=1292/1052189/276/355069 draws=5982 vertices=38116 efb_cmds=13 requested_draws=5987 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19917 [audio] vita_audioout stats real=7556 silence=29308 underrun=29308 drop_oldest=0 high_water=2 queued=2
+19918 [gx] render_present serial=1294 target_hz=30 interval_us=1101158 swap_us=141
+19919 [gx] render_present serial=1295 target_hz=30 interval_us=1068050 swap_us=141
+19920 [gx] producer_frame=1296 interval_us=1099089 queue_wait_us=709673 packet_copy_us=6148 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=189/391266/7435 worker=1294/1047121/141/358538 draws=5987 vertices=38144 efb_cmds=13 requested_draws=5992 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19921 [gx] render_present serial=1296 target_hz=30 interval_us=1098658 swap_us=142
+19922 [gx] producer_frame=1297 interval_us=1076770 queue_wait_us=732485 packet_copy_us=5788 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=174/382515/5622 worker=1295/1014022/141/367259 draws=5983 vertices=38120 efb_cmds=13 requested_draws=5988 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19923 [audio] vita_audioout stats real=7926 silence=29450 underrun=29450 drop_oldest=0 high_water=2 queued=0
+19924 [gx] render_present serial=1297 target_hz=30 interval_us=1062995 swap_us=144
+19925 [gx] producer_frame=1298 interval_us=1095030 queue_wait_us=699645 packet_copy_us=6704 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=161/417189/7000 worker=1296/1044655/142/363630 draws=5986 vertices=38132 efb_cmds=13 requested_draws=5991 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19926 [gx] render_present serial=1298 target_hz=30 interval_us=1098803 swap_us=140
+19927 [gx] producer_frame=1299 interval_us=1068244 queue_wait_us=730018 packet_copy_us=5906 prior_wait_calls=0 prior_wait_us=0 wait_sleep_us=0 wait_gx=0/0 wait_worker=0/0 wait_service=159/399589/6786 worker=1297/1008462/144/368880 draws=5984 vertices=38124 efb_cmds=13 requested_draws=5989 begin_cap=0 raw_cap=0 dropped=0 efb_calls=13 efb_recorded=13 efb_cap_fail=0 efb_destroy=0
+19928 [audio] vita_audioout stats real=8263 silence=29625 underrun=29625 drop_oldest=0 high_water=2 queued=1
