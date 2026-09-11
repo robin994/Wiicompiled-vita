@@ -79,3 +79,6 @@ Mario Kart Wii*
 .claude
 .clang-format
 output.txt
+
+# Operating System
+.DS_Store
