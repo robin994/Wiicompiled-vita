@@ -12,7 +12,9 @@
 #include <string>
 #include <utility>
 
-#ifdef _WIN32
+#if defined(MKW_TARGET_VITA)
+#include <psp2/io/fcntl.h>
+#elif defined(_WIN32)
 #include <windows.h>
 #else
 #include <unistd.h>
@@ -198,7 +200,16 @@ inline bool Ensure(const std::filesystem::path& root, std::string& error,
     }
     bool published = false;
     if (written) {
-#ifdef _WIN32
+#if defined(MKW_TARGET_VITA)
+        // ux0:/uma0: do not provide the POSIX hard-link semantics used by
+        // the desktop atomic publisher. The temporary file is already fully
+        // written and closed, so publish it with the native Vita rename.
+        // If another launcher won the race, the read-back below accepts its
+        // valid setting.txt instead.
+        const std::string temporaryUtf8 = temporary.string();
+        const std::string pathUtf8 = path.string();
+        published = sceIoRename(temporaryUtf8.c_str(), pathUtf8.c_str()) >= 0;
+#elif defined(_WIN32)
         published = MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_WRITE_THROUGH) != 0;
 #else
         published = ::link(temporary.c_str(), path.c_str()) == 0;

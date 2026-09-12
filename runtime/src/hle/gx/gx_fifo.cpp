@@ -1,4 +1,8 @@
 #include "gx_internal.h"
+#include "memory_access.h"
+
+#include <cstring>
+#include <cstdint>
 #include "gx_stream_common.h"
 #include "gx_cp_decode.h"
 #include "isa/big_endian.h"
@@ -806,6 +810,26 @@ static bool WriteDisplayListBurst(const uint8_t* data, uint32_t sizeBytes) {
     if (dl.writePtr > end || (end - dl.writePtr) < sizeBytes) {
         return false;
     }
+
+#if defined(MKW_TARGET_VITA) && MKW_VITA_DL_RECORD_BURST_MEMCPY
+    // P6.76: RFL shape creation emits many tiny immutable display-list payloads.
+    // Prove the complete destination is ordinary writable RAM once, then copy
+    // the already-big-endian FIFO bytes contiguously. Executable/MMIO/special
+    // ranges resolve null and retain the exact scalar-store fallback below.
+    if (uint8_t* dst = MemoryInline::ResolveRangeHost(
+            dl.writePtr, 0, sizeBytes, false, true, true)) {
+        const uintptr_t srcBegin = reinterpret_cast<uintptr_t>(data);
+        const uintptr_t srcEnd = srcBegin + sizeBytes;
+        const uintptr_t dstBegin = reinterpret_cast<uintptr_t>(dst);
+        const uintptr_t dstEnd = dstBegin + sizeBytes;
+        if (srcEnd <= dstBegin || dstEnd <= srcBegin) {
+            std::memcpy(dst, data, sizeBytes);
+            dl.writePtr += sizeBytes;
+            dl.count += sizeBytes;
+            return true;
+        }
+    }
+#endif
 
     // Guest-visible bytes are written through the ordinary store path, so
     // unaligned cursors, MMIO policy and executable-write guards all behave as

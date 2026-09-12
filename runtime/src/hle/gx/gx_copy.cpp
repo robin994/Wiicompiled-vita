@@ -19,6 +19,9 @@
 #ifndef MKW_VITA_RENDER_DECOUPLE
 #define MKW_VITA_RENDER_DECOUPLE 0
 #endif
+#ifndef MKW_VITA_F06_PRODUCER_DETAIL
+#define MKW_VITA_F06_PRODUCER_DETAIL 0
+#endif
 
 namespace {
 // Copy destinations stay GPU-only until an explicit/lazy readback. Track the
@@ -46,7 +49,9 @@ bool IsSlowGxProducerSnapshot(const GxCpuPerfSnapshot& snapshot) {
 void LogGxBeginHot(const GxCpuPerfSnapshot& snapshot, int frame) {
     const bool forceSlowLog = IsSlowGxProducerSnapshot(snapshot);
 #if !MKW_VITA_PERF_LOG
-    if (!forceSlowLog) {
+    const bool f06Periodic = MKW_VITA_F06_PRODUCER_DETAIL &&
+        snapshot.gxBeginCalls >= 1000u && frame > 0 && (frame % 30) == 0;
+    if (!forceSlowLog && !f06Periodic) {
         return;
     }
 #else
@@ -245,15 +250,21 @@ extern "C" void GX__CopyDisp_8016fc38(uint32_t da, uint32_t c) {
         std::chrono::steady_clock::now() - copyBegin).count();
     const GxCpuPerfSnapshot cpuPerf = GX_HLE_TakeCpuPerfSnapshot();
     const bool slowProducerFrame = IsSlowGxProducerSnapshot(cpuPerf);
-    if (slowProducerFrame ||
+    const bool f06ProducerDetail = MKW_VITA_F06_PRODUCER_DETAIL &&
+        cpuPerf.gxBeginCalls >= 1000u && (g_gxFrameCount % 30) == 0;
+    if (slowProducerFrame || f06ProducerDetail ||
         (MKW_VITA_PERF_LOG && (g_gxFrameCount <= 8 || (g_gxFrameCount % 30) == 0)) ||
         (!MKW_VITA_PERF_LOG && (g_gxFrameCount % MKW_VITA_PERF_SUMMARY_INTERVAL) == 0)) {
         RT_LOGF(RT_TAG_GX,
                 "gx_cpu_perf frame=%d lyt_calls=%llu lyt_us=%llu lyt_direct=%llu lyt_packet=%llu lyt_faithful=%llu "
-                "dl_calls=%llu dl_us=%llu dl_bytes=%llu dl_cache=%llu/%llu "
+                "dl_calls=%llu dl_us=%llu dl_breakdown=%llu/%llu/%llu/%llu dl_other_us=%llu dl_bytes=%llu dl_cache=%llu/%llu "
                 "dl_cache_mem=%llu/%llu/%llu dl_evict=%llu/%llu dl_clear=%llu/%llu dl_skip=%llu dl_fallback=%llu "
                 "dl_raw=%llu/%llu verts=%llu fail=%llu dl_template=%llu/%llu draws=%llu fallback=%llu "
                 "glyph_fast=%llu setup=%llu texload=%llu glyph_raw=%llu glyph_fallback=%llu "
+                "glyph_probe=%llu/%llu/%llu/%llu/%llu/%llu "
+                "glyph_owner=%llu/%llu/%llu/%llu/%llu "
+                "frame_wall_us=%llu frame_run_clocks=%llu frame_cpu_us=%llu frame_offcpu_us=%llu "
+                "frame_cpu_permille=%u frame_arm_mhz=%u "
                 "prebegin_us=%llu prebegin_run_clocks=%llu prebegin_cpu_us=%llu prebegin_offcpu_us=%llu "
                 "prebegin_cpu_permille=%u arm_mhz=%u tail_us=%llu copydisp_us=%llu\n",
                 g_gxFrameCount,
@@ -264,6 +275,15 @@ extern "C" void GX__CopyDisp_8016fc38(uint32_t da, uint32_t c) {
                 static_cast<unsigned long long>(cpuPerf.lytFaithful),
                 static_cast<unsigned long long>(cpuPerf.dlCalls),
                 static_cast<unsigned long long>(cpuPerf.dlUs),
+                static_cast<unsigned long long>(cpuPerf.dlProbeUs),
+                static_cast<unsigned long long>(cpuPerf.dlScanUs),
+                static_cast<unsigned long long>(cpuPerf.dlApplyUs),
+                static_cast<unsigned long long>(cpuPerf.dlTemplateUs),
+                static_cast<unsigned long long>(cpuPerf.dlUs >
+                    cpuPerf.dlProbeUs + cpuPerf.dlScanUs + cpuPerf.dlApplyUs + cpuPerf.dlTemplateUs
+                        ? cpuPerf.dlUs - (cpuPerf.dlProbeUs + cpuPerf.dlScanUs +
+                                          cpuPerf.dlApplyUs + cpuPerf.dlTemplateUs)
+                        : 0u),
                 static_cast<unsigned long long>(cpuPerf.dlBytes),
                 static_cast<unsigned long long>(cpuPerf.dlCacheHits),
                 static_cast<unsigned long long>(cpuPerf.dlCacheMisses),
@@ -289,6 +309,22 @@ extern "C" void GX__CopyDisp_8016fc38(uint32_t da, uint32_t c) {
                 static_cast<unsigned long long>(cpuPerf.glyphTextureLoads),
                 static_cast<unsigned long long>(cpuPerf.glyphRawDirectCalls),
                 static_cast<unsigned long long>(cpuPerf.glyphRawFallbacks),
+                static_cast<unsigned long long>(cpuPerf.glyphProbeSeen),
+                static_cast<unsigned long long>(cpuPerf.glyphProbeUnique),
+                static_cast<unsigned long long>(cpuPerf.glyphProbeExactDuplicates),
+                static_cast<unsigned long long>(cpuPerf.glyphProbeSourceRepeats),
+                static_cast<unsigned long long>(cpuPerf.glyphProbeShadowLike),
+                static_cast<unsigned long long>(cpuPerf.glyphProbeTableFull),
+                static_cast<unsigned long long>(cpuPerf.glyphProbeOwnerKnown),
+                static_cast<unsigned long long>(cpuPerf.glyphProbeOwnerUnknown),
+                static_cast<unsigned long long>(cpuPerf.glyphProbeExactSameOwner),
+                static_cast<unsigned long long>(cpuPerf.glyphProbeExactDifferentOwner),
+                static_cast<unsigned long long>(cpuPerf.glyphProbeExactOwnerUnknown),
+                static_cast<unsigned long long>(cpuPerf.frameWallUs),
+                static_cast<unsigned long long>(cpuPerf.frameRunClocks),
+                static_cast<unsigned long long>(cpuPerf.frameCpuUs),
+                static_cast<unsigned long long>(cpuPerf.frameOffCpuUs),
+                cpuPerf.frameCpuPermille, cpuPerf.frameArmMHz,
                 static_cast<unsigned long long>(cpuPerf.preFirstBeginUs),
                 static_cast<unsigned long long>(cpuPerf.preFirstBeginRunClocks),
                 static_cast<unsigned long long>(cpuPerf.preFirstBeginCpuUs),

@@ -3324,3 +3324,349 @@ Nine textual conflicts were reconciled in the Vita-specific integration seams: g
 An upstream RuntimeConfig graphics-api table had no branch for MKW_TARGET_VITA; the Vita integration accepts only the portable "auto" selector because the hardware build remains fixed to direct vitaGL. Aurora renderer integration is not reintroduced.
 
 Offline merge validation PASS so far: git diff --check, Vita HLE syntax check, direct GX backend compile/link check, HostContext ARM32 compile and FiberManager ARM32 compile. The existing NAND enum-mismatch diagnostics remain warnings only. A full performance-profile VPK/hardware regression test remains the next validation step.
+
+
+## P6.48 — integrated Sol 5.6 performance-plan diagnostic build (2026-09-11)
+
+P6.48 integrates the implemented F01-F09 performance-plan paths on top of the post-upstream-sync runtime. It is a diagnostic/integration artifact, not a claim that the 30 FPS hardware gate has been met. The profile enables exclusive critical-path timing, guest active-CPU attribution, raw CPU texture reuse with a 16 MiB experimental GPU texture budget, extended EFB command storage/coalescing and deferred transfer finish, staged restoration of color/depth/cull/blend/TEV, one-pass linear batch preparation, conservative whole-frame vertex reuse, packet state ownership transfer, VI/present timeline telemetry and loading/audio delta profiling.
+
+F01 texture telemetry was extended before this build to classify cold, content-revision, layout, material-variant, budget-eviction, entry-pressure and source-invalid misses separately. It also records a primitive histogram and vertex-count-per-draw distribution so F05 strip/fan normalization is driven by real hardware data rather than enabled speculatively. The existing TEV signature census remains the decision point for any future programmable-shader specialization; Aurora is not linked back in.
+
+The upstream merge exposed a full-package source-discovery bug in `Makefile.vita`: the `grep -E` exclusions inside `$(shell ...)` used regex end anchors that GNU Make consumed before invoking grep. The corrected form uses `\.cpp$$` in the Makefile so grep receives `\.cpp$`. Dry-run validation confirms desktop/macOS units such as `guest_flat_memory.cpp`, `guest_flat_memory_macos.cpp`, `controller_mapping_wizard.cpp`, `input_bindings.cpp`, `input_expr.cpp`, `wii_remote_input.cpp`, `platform/host_platform.cpp`, Retro Rewind product code and the old Vita Aurora glue are excluded, while `runtime/src/vita/guest_flat_memory_vita.cpp` remains included.
+
+Offline validation PASS: host performance helpers (Yaz0 differential; one-million-operation EFB FIFO/coalescing oracle; 2048-command no-drop gate; texture budget/LRU/invalidation), ARM32 compilation, final ELF link, VELF/FSELF, VPK packaging and `unzip -t`. Final ELF symbol audit reports zero `AuroraPacketRenderer` and zero `aurora::vita::gfx` references. The remaining compiler diagnostics are non-fatal historical/upstream warnings (NAND enum mismatch, GCC parameter-passing notes and executable-stack linker note).
+
+- Git base recorded by manifest: `3b4994ce1959eb3ac328d9b1454fa51240c43563`.
+- Profile: `full-content-p6_48-sol-plan-integrated`.
+- VPK: `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_48-sol-plan-integrated.vpk`.
+- VPK bytes: `32191371`.
+- VPK SHA-256: `45a31b1dc657ea7b96ef5d41640e717d2bc7ee112a9ad0e9b11ae5b054f13f7f`.
+- ELF SHA-256: `3914a9a248e088259290e8d7ef1b2f90fe5518730382e44f812e32a55f2aad02`.
+- Build marker: `4128854011` (hex `F6194FFB`).
+
+Hardware acceptance is pending. First boot P6.48 through character/kart selection and race entry and capture the complete runtime log. Use `sol_critical`, `sol_texture`, `sol_prep`, `sol_batch`, `sol_efb`, `sol_draw_hist`, `sol_jobs`, `guest_hot_pc`, `render_timeline` and audio/loading deltas to rank F02-F07. P6.48 intentionally combines causal families only for integration/telemetry; performance attribution still requires the isolated F01 OFF/ON pair and subsequent one-family hardware A/B profiles. F08/F10 remain open until simulation speed, new-image cadence, input, visual correctness, audio and stability are measured on real hardware.
+
+
+## P6.49 — Vita NAND setting.txt publish fix (2026-09-11)
+
+P6.48 hardware boot reached SC/NAND initialization but stopped before the game because upstream setting.txt initialization attempted to publish the temporary file with POSIX hard-link semantics. On Vita the managed NAND root exists at `ux0:data/wiicompiled-vita/NAND`, but `::link()` is not a valid publication primitive for the Vita ux0:/uma0: filesystem path. The repeated `guest_hot_pc ... top=801A0504` lines after the fatal were profiler samples of the stale last guest PC while the fatal path was idle, not a guest execution loop.
+
+P6.49 keeps the complete P6.48 Sol performance stack unchanged and adds only a Vita-specific publication path in `runtime/include/nand_settings.h`: after the temporary setting file has been written and closed, Vita uses `sceIoRename`; Windows keeps `MoveFileExW` and other desktop platforms keep the existing hard-link path.
+
+Offline validation PASS: ARM32 compile/link, VELF/FSELF, VPK packaging and `unzip -t`. The profile builder anti-Aurora audit completed successfully.
+
+- Profile: `full-content-p6_49-sol-plan-nand-vita-fix`.
+- Build marker: `5DAF2826`.
+- VPK: `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_49-sol-plan-nand-vita-fix.vpk`.
+- VPK bytes: `32188633`.
+- VPK SHA-256: `3d98a44d7a8a7be69c304d095c7659c1bc252d3d5d496d51c369ffeb80552183`.
+
+Hardware acceptance pending: the next Vita boot must pass SC/NAND without `Cannot persist NAND setting.txt`, then continue into normal Mario Kart initialization. After that, repeat character select -> kart select -> race and capture the full runtime log for the F01-F09 performance analysis.
+
+## P6.49 hardware regression / P6.50 recovery-visible (2026-09-11)
+
+P6.49 fixed the post-upstream Vita NAND setting.txt publication bug and reached character selection on real hardware, but the integrated F04 profile was not hardware-safe. The runtime confirmed that all rescue restoration switches were enabled simultaneously (vertex color, depth, cull, blend/alpha and TEV, plus GX depth-range mapping). This regressed the only hardware-proven textured-3D state from P6.35: character models were no longer visible. F04 must therefore resume as one-state-at-a-time hardware A/B from the P6.35 rescue baseline; the all-on integrated state is rejected.
+
+The P6.49 native coredump after character selection was symbolized against the exact P6.49 ELF. The crashing pthread ended in newlib _kill_r(SIGABRT) / udf #255 after std::terminate. The preceding stack is operator new -> std::bad_alloc -> PrepareFrameCpuTextures -> PrepWorkerMain. Root cause in the experimental raw CPU texture cache: eviction used vector::clear(), decreasing the logical byte counter without releasing vector capacity, so retained Vita USER-heap memory could exceed the nominal 4 MiB cache budget during scene transitions.
+
+The raw-cache implementation is hardened for future F02 A/B: retained bytes are now accounted by vector capacity, eviction swaps with an empty vector to release the allocation, replacement avoids old+new allocation peaks, and allocation failure is a non-fatal cache miss. Prepared-texture allocation and the top-level prep worker also catch std::bad_alloc and invalidate prep products so rendering can use the synchronous fallback instead of aborting.
+
+P6.50 is the recovery hardware build. It keeps the NAND fix and performance telemetry, disables the experimental raw CPU texture cache for this validation, restores the 12 MiB GPU texture-cache / 8-texture / 4 MiB prep budgets, and returns the 3D rescue controls to the P6.35 hardware-visible state: keep_color=0, keep_depth=0, keep_cull=0, keep_blend_alpha=0, keep_tev=0 and direct_gx_depth_range=0. No Aurora renderer code is linked.
+
+- Profile: `full-content-p6_50-sol-plan-recovery-visible`.
+- VPK: `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_50-sol-plan-recovery-visible.vpk`.
+- VPK bytes: `32188680`.
+- VPK SHA-256: `0da9e6ab91ed33e5cbc02df5262f27dd23acf82bc1df7973dcd6d5c0aaa62e0a`.
+- Build marker: `5F1437EC`.
+- Offline validation: compile/link/VELF/FSELF/VPK/unzip PASS; final ELF audit 0 AuroraPacketRenderer / 0 aurora::vita::gfx symbols.
+- Hardware gate pending: textured character model must return; character -> kart transition must not abort; then continue to kart preview and race entry.
+
+
+## P6.50 hardware recovery / P6.51 F02 GPU-cache A/B (2026-09-11)
+
+Real-hardware P6.50 log marker 5F1437EC reaches character selection, kart/scene transitions and race entry without reproducing the P6.49 std::bad_alloc/abort. The intended P6.35-safe rescue state is active (all RESCUE_KEEP_* disabled, GX depth-range mapping disabled) and texture-rescue samples resolve successfully with no GL error. User reports behavior has returned to the previous pre-regression baseline.
+
+The new F02 miss taxonomy identifies the dominant race regression precisely. In steady race frames around serial 1206-1210 the 12 MiB GPU texture cache reloads about 66 textures/frame, with about 64 misses classified as budget_evict and roughly 10.5 MiB evicted per frame. Texture resolve is about 0.72 s/frame, including about 0.67 s decode, while direct EFB remains roughly 0.24-0.28 s/frame. The draw histogram also shows about 5962/6155 draws are GX_TRIANGLESTRIP, so the current concat-only linear batcher merges essentially zero race draws; strip normalization remains a separate later F05 intervention.
+
+P6.51 is therefore a single-cause F02 hardware A/B from P6.50: only the resident GPU texture-cache budget changes from 12 to 16 MiB. Raw CPU texture cache remains disabled, prep remains 8 textures / 4 MiB, the recovered rescue state is unchanged, and Aurora remains excluded. This build tests whether GPU residency alone reduces the measured budget-eviction churn without returning the P6.49 USER-heap crash.
+
+- Profile: `full-content-p6_51-f02-gpu-cache-16m`.
+- Build marker: `8A7EC461`.
+- VPK: `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_51-f02-gpu-cache-16m.vpk`.
+- VPK bytes: `32188533`.
+- VPK SHA-256: `887517b692ef1087358f7f93d7bd55777d92e2b02993a3013ae9cef3995dde42`.
+- Offline validation: compile/link/VELF/FSELF/VPK/unzip PASS; profile builder anti-Aurora ELF audit PASS.
+- Hardware gate: repeat the same character -> kart -> race path and compare steady-race sol_texture miss_reason/budget_evict, evicted bytes, resolve/decode time and sol_critical render/frame interval against P6.50.
+
+## P6.51 hardware F02 result / P6.52 F03 EFB CPU kernels (2026-09-11)
+
+P6.51 was exercised on real PS Vita through race execution. The 16 MiB resident GPU texture budget eliminates the steady-race budget-thrash measured in P6.50: the sampled hot window drops from roughly 66 texture misses/frame (about 65 budget evictions and ~10.6 MiB evicted/frame) to 0 misses, 0 budget evictions and 0 evicted bytes. Median texture resolve falls from about 725.8 ms to about 1.4 ms, with no decode/upload work in the hot frames. Median render-worker time falls from about 1029 ms to about 306 ms, while the producer interval falls to about 399 ms. This validates 16 MiB as the current F02 GPU-residency baseline for the tested race segment; the raw CPU texture cache remains disabled and is not accepted by this result.
+
+After texture churn is removed, direct EFB is the dominant measured renderer cost: steady frames spend about 244 ms in EFB, including about 80 ms in CPU nearest-neighbour resize and about 135 ms in channel conversion. A separate race-entry EFB storm remains visible and will be treated independently after the steady path.
+
+P6.52 changes only those CPU EFB kernels. The resize path preserves the exact floor(i*src/dst) nearest-neighbour mapping with quotient/remainder stepping instead of per-pixel integer division. Channel conversion hoists the format switch out of the pixel loop and replaces positive lround with the equivalent trunc(value + 0.5f) rule for the existing luma expression. The old implementations remain compile-time selectable; EFB lifetime, clear ordering, GXM transfer, texture cache, rescue rendering and all other P6.51 behavior are unchanged.
+
+- Profile: `full-content-p6_52-f03-efb-fast-cpu`.
+- Build marker: `BA841AFA`.
+- VPK: `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_52-f03-efb-fast-cpu.vpk`.
+- VPK bytes: `32189685`.
+- VPK SHA-256: `440d4e301f9a3de3f59d95c00db9471c0b22e348517f0df3c33a3be0e20e68b6`.
+- Offline validation: compile/link/VELF/FSELF/VPK/unzip PASS; profile-builder anti-Aurora ELF audit PASS; `git diff --check` PASS.
+- Hardware gate: repeat character -> kart -> race and compare `sol_efb resize_us`, `convert_us`, total EFB and `sol_critical render_us` against P6.51. `sol_texture` should remain at the P6.51 hot-state baseline (0 misses/evictions).
+
+## P6.52 hardware EFB win / P6.53 visibility diagnostic (2026-09-11)
+
+Real-hardware P6.52 (marker `BA841AFA`) confirms that the fast direct-EFB CPU kernels are a major F03 performance win. In representative race samples the renderer falls to roughly 22-24 ms/frame and direct EFB to roughly 8-9 ms/frame; texture resolve remains near 1 ms with the validated 16 MiB GPU cache. The whole-game image cadence is still only about 3-5 FPS because the guest/producer interval, not USER_1 rendering, is now the dominant limiter. This is not a 30 FPS acceptance result.
+
+Visual correctness remains unresolved: the user reports the race framebuffer is persistently white and 3D models/track are not visible. The P6.52 log still shows successful texture-rescue resolutions with no GL error, while steady race frames typically record 12 EFB commands but only 2 successful copies and 10 `InvalidDimensions` failures. Inspection of the direct-EFB execution path found that a failed copy destroyed its destination but the following GXCopyTex clear side effect was still applied to the active framebuffer. That behavior can erase already-drawn perspective geometry even though the requested copy was not representable.
+
+P6.53 is an isolated visibility/correctness A/B on top of P6.52. Successful EFB copy+clear commands are unchanged; only a clear belonging to a failed direct-EFB copy is suppressed. Bounded `efb_invalid_dims` telemetry now records the source rectangle, mapped rectangle, presentation origin/scale, destination size, format and clear bit for the first failures so a remaining coordinate-space bug can be fixed from hardware evidence rather than guessed. Texture budget remains 16 MiB, fast EFB kernels remain enabled, and the P6.35-safe rescue state remains unchanged.
+
+- Profile: `full-content-p6_53-f03-visible-failed-efb-clear`.
+- Build marker: `9C78B93A`.
+- VPK: `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_53-f03-visible-failed-efb-clear.vpk`.
+- VPK bytes: `32191040`.
+- VPK SHA-256: `2aedb585f401ca305413e208c2ea139a8fec1f3b2993938f8352f5e38678039f`.
+- ELF SHA-256: `bdb0027a2a606a4461337c34239fcdb361774ba7d6ea520e643984b08ffa5622`.
+- Offline validation: helper tests PASS; ARM32 compile/link, VELF/FSELF, VPK and `unzip -t` PASS; `git diff --check` PASS; final ELF audit reports 0 Aurora renderer symbol matches.
+- Hardware gate: character -> kart -> race; report whether any model/track becomes visible and capture the complete log. Prioritize `efb_invalid_dims`, `clear_suppressed_failed`, `sol_efb`, `sol_critical` and screenshots. If the frame remains white, correct EFB source-coordinate mapping next using the new diagnostic values; do not alter the 16 MiB texture baseline or rescue state at the same time.
+
+
+## P6.53 hardware visibility result / P6.54 F02 20 MiB residency A/B (2026-09-11)
+
+P6.53 was exercised on real PS Vita through race rendering. Suppressing the clear side effect of failed direct-EFB copies removes the previous full-white presentation failure: the race framebuffer now visibly contains 3D course geometry, trees/track props and HUD elements. Rendering correctness remains incomplete (scene is very dark and driver/kart/materials are not yet trustworthy), so this is a visibility recovery rather than F04 acceptance. The new invalid-dimension telemetry shows the failed copies are small EFB rectangles at the bottom edge (for example Wii source y=456..488 mapping to Vita y=544..544); their clear is now suppressed instead of erasing previously rendered geometry.
+
+P6.52/P6.53 also validate the fast F03 CPU EFB path as a substantial performance improvement: in the later race window EFB total is roughly 38-40 ms/frame, with resize about 1-2 ms and channel conversion about 17-18 ms, versus roughly 244 ms/frame before P6.52. The dominant late-race cost has moved back to F02 texture residency/decode. The later P6.53 race frames request about 33 MiB of unique RGBA texture data/frame while the 16 MiB resident cache holds about 16.5 MiB; approximately 61-63 misses/frame are budget evictions and synchronous texture resolve/decode rises again to roughly 0.63-0.66 s/frame.
+
+The draw census remains a strong future F05 target: roughly 5.8k of ~6.0k draws/frame are GX_TRIANGLESTRIP, mostly 4-7 vertices, while the current safe concat batcher merges zero of them. Strip normalization/batching remains deferred until F02 is stable so the hardware A/B remains causal.
+
+P6.54 is the planned second F02 residency A/B from the now-visible P6.53 baseline. It changes only the resident GPU texture budget from 16 MiB to 20 MiB. Raw CPU texture cache remains disabled, prep remains 8 textures / 4 MiB, P6.52 fast EFB remains enabled, failed-copy clears remain suppressed, and the P6.35-safe rescue state remains unchanged. This deliberately avoids adding another USER-heap decoded cache: after vitaGL initialization the captured memory budget leaves only about 7 MiB of USER headroom, and the existing raw cache is not on the synchronous ResolveTexture miss path.
+
+- Profile: `full-content-p6_54-f02-gpu-cache-20m`.
+- Build marker: `B0FC81C4` (decimal `2969338308`).
+- VPK: `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_54-f02-gpu-cache-20m.vpk`.
+- VPK bytes: `32190908`.
+- VPK SHA-256: `bf141ac33b7687947f57c50194c6d438e2d0eba6adf40aa65cbc1bcb857e9182`.
+- ELF SHA-256: `6e451cdc8d50ab3e3ae44fcf5549a2f34f982640a727458e0d2d0eb254bad626`.
+- Offline validation: compile/link/VELF/FSELF/VPK/unzip PASS; performance helper suite PASS; independent final-ELF audit 0 AuroraPacketRenderer / 0 aurora::vita::gfx symbols; git diff --check PASS.
+- Hardware gate: run far enough into the race to reach the late P6.53 slow window and compare budget_evict, resolve/decode time, resident bytes, render_us and new-image cadence. Preserve the P6.53 visible scene. If 20 MiB still thrashes heavily, stop increasing the budget blindly and move F02 to texture-footprint reduction or a decoded cache outside the scarce USER heap.
+
+
+## P6.58 hardware attribution / P6.59 native PSMTXRotTrig (2026-09-11)
+
+P6.58 hardware confirms F02/F03/F05 remain stable in the sampled race window: texture resolve is about 1.0-1.3 ms with zero steady misses, direct EFB is single-digit milliseconds in representative frames, and strip stitching reduces roughly 1430 logical draws to ~177 physical draws in the sampled sub-scene. Stable image cadence is now around 184-220 ms in that section (~4.5-5.4 FPS), materially ahead of the earlier ~400 ms producer regime.
+
+The corrected F06 attribution changes the next target. GX::CallDisplayList is no longer dominant in the P6.58 stable window: frame 480 reports dl_us=17993 us and frame 600 dl_us=18282 us. Breakdown is roughly 2.4-2.5 ms probe, 0 scan, ~1.0 ms apply, ~6.1 ms template replay and ~8.4-8.6 ms residual. Whole USER_0 frame CPU is ~133-168 ms for ~185 ms wall in the sampled frames. Therefore further speculative DL rewrites are deferred.
+
+Guest PC symbol mapping from the generated map: 0x80126954=__AXDSPResumeCallback, 0x800797D0=nw4r::lyt::Pane::GetVtxPos, 0x800822F0=nw4r::lyt::TexMap::Get, 0x8019A204=MTX::PSMTXRotTrig, 0x802435DC=EGG::Thread::SwitchThreadCallback, 0x805E7B40=PaneManager::ConvertColorS10ToUT. 0x8004F9C0 is the thin GX display-list wrapper and, like __AXDSPResumeCallback, can remain sampled while deeper host/HLE work executes; those wrapper samples are not treated as self-time.
+
+P6.59 is a single F06 A/B: nativeize only the state-free Revolution SDK PSMTXRotTrig leaf at 0x8019A204. The native implementation preserves the exact X/Y/Z 3x4 matrices of the translated paired-single/PSQ implementation and returns without writing on an invalid axis. All P6.58 renderer, EFB, 20 MiB texture residency, strip-stitching, DL-state-reuse and the exact same 16 O3 hot translated shards are retained.
+
+- Profile: `full-content-p6_59-f06-native-rottrig` with the P6.58 16 hot shards at O3.
+- Marker: `E7A698B3` (decimal `3886454963`).
+- VPK: `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_59-f06-native-rottrig-hot-O3-43724a1f.vpk`.
+- VPK bytes: `32191123`.
+- VPK SHA-256: `0f2f3b7f4a25740f5964412e56f24ff1ca029a24c0d70226458b3fc3c05c2912`.
+- ELF SHA-256: `1eef14756ed342f8134facd8ec7597740c31ffd4111e51b850714ef929939afd`.
+- Offline gates: compile/link/VELF/FSELF/VPK/unzip PASS; performance-helper suite PASS; independent final ELF audit reports zero forbidden Aurora symbols; git diff --check PASS.
+- Hardware gate: compare the same race section against P6.58 using frame_wall_us/frame_cpu_us and image cadence, ensure 0x8019A204 disappears/reduces from guest hotspot samples, and verify visual behavior is unchanged. A small gain means continue F06 with the next verified state-free hot leaf rather than altering GX again.
+
+
+## P6.59 F06 boot-regression recovery (2026-09-11)
+
+The first P6.59 experiment attempted a native override of guest MTX::PSMTXRotTrig at 0x8019A204. Real hardware stopped before game boot with `Stale generated indirect dispatch winner at 0x8019a204 for profile base`: the generated base indirect-dispatch table still selected the translated function while the registry winner had become Native. The runtime validation correctly rejected this inconsistent dispatch state.
+
+The native RotTrig experiment and its build flag were removed. Recovery profile `full-content-p6_59-f06-sampler-off-recovery` returns to the hardware-good P6.58 behavior and changes only `MKW_VITA_GUEST_PC_SAMPLER=0`, retaining whole-frame F06 counters, DL state reuse, 20 MiB texture residency, fast EFB, failed-copy clear suppression and F05 strip stitching. Build marker `9ED61D4A`. VPK SHA-256 `cad17125968b378bf5bc44d39a7d648ca5b0cc9f487fa4db18ed6780e36feb7e`; ELF SHA-256 `c61107b58173511f0c77e01855cd7dc5d9d005e791112f64f9cf7e862e169e5c`. Offline build/package/helper tests PASS; independent final-ELF Aurora symbol audit = 0. Hardware boot/race gate pending.
+
+
+## P6.59 hardware negative A/B / P6.60 F06 raw-mesh capacity (2026-09-11)
+
+P6.59 (sampler-off recovery, marker 9ED61D4A) was exercised on real PS Vita and did not improve the heavy-race cadence. Stable race images remain roughly 417-426 ms apart (~2.35-2.40 FPS), with ~6155 logical / ~1610 physical draws, ~90-94 ms prep and ~133-136 ms render. Texture residency remains healthy at 20 MiB; direct-EFB remains roughly 106 ms in the sampled heavy window. Disabling the guest-PC sampler is therefore a negative performance A/B.
+
+The same hardware log exposes raw-mesh cache entry thrash: around 6103 cacheable raw draws/frame produce only ~220 hits versus ~5883 misses and ~5877 stores, with only ~45 generation invalidations and ~1.37 MiB payload resident under the existing 4 MiB payload budget. The 512-set x 4-way table (2048 entries) cannot retain the ~6k-draw race working set between frames.
+
+P6.60 keeps P6.59 rendering, EFB, texture, rescue and strip-stitch behavior unchanged and changes only raw-mesh metadata capacity to 2048 sets x 4 ways = 8192 entries. The payload budget remains 4 MiB. Profile: full-content-p6_60-f06-rawmesh-8k; marker 534554F8 (1397052664). VPK: build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_60-f06-rawmesh-8k.vpk, 31,913,313 bytes, SHA-256 aadee5f77169b4e360784611244dde6a61c97cda42d3eee86d78f51870a8e510. ELF SHA-256 4dc1676e6dd234a69929b4a3f2013060361eb81c0aad97e23f24a96cf0845627. Offline build/package/unzip and performance helper suite PASS; independent ELF audit finds 0 AuroraPacketRenderer / aurora::vita::gfx symbols.
+
+Memory gate: arm-vita-eabi-size shows P6.59 data=10,370,738 bytes and P6.60 data=12,582,578 bytes (+2,211,840 bytes, ~2.11 MiB); BSS is unchanged at 5,771,160 bytes. Hardware must confirm sufficient USER headroom after vitaGL and no bad_alloc/crash. Acceptance requires a large rawmesh hit-rate increase, corresponding miss/store decrease, preserved visuals, and lower producer/frame interval. If memory becomes unsafe, revert capacity and compact RawMeshCacheEntry metadata instead.
+
+
+## P6.60 hardware win / P6.61 F06 raw-mesh 16K A/B (2026-09-11)
+
+P6.60 (marker `534554F8`) is a clear hardware F06 win over P6.59 in the heavy race window. Expanding the raw-mesh cache from 512 to 2048 sets raises stable raw-mesh reuse from roughly 220 hits / 5883 misses per frame to roughly 4.2k-4.7k hits / 1.25k-1.55k misses, with zero meaningful invalidations and only about 1.7 MiB of decoded payload resident under the unchanged 4 MiB payload budget. Heavy-race producer cadence improves from roughly 416-454 ms/frame to roughly 243-273 ms/frame, while render cost falls from roughly 132-136 ms to roughly 57-65 ms. This validates raw-mesh residency as a real producer/render optimization rather than telemetry noise.
+
+The remaining misses are not explained by payload-budget pressure or dynamic invalidation. In the same heavy window GX::CallDisplayList is again a major USER_0 cost at roughly 90-108 ms/frame, dominated by about 68-75 ms of pure draw-template replay. Before changing replay semantics, P6.61 performs the final supported cache-set A/B: 2048 -> 4096 sets (8192 -> 16384 metadata entries), keeping the payload budget at 4 MiB and leaving renderer, EFB, 20 MiB texture residency, rescue, strip stitching, DL template behavior and guest-PC sampler state unchanged.
+
+- Profile: `full-content-p6_61-f06-rawmesh-16k`.
+- Build marker: `8F2B5D4E` (decimal `2401983822`).
+- VPK: `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_61-f06-rawmesh-16k.vpk`.
+- VPK bytes: `31913703`.
+- VPK SHA-256: `896cc7f9ba5bb47cb5d4bd0e6979fd016cdeb5bcdde986682907a5e46470f2e5`.
+- ELF SHA-256: `0f40ad49edc4c9ffae0fde3da4825dbf8a28f4f0bc5201f124a5a01b1b3e7f67`.
+- Offline gates: ARM32 compile/link, VELF/FSELF, VPK, `unzip -t`, performance helper suite and `git diff --check` PASS; independent final-ELF audit reports zero `AuroraPacketRenderer` / `aurora::vita::gfx` symbols.
+- Hardware gate: run well into the full race and compare `sol_rawmesh hit/miss/store`, `gx_cpu_perf dl_us/dl_template_us`, producer interval, prep/render cost and free-memory/crash behavior against P6.60. If misses do not collapse substantially, stop increasing cache size and move P6.62 to template-scope dependency validation/coarser replay.
+
+P6.61 static-data cost relative to P6.60: data 12,582,578 -> 15,531,698 bytes (+2,949,120 bytes, ~2.81 MiB); text and BSS are unchanged. P6.60 reported only 7,340,032 bytes USER free after vitaGL, so P6.61 must be treated as a memory-risk A/B and rejected immediately if hardware shows bad_alloc/crash or materially unsafe USER headroom.
+
+
+## P6.61 hardware result / P6.62 F06 display-list dependency scope (2026-09-11)
+
+The real-hardware P6.61 run validates the second raw-mesh metadata-capacity step. In the stable heavy-race window the 4096-set / 16384-entry table raises reuse to roughly **5577 hits / 258 misses out of ~5835 cacheable draws (~95.6% hit rate)** with no payload-budget or invalidation pressure explaining the remaining misses. Representative heavy producer intervals fall to roughly **~221 ms**, while new-image cadence remains around **~242 ms (~4.1 FPS)**. The raw-mesh cache is therefore no longer the first limiter and must not be enlarged again: P6.61 already carries the previously documented ~2.81 MiB static-data increase over P6.60.
+
+P6.61 also narrows the next F06 target. Stable race samples still spend approximately **56-74 ms/frame in GX::CallDisplayList**, of which roughly **39-43 ms is draw-template replay**. With almost every raw mesh already resident, that replay repeatedly rechecks the same display-list payload and indexed-array guest-write generations draw by draw. P6.62 changes only this validation scope; renderer, EFB, 20 MiB texture residency, rescue state, strip stitching, raw-mesh capacity and translated O3 shard set are unchanged.
+
+P6.62 adds `MKW_VITA_DL_TEMPLATE_DEP_SCOPE=1` and a conservative whole-template preflight:
+
+- before the first draw of a pure draw-template DL, every raw draw must resolve to an existing raw-mesh entry with matching layout/key and current dependencies;
+- payload ranges inside the already validated immutable display-list byte range do not issue another guest-generation query;
+- repeated indexed-array ranges cache their observed generation for the duration of that one template replay;
+- only entries proven current by that preflight receive the scope serial, allowing the actual submit pass to skip the duplicate per-draw dependency query;
+- any miss, layout mismatch, untracked generation or dependency mismatch cancels the scope **before the first draw is emitted** and the complete template falls back to the P6.61 path. No partial replay or duplicated geometry is permitted.
+
+New `sol_rawmesh` telemetry reports `template=scopes/validated/prevalidated_hits/fallbacks`, `gen=queries/reuses` and `payload_skip`. The startup/manifest marker reports `dl_template_dep_scope=1`.
+
+- Profile: `full-content-p6_62-f06-dl-dependency-scope`.
+- Build marker: `3FEB8E0B` (decimal `1072401931`).
+- VPK: `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_62-f06-dl-dependency-scope.vpk`.
+- VPK bytes: `31914715`.
+- VPK SHA-256: `4091e50bf8d0f502aa3c4d548661349c65fd3f48996293c6dcd5c0e0e4355e51`.
+- ELF: `build/vita/mkwii_runtime/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_62-f06-dl-dependency-scope.elf`.
+- ELF bytes: `204890156`.
+- ELF SHA-256: `6b86205b4d1ea92637316a6522634185d44d1f2b9d758a60539d292b0e54a2f5`.
+- Manifest SHA-256: `9d529e5d8f81b742f9a6d3a98bb4608423e0272a8956df0dc9f824b6628f714e`.
+- Offline validation: P6.62 ARM32 `graphics-check` PASS; the same P6.61 stack with `MKW_VITA_DL_TEMPLATE_DEP_SCOPE=0` also passes `graphics-check`; full compile/link, VELF/FSELF, VPK packaging, `verify-mkw-firstboot-vpk` and `unzip -t` PASS; `git diff --check` PASS; final ELF byte audit finds zero `AuroraPacketRenderer` / `aurora::vita::gfx` implementation strings. The host Python performance-helper suite was **not rerun in this continuation** because the connected command environment exposes no Python executable; do not misreport it as a fresh P6.62 pass.
+
+Hardware gate: install this exact VPK and run through the same full race window used for P6.61. Confirm marker `3FEB8E0B` and `dl_template_dep_scope=1`. In stable high-draw frames compare `sol_rawmesh template=... gen=... payload_skip=...`, `gx_cpu_perf dl_us/dl_template_us`, producer interval, prep/render time and image cadence against P6.61. A useful pass requires prevalidated hits to cover most template replay draws, generation queries to be far below raw draw count, low fallback volume, unchanged visuals/progression and a measurable reduction in `dl_template_us`/producer time. If fallbacks are frequent or the extra preflight erases the saved query cost, disable this flag and retain P6.61. Do not increase raw-mesh capacity further. After this A/B, the next independent candidate is the ~70 ms USER_2 vertex-prep path / whole-frame reuse-hash overhead, not another cache-size increase.
+
+
+## P6.63 text-overdraw probe (2026-09-11)
+
+A hardware observation reported that several menu texts appear visibly printed twice. Before suppressing any rendering work, P6.63 adds a diagnostic-only probe around the existing native `Text::GlyphDrawer::Draw @ 0x805CF598` fast path. The probe does **not** skip, merge, reorder or mutate any GX draw.
+
+The existing counters `glyph_fast` and `glyph_raw` must not be interpreted as two submissions: `glyph_raw` is the subset of the same `glyph_fast` calls that successfully use `GX_HLE_SubmitRawDrawFast`; the fallback path only runs when raw-direct fails. P6.63 therefore measures duplication above that mutually-exclusive path.
+
+New build flag:
+
+- `MKW_VITA_TEXT_OVERDRAW_PROBE=0` by default; P6.63 enables it.
+- P6.62's `MKW_VITA_DL_TEMPLATE_DEP_SCOPE=1` and 4096-set / 16384-entry raw-mesh cache remain unchanged.
+
+New `gx_cpu_perf` field:
+
+`glyph_probe=seen/unique/exact/source_repeat/shadow_like/table_full`
+
+Meaning:
+
+- `seen`: all GlyphDrawer calls observed in the producer frame.
+- `unique`: payloads not previously observed in that frame.
+- `exact`: a prior glyph has identical texture object, color/setup keys, quad coordinates and UVs. This is the strongest candidate for redundant overdraw.
+- `source_repeat`: the same 24-byte source glyph record address is submitted again in the same frame. This can expose repeated TextBox/layout traversal even when another state component changes.
+- `shadow_like`: same texture/UV and dimensions, with <=2 coordinate units of displacement and/or different color/setup state. A high count with low `exact` is more consistent with a legitimate shadow/outline pass or a state/rendering bug than a safe duplicate.
+- `table_full`: unique-probe capacity exhausted; expected to stay 0. The diagnostic table is capped at 768 unique payloads.
+
+Because classification currently linearly scans the frame-local unique table, P6.63 can add measurable CPU overhead in text-heavy scenes. **Do not use P6.63 frame time as a performance regression/improvement measurement against P6.62.** Its purpose is to decide whether a later optimization can safely remove redundant text submissions.
+
+Build validation:
+
+- ARM32 graphics-check with probe ON: PASS.
+- Same P6.62 configuration with probe OFF: PASS (kill switch).
+- Full compile/link, SELF/VPK packaging and `unzip -t`: PASS.
+- Manifest confirms `raw_mesh_sets=4096`, `dl_template_dep_scope=1`, `text_overdraw_probe=1`.
+- Final ELF defined-symbol audit: `AuroraPacketRenderer` / `aurora::vita::gfx::*` = 0. Aurora renderer remains absent.
+- Python performance-helper suite was not rerun because this connector environment has no usable `python` command.
+
+P6.63 hardware artifact:
+
+- profile: `full-content-p6_63-text-overdraw-probe`
+- marker: `D2C5A13D` (3536167229)
+- VPK: `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_63-text-overdraw-probe.vpk`
+- VPK bytes: 31,915,481
+- VPK SHA-256: `b2830a1b11b066dca6dd0846829a11925088c3b410922680856788edb91ef6db`
+- ELF SHA-256: `6f5d45d2575bfb05d383567928c2a0985c4f4c1dd4ac452b0d26c0eac2e92035`
+- manifest SHA-256: `4db80493e1521759a2d4c57af94b789f3c89f42328260731043a52ffb061f8d3`
+- evidence: `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_63-text-overdraw-probe.evidence-p6_63.json`
+
+Hardware gate for the next step:
+
+1. Reproduce a menu/screen where the text is visibly doubled and capture enough `gx_cpu_perf` samples.
+2. If `exact` and/or `source_repeat` account for a large fraction of `seen` (especially roughly half), treat duplicate submission as a real optimization candidate and trace the responsible TextBox/layout caller before suppressing it.
+3. If `shadow_like` is high while `exact` is low, investigate TEV/color/alpha/transform state of the intended shadow/outline pass instead of deleting it.
+4. If all duplication counters remain low while the screen still shows double text, move the investigation outside GlyphDrawer toward EFB/framebuffer/present persistence or transform/state replay.
+5. No text de-duplication is enabled in P6.63.
+
+
+## P6.64 hardware text-traversal attribution probe (2026-09-12)
+
+P6.64 stays on the real-PS-Vita path and extends P6.63 only with attribution telemetry. No draw is skipped, merged, reordered or mutated. Native wrappers bracket the original translated nw4r::lyt::Layout::Draw @ 0x8007A990 and nw4r::lyt::TextBox::DrawSelf @ 0x8007B870 functions, then the existing GlyphDrawer probe classifies exact duplicate payloads by traversal scope.
+
+New flag: MKW_VITA_TEXT_TRAVERSAL_PROBE=1 in profile full-content-p6_64-text-traversal-probe. P6.63 MKW_VITA_TEXT_OVERDRAW_PROBE=1, P6.62 dependency scope and the P6.61 4096-set raw-mesh cache remain enabled. Renderer remains direct vitaGL; Aurora is not reintroduced.
+
+New gx_cpu_perf telemetry:
+
+- lyt_probe=layout_calls/layout_unique/layout_repeat/textbox_calls/textbox_unique/textbox_repeat/stack_overflow/table_full
+- glyph_scope=same_textbox_call/repeated_textbox/same_layout_call/repeated_layout/cross_layout/unscoped
+
+Interpretation gate: a large repeated_textbox/repeated_layout share points to redundant LYT traversal and can justify a later high-level suppression experiment. A large same_textbox_call share instead points inside one TextBox render (for example intended shadow/outline or broken TEV/alpha/transform state) and must not be fixed by deleting the second traversal. P6.64 itself remains diagnostic-only, so its timing is not a clean performance A/B.
+
+Hardware artifact:
+
+- profile: full-content-p6_64-text-traversal-probe plus the same 16 O3 hot shards as P6.63
+- marker: 2066ECA7 (decimal 543616167)
+- VPK: build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_64-text-traversal-probe-hot-O3-43724a1f.vpk
+- VPK bytes: 31,916,006
+- VPK SHA-256: 625cbfdbe6387575dd850949cc6612fa8d8ff8d10456f758dfb0bb90a9c14870
+- ELF bytes: 204,961,028
+- ELF SHA-256: 8eea12f4cea15ff71572f656f9bc02dc880217010c16d19e490b3c9c588b3440
+- manifest SHA-256: bd0d68e45b18db77ccd8f19069a247dbc97423aca14ea92ab5ed301d0673d009
+- full compile/link, SELF/VPK packaging, unzip -t and git diff --check: PASS.
+
+Hardware test: reproduce a menu where text is visibly doubled, keep it on screen for several producer frames, then provide runtime.log plus a screenshot. Confirm marker 2066ECA7, text_overdraw_probe=1 and text_traversal_probe=1. The next implementation step must be selected from the observed glyph_scope distribution rather than trial-and-error suppression. Vita3K/no-splash variants are not part of this gate.
+
+## P6.64R hardware result / P6.65 state-aware text dedupe (2026-09-12)
+
+The first P6.64 traversal-attribution design is **rejected**. Its native registrations for translated `nw4r::lyt::Layout::Draw @ 0x8007A990` and `TextBox::DrawSelf @ 0x8007B870` conflicted with the generated indirect-dispatch winner and stopped boot with `Stale generated indirect dispatch winner at 0x8007a990 for profile 'base'`. Do not restore those wrappers. The later P6.64R implementation keeps Layout/TextBox translated and derives only a diagnostic text-owner key from the existing PPC writer frame at GlyphDrawer entry.
+
+Real-hardware `runtime2.txt` validates P6.64R. The actual logged/build marker is **`9E02AE3F`** (this supersedes the earlier incorrectly reported `9E01817F`). It reaches the translated registry, menu/scene loading and continued direct-vitaGL presentation past serial 1150, including real menu/kart assets, with no recurrence of the stale-dispatch boot failure and no terminal fatal in the captured log. Aurora remains disabled.
+
+The text probe now gives a much stronger result than P6.63 alone:
+
+- stable menu samples at frames 120/240/360/480/600: `glyph_probe=36/18/18/0/0/0` and `glyph_owner=36/0/18/0/0`;
+- frame 720: `glyph_probe=526/156/370/0/0/0`, `glyph_owner=403/123/209/0/161`;
+- frame 960: `glyph_probe=44/27/17/0/0/0`, `glyph_owner=44/0/17/0/0`.
+
+Therefore every exact duplicate whose owner is known is produced by the **same owner**; `exact_different=0` in every observed sample. `source_repeat=0` also shows that the duplicate final glyph payloads can originate from distinct source records, and `shadow_like=0` argues against a simple offset shadow pass. Unknown-owner cases remain unresolved and must not be suppressed by owner-based logic.
+
+P6.65 adds `MKW_VITA_TEXT_DEDUPE_SAME_OWNER=1` but deliberately does **not** dedupe from payload+owner alone. The one-shot owner tag is passed only to the next raw GlyphDrawer quad. In the direct-vitaGL backend, after the quad has been fully decoded and `CaptureDrawState` has run, the second draw is suppressed only when all of the following match an earlier same-owner glyph in the same producer frame:
+
+- primitive, vertex format and four fully decoded `RenderVertex` records;
+- four PN-matrix references and `pnMtxIndex`;
+- semantic transform state via `SameDrawTransform`;
+- semantic raster state via `SameDrawRaster`;
+- semantic texture/TEV state via `SameDrawTexture`.
+
+Owner-unknown glyphs, geometry mismatches and state mismatches remain untouched. A failed raw submit cannot leak the owner tag into a later draw. The table is fixed-capacity/frame-local (768 records), requires compact captured state, and is cleared at frame reset. New hardware telemetry is `sol_text_dedupe serial=... candidates=... suppressed=... state_mismatch=... geometry_mismatch=... table_full=...`.
+
+P6.65 hardware artifact:
+
+- profile: `full-content-p6_65-text-state-dedupe` with the same 16 O3 hot shards used by P6.64R;
+- marker: **`3AB4B080`** (decimal `984920192`);
+- VPK: `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_65-text-state-dedupe-hot-O3-43724a1f.vpk`;
+- VPK bytes: `31917306`;
+- VPK SHA-256: `cc82ad4ce00cffb837ec24d24479e25ad249c4fae851ce4edfaf25fee9cf0c89`;
+- ELF: `build/vita/mkwii_runtime/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_65-text-state-dedupe-hot-O3-43724a1f.elf`;
+- ELF bytes: `204964408`;
+- ELF SHA-256: `8ab0cd120c1730b035a393920eb6870941bfe80214ea45b0be3d9ee28bd78c1e`;
+- manifest SHA-256: `b1a223b331a627eb91580f7f1c57edbe3ae73e51c45f5f50710772b2fa1adc64`.
+
+Offline gates: ARM32 `graphics-check` PASS with dedupe ON and separately with the kill switch OFF; full compile/link, VELF/FSELF, package verification and `unzip -t` PASS; manifest confirms `raw_mesh_sets=4096`, `dl_template_dep_scope=1`, `text_overdraw_probe=1`, `text_owner_probe=1`, `text_dedupe_same_owner=1`; final ELF byte audit finds no `AuroraPacketRenderer`, `aurora::vita::gfx`, or rejected P6.64 Layout/TextBox probe strings.
+
+Hardware gate: first confirm marker `3AB4B080`, normal menu/game progression and unchanged non-text visuals. On a screen that was visibly doubled, compare the picture directly with P6.64R and collect `sol_text_dedupe` plus `glyph_probe/glyph_owner`. A useful result has nonzero `suppressed`, zero `table_full`, no missing legitimate text and visibly reduced double-printing. State/geometry mismatches are expected safety rejections, not failures. Because P6.65 still carries P6.63/P6.64R diagnostic scanning overhead, do not treat its frame time as a clean performance A/B against P6.62; the first question is visual correctness and whether the conservative backend gate actually suppresses the duplicated glyphs.
+
+
+## P6.75 hardware / P6.76 DL record burst memcpy (2026-09-12)
+
+P6.75 real-hardware marker `8200B3F7` confirms that targeted O3 on `RFLiInitShapeRes` and measured helpers is useful but insufficient. On the comparable heavy RFL frame, wall time moves from 5,893,545 us to 5,409,592 us (~8.2% faster), while the dominant `GXBegin` interval at LR `0x800C23C0` remains 4,919,256 us across 284 calls. The secondary `0x800C4CA4` path is `RFLiDrawQuad` and is only ~68.9 ms total, so it is not the primary target.
+
+The same P6.75 log resolves the EFB diagnostic cleanly: the ten failed EFB copies in steady frames are all `OutsidePresentSource` (`reason=0/0/0/10/...`). The failing 32x32 source rectangles begin at guest/EFB y=456 and are mapped through the 608x456 fullscreen-present transform to Vita y=544, yielding zero mapped height. Do not clamp these copies; internal EFB coordinates must be separated from the final presentation transform in a later graphics-correctness change.
+
+P6.76 `full-content-p6_76-dl-record-burst-memcpy` attacks the remaining RFL recording cost without replacing translated functions. The existing RFL FIFO burst already skips the guest byte loop, but `WriteDisplayListBurst` still performed thousands of `Memory::Write32/16/8` operations, each repeating guest-memory policy/executable-page checks. With `MKW_VITA_DL_RECORD_BURST_MEMCPY=1`, the recorder proves the complete non-wrapping destination as ordinary writable/non-executable guest RAM once via `ResolveRangeHost`, rejects source/destination overlap, then copies the already-encoded FIFO bytes with one `memcpy`. Any failed proof or overlap falls back to the original scalar path unchanged.
+
+P6.76 offline gates: `graphics-check` PASS, full compile/link PASS, VELF/FSELF/VPK package PASS, `unzip -t` PASS, direct-vitaGL renderer audit PASS with zero Aurora renderer symbols. Marker **`37B9EC6B`** (decimal `934865515`). VPK: `build/vita/wiicompiled-vita-mkw-firstboot-astra-full-content-p6_76-dl-record-burst-memcpy-hot-O3-bcd16295.vpk`, 29,630,350 bytes, SHA-256 `b737df521399e055e94e52c29b61f97d9edbf0a82efc4c5e6570af986ef3a135`. ELF SHA-256 `2cc55cc5df4e3ac0528995564a6252f61e1fbdec1b230b294c3f724d70c923ac`. Hardware validation is pending. Primary gate: compare the same RFL `count=284` interval against P6.75; a meaningful success must sharply reduce `gap_us`, not merely move a few percent.

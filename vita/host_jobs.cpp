@@ -35,10 +35,20 @@ bool HostJobFence::waitFor(uint32_t timeoutMicroseconds) noexcept {
                                [this] { return complete(); });
 }
 
+void HostJobFence::add() noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    pending_.fetch_add(1, std::memory_order_relaxed);
+}
+
 void HostJobFence::signal() noexcept {
-    if (pending_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-        condition_.notify_all();
+    bool becameComplete = false;
+    {
+        // The predicate transition and the condition-variable waiter use the
+        // same mutex, excluding the classic check-then-sleep lost wake-up.
+        std::lock_guard<std::mutex> lock(mutex_);
+        becameComplete = pending_.fetch_sub(1, std::memory_order_acq_rel) == 1;
     }
+    if (becameComplete) condition_.notify_all();
 }
 
 HostJobSystem::~HostJobSystem() {

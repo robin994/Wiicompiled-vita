@@ -41,7 +41,7 @@ public:
 private:
     friend class HostJobSystem;
 
-    void add() noexcept { pending_.fetch_add(1, std::memory_order_relaxed); }
+    void add() noexcept;
     void signal() noexcept;
 
     std::atomic<uint32_t> pending_{0};

@@ -222,12 +222,70 @@ MKW_MEMORY_FORCE_INLINE bool TryGetWritablePointerFast(
     return true;
 }
 
+// Resolve a larger ordinary-RAM write range with the same executable-page
+// policy used by TryGetWritablePointerFast. This stays bounded to one 1 MiB
+// coarse mapping: a cross-mapping range keeps the scalar/fallback path.
+MKW_MEMORY_FORCE_INLINE bool TryGetWritableRangeFast(
+    uint32_t address, size_t length, uint8_t*& pointer) {
+    pointer = nullptr;
+    if (length == 0 || length > kPageSize ||
+        address > UINT32_MAX - static_cast<uint32_t>(length - 1)) {
+        return false;
+    }
+
+    const uint32_t endAddress = address + static_cast<uint32_t>(length - 1);
+    const uint32_t coarsePage = address >> kPageShift;
+    if ((endAddress >> kPageShift) != coarsePage) return false;
+
+    const uint32_t firstExactPage = address >> kWritableSubPageShift;
+    const uint32_t lastExactPage = endAddress >> kWritableSubPageShift;
+    for (uint32_t page = firstExactPage; page <= lastExactPage; ++page) {
+        if (RecompMod::g_executableWriteGuardPages[page].load(
+                std::memory_order_relaxed) != 0) {
+            return false;
+        }
+    }
+
+    const uintptr_t coarseBias = g_fullWritablePageBias[coarsePage];
+    if (coarseBias != 0) {
+        pointer = reinterpret_cast<uint8_t*>((coarseBias - 1u) + address);
+        return true;
+    }
+
+    const auto* subTable = g_sparseWritablePageTables[coarsePage];
+    if (subTable != nullptr) {
+        const uint32_t firstSubPage =
+            (address & kPageMask) >> kWritableSubPageShift;
+        const uint32_t lastSubPage =
+            (endAddress & kPageMask) >> kWritableSubPageShift;
+        const uintptr_t firstBias = subTable->encodedBias[firstSubPage];
+        if (firstBias == 0) return false;
+        for (uint32_t subPage = firstSubPage + 1; subPage <= lastSubPage; ++subPage) {
+            if (subTable->encodedBias[subPage] != firstBias) return false;
+        }
+        pointer = reinterpret_cast<uint8_t*>((firstBias - 1u) + address);
+        return true;
+    }
+
+    // Small plain mappings can lack both writable-bias tables. The ordinary
+    // mapping remains valid when the whole range fits and all executable
+    // sub-pages above have already been rejected.
+    const uint32_t offset = address & kPageMask;
+    const auto& entry = g_pageTable[coarsePage];
+    if (!entry.base || length > entry.limit || offset > entry.limit - length) {
+        return false;
+    }
+    pointer = entry.base + offset;
+    return true;
+}
+
 // Flat form: guest_flat_memory.h's page protections already answer mapped/non-deferred/non-executable, so resolving is pure address arithmetic.
 // Two checks stay inline: a wrapped guest address can't survive 64-bit `host + rangeOffset`, and an MMIO write's value isn't recoverable from a
 // fault record, so a write touching that window must resolve null and fall back to Memory::Write*. Checking both range endpoints is a complete
 // proof since length <= kPageSize (1 MiB) can't straddle the 32 MiB MMIO window.
 MKW_MEMORY_FORCE_INLINE uint8_t* ResolveRangeHost(uint32_t base, int32_t minOffset, uint32_t length,
-                                                 bool needsRead, bool needsWrite) {
+                                                 bool needsRead, bool needsWrite,
+                                                 bool vitaHotWriteRange = false) {
     (void)needsRead;
     const uint32_t guestStart = base + static_cast<uint32_t>(minOffset);
     if (length == 0 || length > kPageSize || guestStart > UINT32_MAX - (length - 1)) return nullptr;
@@ -242,11 +300,21 @@ MKW_MEMORY_FORCE_INLINE uint8_t* ResolveRangeHost(uint32_t base, int32_t minOffs
         (FlatWriteNeedsPolicy(guestStart) || FlatWriteNeedsPolicy(guestStart + (length - 1))))
         [[unlikely]] return nullptr;
 #if defined(MKW_TARGET_VITA)
-    // Vita cannot reserve the desktop backend's 4 GiB flat guest window. Keep
-    // the resolved-range optimization only when one ordinary page-table entry
-    // proves the complete range contiguous and readable. Writes conservatively
-    // fall back so executable-write guards remain authoritative during bring-up.
-    if (needsWrite) return nullptr;
+    // Vita cannot reserve the desktop backend's 4 GiB flat guest window. Reads
+    // use the ordinary mapping proof. P6.67 may opt write ranges into the same
+    // exact executable-page policy already used by fast scalar stores.
+    if (needsWrite) {
+#if defined(MKW_VITA_HOT_RESOLVED_RANGES) && MKW_VITA_HOT_RESOLVED_RANGES
+        if (vitaHotWriteRange) {
+            uint8_t* writable = nullptr;
+            if (!TryGetWritableRangeFast(guestStart, length, writable)) return nullptr;
+            return writable;
+        }
+#else
+        (void)vitaHotWriteRange;
+#endif
+        return nullptr;
+    }
     if (needsRead) {
         const uint32_t firstPage = guestStart >> kPageShift;
         const uint32_t lastPage =

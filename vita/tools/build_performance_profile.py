@@ -17,6 +17,14 @@ BASE = dict(
     MKW_VITA_COMPACT_FRAME_STATE=1, MKW_VITA_FRAME_QUEUE_DEPTH=2,
     MKW_VITA_DL_TEMPLATE_CACHE=1, MKW_VITA_GX_STATE_GENERATIONS=1,
     MKW_VITA_RAW_LAYOUT_CACHE=1, MKW_VITA_RAW_MESH_CACHE=1,
+    MKW_VITA_RAW_MESH_CACHE_SET_COUNT=512, MKW_VITA_DL_TEMPLATE_DEP_SCOPE=0,
+    MKW_VITA_TEXT_OVERDRAW_PROBE=0, MKW_VITA_TEXT_OWNER_PROBE=0,
+    MKW_VITA_TEXT_DEDUPE_SAME_OWNER=0,
+    MKW_VITA_ROTRIG_GENERATED_FAST=0, MKW_VITA_ROTRIG_STATS=0,
+    MKW_VITA_HOT_RESOLVED_RANGES=0,
+    MKW_VITA_PSQ_REGION_LOWERING=0, MKW_VITA_PANE_GETVTXPOS_FAST=0,
+    MKW_VITA_CONVERT_COLOR_FAST=0, MKW_VITA_PREBEGIN_PHASE_PROFILE=0,
+    MKW_VITA_DL_PREFLIGHT_HANDLES=0, MKW_VITA_DL_RECORD_BURST_MEMCPY=0,
     MKW_VITA_EFB_GPU_BLIT=0, MKW_VITA_EFB_TRANSFER_READBACK=0,
     MKW_VITA_EFB_READBACK_FLIP_Y=1, MKW_VITA_PERF_SKIP_EFB=0,
     MKW_VITA_PERF_SKIP_BILLBOARDS=0, MKW_VITA_PERF_SKIP_LIGHTTEXTURE=0,
@@ -457,15 +465,239 @@ PROFILES["full-content-p6_47-f09-loading-audio"] = (
          MKW_VITA_AUDIO_WAIT_PROFILE=1, MKW_VITA_AUDIO_AI_PROFILE=1))
 PROFILES["full-content-p6_48-sol-plan-integrated"] = (
     PROFILES["full-content-p6_38-producer-io-yaz0"] |
-    dict(MKW_VITA_SOL_CRITICAL_PROFILE=1, MKW_VITA_TEXTURE_RAW_CPU_CACHE=1,
+    dict(MKW_VITA_SOL_CRITICAL_PROFILE=1, MKW_VITA_SOL_DETAIL_BURST=1,
+         MKW_VITA_GUEST_CPU_PROFILE=1, MKW_VITA_GUEST_PC_SAMPLER=1,
+         MKW_VITA_TEXTURE_RAW_CPU_CACHE=1, MKW_VITA_TEXTURE_CACHE_BUDGET_MB=16,
          MKW_VITA_PREP_TEXTURE_LIMIT=16, MKW_VITA_PREP_TEXTURE_BUDGET_MB=8,
          MKW_VITA_EFB_COMMAND_CAPACITY=1024, MKW_VITA_EFB_EXTENDED_COALESCE=1,
-         MKW_VITA_EFB_DEFER_TRANSFER_FINISH=1, MKW_VITA_DIRECT_LINEAR_BATCH_PREP=1,
-         MKW_VITA_GUEST_ACTIVE_CPU_PROFILE=1, MKW_VITA_VERTEX_REUSE_CACHE=1,
-         MKW_VITA_PACKET_MOVE_STATE=1, MKW_VITA_TIMELINE_PROFILE=1,
-         MKW_VITA_LOADING_AUDIO_PROFILE=1, MKW_VITA_GUEST_IO_PROFILE=1,
-         MKW_VITA_AUDIO_WAIT_PROFILE=1, MKW_VITA_AUDIO_AI_PROFILE=1))
+         MKW_VITA_EFB_DEFER_TRANSFER_FINISH=1,
+         MKW_VITA_RESCUE_KEEP_VERTEX_COLOR=1, MKW_VITA_RESCUE_KEEP_DEPTH=1,
+         MKW_VITA_RESCUE_KEEP_CULL=1, MKW_VITA_RESCUE_KEEP_BLEND_ALPHA=1,
+         MKW_VITA_RESCUE_KEEP_TEV=1, MKW_VITA_DIRECT_GX_DEPTH_RANGE=1,
+         MKW_VITA_DIRECT_LINEAR_BATCH_PREP=1, MKW_VITA_GUEST_ACTIVE_CPU_PROFILE=1,
+         MKW_VITA_VERTEX_REUSE_CACHE=1, MKW_VITA_PACKET_MOVE_STATE=1,
+         MKW_VITA_TIMELINE_PROFILE=1, MKW_VITA_LOADING_AUDIO_PROFILE=1,
+         MKW_VITA_GUEST_IO_PROFILE=1, MKW_VITA_AUDIO_WAIT_PROFILE=1,
+         MKW_VITA_AUDIO_AI_PROFILE=1))
+PROFILES["full-content-p6_49-sol-plan-nand-vita-fix"] = (
+    PROFILES["full-content-p6_48-sol-plan-integrated"] | dict())
+PROFILES["full-content-p6_50-sol-plan-recovery-visible"] = (
+    PROFILES["full-content-p6_49-sol-plan-nand-vita-fix"] |
+    dict(MKW_VITA_TEXTURE_RAW_CPU_CACHE=0, MKW_VITA_TEXTURE_CACHE_BUDGET_MB=12,
+         MKW_VITA_PREP_TEXTURE_LIMIT=8, MKW_VITA_PREP_TEXTURE_BUDGET_MB=4,
+         MKW_VITA_RESCUE_KEEP_VERTEX_COLOR=0, MKW_VITA_RESCUE_KEEP_DEPTH=0,
+         MKW_VITA_RESCUE_KEEP_CULL=0, MKW_VITA_RESCUE_KEEP_BLEND_ALPHA=0,
+         MKW_VITA_RESCUE_KEEP_TEV=0, MKW_VITA_DIRECT_GX_DEPTH_RANGE=0))
 
+# P6.51 is a single-cause F02 hardware A/B from the recovered P6.50 baseline.
+# Keep the P6.35-visible rescue and CPU raw cache unchanged; only enlarge the
+# resident GPU texture budget to test the race budget-eviction churn.
+PROFILES["full-content-p6_51-f02-gpu-cache-16m"] = (
+    PROFILES["full-content-p6_50-sol-plan-recovery-visible"] |
+    dict(MKW_VITA_TEXTURE_CACHE_BUDGET_MB=16))
+
+# P6.52 keeps the hardware-proven P6.51 texture/cache and rescue state intact.
+# Only the CPU implementation of direct-EFB nearest resize/channel conversion changes:
+# exact incremental nearest-neighbour mapping removes per-pixel integer division, while
+# positive float rounding uses an equivalent trunc(x + 0.5) path instead of lround.
+PROFILES["full-content-p6_52-f03-efb-fast-cpu"] = (
+    PROFILES["full-content-p6_51-f02-gpu-cache-16m"] |
+    dict(MKW_VITA_EFB_FAST_CPU_KERNELS=1))
+
+# P6.53 is a visibility/correctness A/B on top of P6.52. A failed direct-EFB
+# copy currently destroys its destination but still applies GXCopyTex(clear=1),
+# which can erase already-rendered perspective geometry. Drop that clear side
+# effect only when the copy itself failed; successful GX copies remain unchanged.
+PROFILES["full-content-p6_53-f03-visible-failed-efb-clear"] = (
+    PROFILES["full-content-p6_52-f03-efb-fast-cpu"] |
+    dict(MKW_VITA_EFB_CLEAR_ON_FAILED_COPY=0))
+
+# P6.54 returns to F02 with the now-visible P6.53 scene and changes only the
+# resident GPU texture budget. Later race frames grow to ~33 MiB of unique RGBA
+# requests and churn the 16 MiB cache; 20 MiB is the planned second residency A/B.
+PROFILES["full-content-p6_54-f02-gpu-cache-20m"] = (
+    PROFILES["full-content-p6_53-f03-visible-failed-efb-clear"] |
+    dict(MKW_VITA_TEXTURE_CACHE_BUDGET_MB=20))
+
+# P6.55 / F05 is a single-cause draw-reduction A/B from the hardware-proven
+# P6.54 texture baseline. Stitch only adjacent compatible GX triangle strips in
+# the prep worker using degenerate/parity bridge vertices; never reorder draws or
+# cross EFB/state/projection boundaries. Capacity exhaustion falls back safely.
+PROFILES["full-content-p6_55-f05-strip-stitch"] = (
+    PROFILES["full-content-p6_54-f02-gpu-cache-20m"] |
+    dict(MKW_VITA_DIRECT_STRIP_STITCH_PREP=1))
+
+# P6.56 / F06 is instrumentation-only on the P6.55 hardware baseline. Emit the
+# existing GX producer breakdown in stable high-draw frames every 30 Wii frames
+# and add whole-frame USER_0 run-clock accounting. Do not enable broad PERF_LOG.
+PROFILES["full-content-p6_56-f06-producer-detail"] = (
+    PROFILES["full-content-p6_55-f05-strip-stitch"] |
+    dict(MKW_VITA_F06_PRODUCER_DETAIL=1))
+
+# P6.57 / F06: the P6.56 hardware run attributes ~214 ms/frame to GX display-list
+# replay. Pure draw templates contain no BP/CP/XF state mutations, so capture the
+# immutable transform/raster/texture IDs once per template and reuse them for the
+# remaining raw draws. Vertex decode, ordering, primitive topology and EFB stay unchanged.
+PROFILES["full-content-p6_57-f06-dl-template-state-reuse"] = (
+    PROFILES["full-content-p6_56-f06-producer-detail"] |
+    dict(MKW_VITA_DL_TEMPLATE_STATE_REUSE=1))
+
+# P6.58 / F06 attribution: P6.57 only moved DL time by ~2%. Keep its behavior
+# unchanged and split GX::CallDisplayList into probe/scan/apply/template buckets;
+# backend SOL telemetry also reports raw-mesh cache hit/miss/invalidation volume.
+PROFILES["full-content-p6_58-f06-dl-breakdown"] = (
+    PROFILES["full-content-p6_57-f06-dl-template-state-reuse"] | dict())
+
+# P6.59 / F06 recovery/perf A-B: the attempted PSMTXRotTrig native override
+# invalidated the generated indirect-dispatch winner and failed before game boot.
+# Return to the hardware-good P6.58 behavior and remove the now-unneeded guest-PC
+# sampler overhead while keeping the low-overhead whole-frame producer counters.
+PROFILES["full-content-p6_59-f06-sampler-off-recovery"] = (
+    PROFILES["full-content-p6_58-f06-dl-breakdown"] |
+    dict(MKW_VITA_GUEST_PC_SAMPLER=0))
+
+# P6.60 / F06: P6.59 hardware shows entry thrash in the raw-mesh cache:
+# ~6.1k raw draws/frame, only ~220 hits and ~5.9k stores while payload bytes
+# stay around 1.37 MiB. Increase only set count so the race working set can
+# survive between frames; renderer/EFB/texture/rescue behavior stays unchanged.
+PROFILES["full-content-p6_60-f06-rawmesh-8k"] = (
+    PROFILES["full-content-p6_59-f06-sampler-off-recovery"] |
+    dict(MKW_VITA_RAW_MESH_CACHE_SET_COUNT=2048))
+
+# P6.61 / F06: P6.60 raises stable-race raw-mesh hits to ~77% without
+# invalidations or data-budget pressure. Double only the set count to test
+# whether the remaining ~1.3k misses/frame are set-conflict replacements.
+PROFILES["full-content-p6_61-f06-rawmesh-16k"] = (
+    PROFILES["full-content-p6_60-f06-rawmesh-8k"] |
+    dict(MKW_VITA_RAW_MESH_CACHE_SET_COUNT=4096))
+
+# P6.62 / F06: P6.61 removes nearly all raw-mesh entry misses, but stable
+# draw-template replay still spends ~39-43 ms/frame revalidating the same
+# immutable display-list payload and array generations draw by draw. Preflight
+# the entire template before emitting geometry and reuse only proven-current entries.
+PROFILES["full-content-p6_62-f06-dl-dependency-scope"] = (
+    PROFILES["full-content-p6_61-f06-rawmesh-16k"] |
+    dict(MKW_VITA_DL_TEMPLATE_DEP_SCOPE=1))
+
+# P6.63: diagnostic-only probe for the user-visible doubled text. Keep P6.62
+# rendering identical and count repeated glyph payloads/sources plus shadow-like
+# near-duplicates. No draw is skipped by this profile.
+PROFILES["full-content-p6_63-text-overdraw-probe"] = (
+    PROFILES["full-content-p6_62-f06-dl-dependency-scope"] |
+    dict(MKW_VITA_TEXT_OVERDRAW_PROBE=1))
+
+# Emulator-only P6.63 twin: same runtime/diagnostic configuration, but link
+# the M12.5 vitaGL archive rebuilt with NO_SPLASHSCREEN=1. Keep the real-Vita
+# P6.63 artifact/archive untouched so hardware A/B remains comparable.
+PROFILES["full-content-p6_63-vita3k-nosplash"] = (
+    PROFILES["full-content-p6_63-text-overdraw-probe"] |
+    dict(AURORA_VITAGL_LIB="../aurora-vita-max-prehardware/third_party/vitaGL-speedhack-src/libvitaGL-m12_5-custom-heap-nosplash.a"))
+
+# P6.64R: boot-safe owner attribution. The owner key comes from the saved PPC
+# writer-frame context at GlyphDrawer entry; no translated function is replaced.
+PROFILES["full-content-p6_64r-text-owner-probe"] = (
+    PROFILES["full-content-p6_63-text-overdraw-probe"] |
+    dict(MKW_VITA_TEXT_OWNER_PROBE=1))
+
+# P6.65: runtime2 proves every exact duplicate with a known owner comes from
+# that same owner (exact_different=0). Suppression remains conservative: the
+# backend also requires bit-identical decoded vertices and semantically equal
+# transform/raster/texture state before dropping the second physical draw.
+PROFILES["full-content-p6_65-text-state-dedupe"] = (
+    PROFILES["full-content-p6_64r-text-owner-probe"] |
+    dict(MKW_VITA_TEXT_DEDUPE_SAME_OWNER=1))
+
+# P6.65C: production-like text baseline. Owner extraction remains available to
+# the conservative dedupe, while the expensive P6.63 linear probe tables are off.
+PROFILES["full-content-p6_65c-clean-text-dedupe"] = (
+    PROFILES["full-content-p6_65-text-state-dedupe"] |
+    dict(MKW_VITA_TEXT_OVERDRAW_PROBE=0, MKW_VITA_TEXT_OWNER_PROBE=0))
+
+# P6.66: keep func_8019A204 as the BaseTranslated dispatch winner and specialize
+# only its generated body. Aggregate counters verify fast/fallback coverage.
+PROFILES["full-content-p6_66-rottrig-generated-fast"] = (
+    PROFILES["full-content-p6_65c-clean-text-dedupe"] |
+    dict(MKW_VITA_ROTRIG_GENERATED_FAST=1, MKW_VITA_ROTRIG_STATS=1))
+
+# P6.67: enable larger writable range resolution only for the generator allowlist
+# (Pane::GetVtxPos and ConvertColorS10ToUT). Every other store range stays null.
+PROFILES["full-content-p6_67-hot-resolved-ranges"] = (
+    PROFILES["full-content-p6_66-rottrig-generated-fast"] |
+    dict(MKW_VITA_HOT_RESOLVED_RANGES=1))
+
+# P6.68: explicit-NI paired-single lowering inside the exact RotTrig helper.
+PROFILES["full-content-p6_68-psq-region-lowering"] = (
+    PROFILES["full-content-p6_67-hot-resolved-ranges"] |
+    dict(MKW_VITA_PSQ_REGION_LOWERING=1))
+
+# P6.69: exact whole-kernel specializations with translated fallback.
+PROFILES["full-content-p6_69-hot-region-abi"] = (
+    PROFILES["full-content-p6_68-psq-region-lowering"] |
+    dict(MKW_VITA_PANE_GETVTXPOS_FAST=1, MKW_VITA_CONVERT_COLOR_FAST=1))
+
+# P6.70: short-window prebegin attribution only.
+PROFILES["full-content-p6_70-prebegin-phase-profile"] = (
+    PROFILES["full-content-p6_69-hot-region-abi"] |
+    dict(MKW_VITA_PREBEGIN_PHASE_PROFILE=1, MKW_VITA_GUEST_PC_SAMPLER=1,
+         MKW_VITA_GUEST_ACTIVE_CPU_PROFILE=1, MKW_VITA_GUEST_PC_SAMPLE_US=1000))
+
+# P6.71: compile a stable guest-PC allowlist at O3 by resolving current shard names.
+PROFILES["full-content-p6_71-hot-functions-o3"] = (
+    PROFILES["full-content-p6_69-hot-region-abi"] | dict())
+
+# P6.73: reuse handles proven by immutable display-list preflight.
+PROFILES["full-content-p6_73-dl-preflight-handles"] = (
+    PROFILES["full-content-p6_69-hot-region-abi"] |
+    dict(MKW_VITA_DL_PREFLIGHT_HANDLES=1))
+
+# P6.74 cheap A/B: disable whole-frame vertex hash/reuse while preserving the
+# P6.67 producer changes. This measures whether hashing costs more than its hits.
+PROFILES["full-content-p6_74-no-vertex-reuse-hash"] = (
+    PROFILES["full-content-p6_73-dl-preflight-handles"] |
+    dict(MKW_VITA_VERTEX_REUSE_CACHE=0))
+
+# P6.75: hardware evidence shows the multi-second RFL shape construction window
+# is dominated by translated guest work around RFLiInitShapeRes. Keep P6.73
+# semantics and compile the exact current shards containing the RFL initializer
+# and its measured helpers at O3. No HLE replacement or dispatch registration.
+PROFILES["full-content-p6_75-rfl-shape-o3"] = (
+    PROFILES["full-content-p6_73-dl-preflight-handles"] | dict())
+
+# P6.76: P6.75 hardware still spends ~4.9 s in the RFL shape-recording window.
+# The GX burst already skips the translated byte loop, but its recorder still
+# performs one full Memory::Write* policy/probe per 1-4 bytes. Resolve the whole
+# non-wrapping writable range once and memcpy the FIFO bytes, with scalar fallback.
+PROFILES["full-content-p6_76-dl-record-burst-memcpy"] = (
+    PROFILES["full-content-p6_75-rfl-shape-o3"] |
+    dict(MKW_VITA_DL_RECORD_BURST_MEMCPY=1))
+
+
+PROFILE_HOT_PCS = {
+    "full-content-p6_71-hot-functions-o3": [0x8019A204, 0x800797D0, 0x805E7B40, 0x800822F0, 0x802435DC],
+    "full-content-p6_73-dl-preflight-handles": [0x8019A204, 0x800797D0, 0x805E7B40, 0x800822F0, 0x802435DC],
+    "full-content-p6_74-no-vertex-reuse-hash": [0x8019A204, 0x800797D0, 0x805E7B40, 0x800822F0, 0x802435DC],
+    "full-content-p6_75-rfl-shape-o3": [
+        0x8019A204, 0x800797D0, 0x805E7B40, 0x800822F0, 0x802435DC,
+        0x800C1E40, 0x80005F34, 0x80124DC0,
+    ],
+    "full-content-p6_76-dl-record-burst-memcpy": [
+        0x8019A204, 0x800797D0, 0x805E7B40, 0x800822F0, 0x802435DC,
+        0x800C1E40, 0x80005F34, 0x80124DC0,
+    ],
+}
+
+def resolve_hot_shards(guest_pcs):
+    shards = sorted((ROOT / "generated" / "build_shards" / "base_common").glob("*.cpp"))
+    resolved = []
+    for pc in guest_pcs:
+        needle = f"func_{pc:08X}("
+        matches = [p for p in shards if needle in p.read_text(errors="ignore")]
+        if not matches:
+            raise RuntimeError(f"No current shard contains {needle}")
+        rel = matches[0].relative_to(ROOT / "generated").as_posix()
+        if rel not in resolved:
+            resolved.append(rel)
+    return resolved
 
 def sha(path):
     with path.open("rb") as stream:
@@ -481,14 +713,17 @@ def main():
     args = parser.parse_args()
     config = BASE | PROFILES[args.profile]
     suffix = args.profile
-    if args.hot_shard:
-        for shard in args.hot_shard:
+    profile_hot = resolve_hot_shards(PROFILE_HOT_PCS.get(args.profile, []))
+    hot_shards = list(dict.fromkeys(profile_hot + args.hot_shard))
+    hot_opt = "O3" if profile_hot else args.hot_opt
+    if hot_shards:
+        for shard in hot_shards:
             path = (ROOT / "generated" / shard).resolve()
             if not path.is_relative_to(ROOT / "generated/build_shards") or not path.is_file() or path.suffix != ".cpp":
                 parser.error(f"Invalid generated shard: {shard}")
-        config["MKW_TRANSLATED_HOT_SHARDS"] = " ".join(args.hot_shard)
-        config["MKW_TRANSLATED_HOT_OPT"] = "-" + args.hot_opt
-        suffix += "-hot-" + args.hot_opt + "-" + hashlib.sha256("\n".join(args.hot_shard).encode()).hexdigest()[:8]
+        config["MKW_TRANSLATED_HOT_SHARDS"] = " ".join(hot_shards)
+        config["MKW_TRANSLATED_HOT_OPT"] = "-" + hot_opt
+        suffix += "-hot-" + hot_opt + "-" + hashlib.sha256("\n".join(hot_shards).encode()).hexdigest()[:8]
     target = "wiicompiled-vita-mkw-firstboot-astra-" + suffix
     marker_payload = json.dumps({"profile": suffix, "config": config}, sort_keys=True, separators=(",", ":"))
     config["MKW_VITA_BUILD_MARKER"] = int(hashlib.sha256(marker_payload.encode()).hexdigest()[:8], 16)

@@ -21,6 +21,10 @@ inline constexpr uint32_t kPhaseWaitVi = 0xFFFF0001u;
 inline constexpr uint32_t kPhaseWaitAlarm = 0xFFFF0002u;
 inline constexpr uint32_t kPhaseWaitAudio = 0xFFFF0003u;
 inline constexpr uint32_t kPhaseHostOther = 0xFFFF0004u;
+inline constexpr uint32_t kPhasePrebeginScheduler = 0xFFFF0010u;
+inline constexpr uint32_t kPhasePrebeginAnimation = 0xFFFF0011u;
+inline constexpr uint32_t kPhasePrebeginSceneMatrix = 0xFFFF0012u;
+inline constexpr uint32_t kPhasePrebeginMaterialVertex = 0xFFFF0013u;
 
 #if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_PC_SAMPLER
 extern std::atomic<uint32_t> g_currentToken;

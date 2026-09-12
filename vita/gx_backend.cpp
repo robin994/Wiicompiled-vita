@@ -8,6 +8,7 @@
 #include "runtime_log.h"
 #include "audio_wait_profile.h"
 #include "audio_backend.h"
+#include "vita_guest_leaf_specializations.h"
 #if defined(MKW_VITA_AURORA_RENDERER)
 #include "aurora_packet_renderer.h"
 #endif
@@ -217,6 +218,12 @@ static_assert(MKW_VITA_FRAME_QUEUE_DEPTH >= 1 && MKW_VITA_FRAME_QUEUE_DEPTH <= 2
 #ifndef MKW_VITA_EFB_DEFER_TRANSFER_FINISH
 #define MKW_VITA_EFB_DEFER_TRANSFER_FINISH 0
 #endif
+#ifndef MKW_VITA_EFB_FAST_CPU_KERNELS
+#define MKW_VITA_EFB_FAST_CPU_KERNELS 0
+#endif
+#ifndef MKW_VITA_EFB_CLEAR_ON_FAILED_COPY
+#define MKW_VITA_EFB_CLEAR_ON_FAILED_COPY 1
+#endif
 #ifndef MKW_VITA_RESCUE_KEEP_VERTEX_COLOR
 #define MKW_VITA_RESCUE_KEEP_VERTEX_COLOR 0
 #endif
@@ -234,6 +241,37 @@ static_assert(MKW_VITA_FRAME_QUEUE_DEPTH >= 1 && MKW_VITA_FRAME_QUEUE_DEPTH <= 2
 #endif
 #ifndef MKW_VITA_DIRECT_LINEAR_BATCH_PREP
 #define MKW_VITA_DIRECT_LINEAR_BATCH_PREP 0
+#endif
+#ifndef MKW_VITA_DIRECT_STRIP_STITCH_PREP
+#define MKW_VITA_DIRECT_STRIP_STITCH_PREP 0
+#endif
+#ifndef MKW_VITA_DL_TEMPLATE_STATE_REUSE
+#define MKW_VITA_DL_TEMPLATE_STATE_REUSE 0
+#endif
+#ifndef MKW_VITA_DL_TEMPLATE_DEP_SCOPE
+#define MKW_VITA_DL_TEMPLATE_DEP_SCOPE 0
+#endif
+#ifndef MKW_VITA_DL_PREFLIGHT_HANDLES
+#define MKW_VITA_DL_PREFLIGHT_HANDLES 0
+#endif
+#ifndef MKW_VITA_PSQ_REGION_LOWERING
+#define MKW_VITA_PSQ_REGION_LOWERING 0
+#endif
+#ifndef MKW_VITA_PANE_GETVTXPOS_FAST
+#define MKW_VITA_PANE_GETVTXPOS_FAST 0
+#endif
+#ifndef MKW_VITA_CONVERT_COLOR_FAST
+#define MKW_VITA_CONVERT_COLOR_FAST 0
+#endif
+#ifndef MKW_VITA_PREBEGIN_PHASE_PROFILE
+#define MKW_VITA_PREBEGIN_PHASE_PROFILE 0
+#endif
+#ifndef MKW_VITA_TEXT_DEDUPE_SAME_OWNER
+#define MKW_VITA_TEXT_DEDUPE_SAME_OWNER 0
+#endif
+#if MKW_VITA_TEXT_DEDUPE_SAME_OWNER
+static_assert(MKW_VITA_COMPACT_FRAME_STATE,
+              "P6.65 text dedupe requires compact captured GX state");
 #endif
 #ifndef MKW_VITA_GUEST_ACTIVE_CPU_PROFILE
 #define MKW_VITA_GUEST_ACTIVE_CPU_PROFILE 0
@@ -504,6 +542,11 @@ struct FrameCounters {
     uint64_t rawDrawDecodeFailures = 0;
     uint64_t rawDrawCapacityFailures = 0;
     uint64_t immediateDrawCapacityFailures = 0;
+    uint64_t glyphDedupeCandidates = 0;
+    uint64_t glyphDedupeSuppressed = 0;
+    uint64_t glyphDedupeStateMismatch = 0;
+    uint64_t glyphDedupeGeometryMismatch = 0;
+    uint64_t glyphDedupeTableFull = 0;
     uint64_t textureStateNoTexGen = 0;
     uint64_t textureStateNoTexAttr = 0;
     uint64_t textureStateNoTevStage = 0;
@@ -565,7 +608,17 @@ struct FrameCounters {
     uint64_t rawMeshCacheBudgetSkips = 0;
     uint64_t rawMeshCacheBytes = 0;
     uint64_t rawMeshCachePeakBytes = 0;
+    uint64_t rawMeshTemplateScopes = 0;
+    uint64_t rawMeshTemplateValidatedDraws = 0;
+    uint64_t rawMeshTemplatePrevalidatedHits = 0;
+    uint64_t rawMeshTemplateFallbacks = 0;
+    uint64_t rawMeshTemplateGenerationQueries = 0;
+    uint64_t rawMeshTemplateGenerationReuses = 0;
+    uint64_t rawMeshTemplatePayloadSkips = 0;
+    uint64_t rawMeshTemplateHandleHits = 0;
+    uint64_t rawMeshTemplateHandleFallbacks = 0;
     std::array<uint32_t, 7> primitiveDraws{};
+    std::array<uint32_t, 8> drawVertexBuckets{};
     std::array<uint32_t, 8> vertexFormatDraws{};
 };
 
@@ -1320,9 +1373,11 @@ enum class PreparedTevClass : u8 {
 
 struct PreparedDrawCpu {
     u16 batchEndDraw = 0;
+    uint32_t batchFirstVertex = 0;
     uint32_t batchVertexCount = 0;
     PreparedTevClass tevClass = PreparedTevClass::Disabled;
     u8 concatPrimitive = 0;
+    u8 stitchedStrip = 0;
 };
 
 struct FrameQueueSlot {
@@ -1365,6 +1420,7 @@ struct FrameQueueSlot {
     std::vector<RenderVertex> preparedVertices;
     PreparedVertexMetrics preparedVertexMetrics{};
     uint64_t prepVertexUs = 0;
+    uint32_t preparedUploadVertexCount = 0;
     bool preparedVerticesValid = false;
 #if MKW_VITA_VERTEX_REUSE_CACHE
     uint64_t preparedVertexFrameKey = 0;
@@ -1378,6 +1434,10 @@ struct FrameQueueSlot {
     uint64_t prepStateUs = 0;
     uint32_t prepStateRuns = 0;
     uint32_t prepMergeCandidates = 0;
+    uint32_t prepStripRuns = 0;
+    uint32_t prepStripMergedDraws = 0;
+    uint32_t prepStripBridgeVertices = 0;
+    uint32_t prepStripCapacityFallbacks = 0;
     std::array<uint32_t, 8> prepBatchBreaks{};
     bool preparedStateValid = false;
 #endif
@@ -1478,8 +1538,10 @@ uint64_t CurrentHostThreadRunClocks() noexcept {
 
 uint64_t RunClocksToUs(uint64_t clocks) noexcept {
 #if MKW_VITA_SOL_CRITICAL_PROFILE || MKW_VITA_GUEST_ACTIVE_CPU_PROFILE
-    const int mhz = scePowerGetArmClockFrequency();
-    return mhz > 0 ? clocks / static_cast<uint64_t>(mhz) : 0;
+    // runClocks is a SceKernelSysClock runtime counter. Real-hardware deltas
+    // follow elapsed microseconds rather than CPU-frequency cycles; dividing by
+    // 444 MHz made every worker appear almost idle. Preserve the raw delta as us.
+    return clocks;
 #else
     (void)clocks;
     return 0;
@@ -1571,6 +1633,9 @@ struct TextureRenderCounters {
     uint64_t missContentRevision = 0;
     uint64_t missLayout = 0;
     uint64_t missMaterialVariant = 0;
+    uint64_t missBudgetEviction = 0;
+    uint64_t missEntryEviction = 0;
+    uint64_t missSourceInvalid = 0;
     uint64_t uniqueRequests = 0;
     uint64_t uniqueRequestBytes = 0;
 #endif
@@ -1610,10 +1675,46 @@ size_t g_frameProtectedTextureDataCount = 0;
 uint64_t g_textureProtectedEvictionAvoids = 0;
 #endif
 
+bool SameTexturePixelSource(const DrawTextureState& a, const DrawTextureState& b);
+
 std::array<TextureCacheEntry, kTextureCacheCapacity> g_textureCache{};
 std::unique_ptr<u8[]> g_textureScratch;
 size_t g_textureCacheBytes = 0;
 uint64_t g_textureUseSerial = 0;
+
+#if MKW_VITA_SOL_CRITICAL_PROFILE
+enum class TextureEvictionCause : u8 { Budget = 1, EntryPressure = 2 };
+struct TextureEvictionTombstone {
+    DrawTextureState source{};
+    uint64_t serial = 0;
+    TextureEvictionCause cause = TextureEvictionCause::Budget;
+    bool valid = false;
+};
+constexpr size_t kTextureEvictionTombstoneCount = 64;
+std::array<TextureEvictionTombstone, kTextureEvictionTombstoneCount> g_textureEvictionTombstones{};
+size_t g_textureEvictionTombstoneCursor = 0;
+
+void RecordTextureEviction(const TextureCacheEntry& entry, TextureEvictionCause cause) noexcept {
+    if (!entry.valid) return;
+    auto& tombstone = g_textureEvictionTombstones[g_textureEvictionTombstoneCursor++ % g_textureEvictionTombstones.size()];
+    tombstone.source = entry.source;
+    tombstone.serial = g_textureUseSerial;
+    tombstone.cause = cause;
+    tombstone.valid = true;
+}
+
+TextureEvictionCause RecentTextureEvictionCause(const DrawTextureState& texture) noexcept {
+    TextureEvictionCause result{};
+    uint64_t newest = 0;
+    for (const auto& tombstone : g_textureEvictionTombstones) {
+        if (!tombstone.valid || tombstone.serial < newest) continue;
+        if (!SameTexturePixelSource(tombstone.source, texture)) continue;
+        newest = tombstone.serial;
+        result = tombstone.cause;
+    }
+    return result;
+}
+#endif
 
 TexMeta& Tex(GXTexObj* obj);
 const TexMeta& Tex(const GXTexObj* obj);
@@ -3305,6 +3406,17 @@ size_t PrimitiveBucket(GXPrimitive primitive) {
     return 1;
 }
 
+size_t DrawVertexBucket(uint32_t vertices) noexcept {
+    if (vertices <= 3u) return 0;
+    if (vertices <= 7u) return 1;
+    if (vertices <= 15u) return 2;
+    if (vertices <= 31u) return 3;
+    if (vertices <= 63u) return 4;
+    if (vertices <= 127u) return 5;
+    if (vertices <= 255u) return 6;
+    return 7;
+}
+
 enum class RawDecodeFailReason : uint8_t {
     None = 0,
     InvalidInput,
@@ -3551,6 +3663,67 @@ bool DecodeRawVertexPlanned(const RawLayoutPlan& plan, const uint8_t* vertices,
 #endif
 
 
+#if MKW_VITA_DL_TEMPLATE_STATE_REUSE && MKW_VITA_COMPACT_FRAME_STATE
+struct TemplateDrawStateReuse {
+    bool active = false;
+    bool valid = false;
+    u32 guestLr = 0;
+    u32 pnMtxIndex = 0;
+    u16 transformId = 0;
+    u16 rasterId = 0;
+    u16 textureId = 0;
+};
+thread_local TemplateDrawStateReuse g_templateDrawStateReuse{};
+#endif
+
+#if MKW_VITA_TEXT_DEDUPE_SAME_OWNER
+constexpr size_t kGlyphDedupeCapacity = 768;
+struct GlyphDedupeRecord {
+    uint32_t ownerKey = 0;
+    GXPrimitive primitive = GX_POINTS;
+    GXVtxFmt fmt = GX_VTXFMT0;
+    u16 vertexCount = 0;
+    u16 transformId = 0;
+    u16 rasterId = 0;
+    u16 textureId = 0;
+    u32 pnMtxIndex = 0;
+    u32 firstVertex = 0;
+};
+thread_local std::array<GlyphDedupeRecord, kGlyphDedupeCapacity> g_glyphDedupeRecords{};
+thread_local size_t g_glyphDedupeRecordCount = 0;
+thread_local uint32_t g_nextRawGlyphOwner = 0;
+thread_local uint32_t g_activeRawGlyphOwner = 0;
+
+bool SameGlyphDedupeGeometry(const GlyphDedupeRecord& record, GXPrimitive primitive,
+                             GXVtxFmt fmt, u16 vtxCount, u32 firstVertex) {
+    if (record.primitive != primitive || record.fmt != fmt ||
+        record.vertexCount != vtxCount || record.firstVertex + vtxCount > g_gx.geometry.vertexCount) {
+        return false;
+    }
+    const auto* oldVertices = &g_gx.geometry.vertices[record.firstVertex];
+    const auto* newVertices = &g_gx.geometry.vertices[firstVertex];
+    if (std::memcmp(oldVertices, newVertices, static_cast<size_t>(vtxCount) * sizeof(RenderVertex)) != 0) {
+        return false;
+    }
+    const auto* oldPn = &g_gx.geometry.pnMtxRefs[record.firstVertex];
+    const auto* newPn = &g_gx.geometry.pnMtxRefs[firstVertex];
+    return std::memcmp(oldPn, newPn, vtxCount) == 0;
+}
+
+bool SameGlyphDedupeState(const GlyphDedupeRecord& record, const GeometryDraw& draw) {
+    const auto& geometry = g_gx.geometry;
+    if (record.pnMtxIndex != draw.pnMtxIndex ||
+        record.transformId >= geometry.transforms.size() || draw.transformId >= geometry.transforms.size() ||
+        record.rasterId >= geometry.rasters.size() || draw.rasterId >= geometry.rasters.size() ||
+        record.textureId >= geometry.textures.size() || draw.textureId >= geometry.textures.size()) {
+        return false;
+    }
+    return SameDrawTransform(geometry.transforms[record.transformId], geometry.transforms[draw.transformId]) &&
+           SameDrawRaster(geometry.rasters[record.rasterId], geometry.rasters[draw.rasterId]) &&
+           SameDrawTexture(geometry.textures[record.textureId], geometry.textures[draw.textureId]);
+}
+#endif
+
 void CommitRawDraw(GXPrimitive primitive, GXVtxFmt fmt, u32 firstVertex,
                    u16 vtxCount, uint32_t vertexBytes,
                    uint64_t directAttrs, uint64_t indexedAttrs) {
@@ -3559,7 +3732,68 @@ void CommitRawDraw(GXPrimitive primitive, GXVtxFmt fmt, u32 firstVertex,
     draw.primitive = primitive;
     draw.firstVertex = firstVertex;
     draw.vertexCount = vtxCount;
+#if MKW_VITA_DL_TEMPLATE_STATE_REUSE && MKW_VITA_COMPACT_FRAME_STATE
+    if (g_templateDrawStateReuse.active && g_templateDrawStateReuse.valid) {
+        draw.guestLr = g_templateDrawStateReuse.guestLr;
+        draw.pnMtxIndex = g_templateDrawStateReuse.pnMtxIndex;
+        draw.transformId = g_templateDrawStateReuse.transformId;
+        draw.rasterId = g_templateDrawStateReuse.rasterId;
+        draw.textureId = g_templateDrawStateReuse.textureId;
+        draw.renderStateId = 1u;
+        if (g_gx.geometry.drawCount > 1u) {
+            const GeometryDraw& previous = g_gx.geometry.draws[g_gx.geometry.drawCount - 2u];
+            const bool sameRun = previous.primitive == draw.primitive &&
+                                 previous.rasterId == draw.rasterId &&
+                                 previous.textureId == draw.textureId;
+            draw.renderStateId = sameRun
+                ? previous.renderStateId
+                : static_cast<u16>(previous.renderStateId + 1u);
+        }
+        ++g_gx.frame.transformStateReuses;
+        ++g_gx.frame.rasterStateReuses;
+        ++g_gx.frame.textureStateReuses;
+    } else {
+        CaptureDrawState(draw);
+        if (g_templateDrawStateReuse.active) {
+            g_templateDrawStateReuse.valid = true;
+            g_templateDrawStateReuse.guestLr = draw.guestLr;
+            g_templateDrawStateReuse.pnMtxIndex = draw.pnMtxIndex;
+            g_templateDrawStateReuse.transformId = draw.transformId;
+            g_templateDrawStateReuse.rasterId = draw.rasterId;
+            g_templateDrawStateReuse.textureId = draw.textureId;
+        }
+    }
+#else
     CaptureDrawState(draw);
+#endif
+#if MKW_VITA_TEXT_DEDUPE_SAME_OWNER
+    if (g_activeRawGlyphOwner != 0 && primitive == GX_QUADS && vtxCount == 4u) {
+        ++g_gx.frame.glyphDedupeCandidates;
+        bool sawGeometryMatch = false;
+        bool sawStateMismatch = false;
+        for (size_t i = 0; i < g_glyphDedupeRecordCount; ++i) {
+            const GlyphDedupeRecord& record = g_glyphDedupeRecords[i];
+            if (record.ownerKey != g_activeRawGlyphOwner) continue;
+            if (!SameGlyphDedupeGeometry(record, primitive, fmt, vtxCount, firstVertex)) continue;
+            sawGeometryMatch = true;
+            if (SameGlyphDedupeState(record, draw)) {
+                ++g_gx.frame.glyphDedupeSuppressed;
+                --g_gx.geometry.drawCount;
+                return;
+            }
+            sawStateMismatch = true;
+        }
+        g_gx.frame.glyphDedupeStateMismatch += sawStateMismatch ? 1u : 0u;
+        g_gx.frame.glyphDedupeGeometryMismatch += sawGeometryMatch ? 0u : 1u;
+        if (g_glyphDedupeRecordCount < g_glyphDedupeRecords.size()) {
+            g_glyphDedupeRecords[g_glyphDedupeRecordCount++] = {
+                g_activeRawGlyphOwner, primitive, fmt, vtxCount, draw.transformId,
+                draw.rasterId, draw.textureId, draw.pnMtxIndex, firstVertex};
+        } else {
+            ++g_gx.frame.glyphDedupeTableFull;
+        }
+    }
+#endif
     g_gx.geometry.vertexCount = firstVertex + vtxCount;
     ++g_gx.frame.drawCalls;
     g_gx.frame.vertices += vtxCount;
@@ -3568,27 +3802,27 @@ void CommitRawDraw(GXPrimitive primitive, GXVtxFmt fmt, u32 firstVertex,
     g_gx.frame.rawDirectAttributesDecoded += directAttrs;
     g_gx.frame.rawIndexedAttributesDecoded += indexedAttrs;
     ++g_gx.frame.primitiveDraws[PrimitiveBucket(primitive)];
+    ++g_gx.frame.drawVertexBuckets[DrawVertexBucket(vtxCount)];
     ++g_gx.frame.vertexFormatDraws[static_cast<size_t>(fmt)];
     MergeAdjacentUiQuads();
 }
 
+constexpr size_t kRawMeshCacheSetCount = MKW_VITA_RAW_MESH_CACHE_SET_COUNT;
+constexpr size_t kRawMeshCacheWays = 4;
+constexpr size_t kRawMeshCacheCapacity = kRawMeshCacheSetCount * kRawMeshCacheWays;
+static_assert(kRawMeshCacheSetCount >= 256u && kRawMeshCacheSetCount <= 4096u);
+static_assert((kRawMeshCacheSetCount & (kRawMeshCacheSetCount - 1u)) == 0u);
+
 #if MKW_VITA_RAW_MESH_CACHE
 static_assert(MKW_VITA_RAW_LAYOUT_CACHE,
               "raw object-space mesh cache requires the raw layout cache");
-// P4.1: the hardware working set is ~1.3k-2.2k raw draws in G3D scenes. The
-// original 256-entry direct-mapped cache thrashed despite a mostly unused 4 MiB
-// payload budget. Keep that payload budget, but use 512 four-way sets so key
-// collisions do not destroy reuse across consecutive frames.
-constexpr size_t kRawMeshCacheSetCount = 512;
-constexpr size_t kRawMeshCacheWays = 4;
-constexpr size_t kRawMeshCacheCapacity = kRawMeshCacheSetCount * kRawMeshCacheWays;
+// P4.1/P6.60: payload budget remains bounded; set count is profile-controlled
+// so a large race working set can survive between frames without changing mesh data.
 constexpr size_t kRawMeshCacheBudgetBytes = 4u * 1024u * 1024u;
 // Indexed vertex attributes can be POS, NRM, CLR0/1 and TEX0..7. Matrix-index
 // attributes are direct-only in the raw decoder, so twelve dependencies is the
 // exact upper bound and avoids carrying GX_VA_MAX_ATTR metadata in every entry.
 constexpr size_t kRawMeshMaxDependencies = 12;
-static_assert((kRawMeshCacheSetCount & (kRawMeshCacheSetCount - 1u)) == 0u);
-
 struct RawMeshArrayDependency {
     GXAttr attr = GX_VA_NULL;
     const void* data = nullptr;
@@ -3606,6 +3840,7 @@ struct RawMeshCacheEntry {
     uint64_t directAttrs = 0;
     uint64_t indexedAttrs = 0;
     uint64_t lastUse = 0;
+    uint32_t templateValidationSerial = 0;
     GXPrimitive primitive = GX_TRIANGLES;
     GXVtxFmt fmt = GX_VTXFMT0;
     u16 vtxCount = 0;
@@ -3622,6 +3857,65 @@ std::array<RawMeshCacheEntry, kRawMeshCacheCapacity> g_rawMeshCache{};
 size_t g_rawMeshCacheBytes = 0;
 size_t g_rawMeshCachePeakBytes = 0;
 uint64_t g_rawMeshCacheUseSerial = 0;
+
+#if MKW_VITA_DL_TEMPLATE_DEP_SCOPE
+constexpr size_t kRawMeshTemplateRangeCapacity = 64;
+#if MKW_VITA_DL_PREFLIGHT_HANDLES
+constexpr size_t kRawMeshTemplateHandleCapacity = 2048;
+#endif
+struct RawMeshTemplateRangeValidation {
+    const void* data = nullptr;
+    u32 size = 0;
+    uint64_t observedGeneration = AURORA_GUEST_WRITE_UNTRACKED;
+};
+struct RawMeshTemplateValidationScope {
+    bool active = false;
+    const uint8_t* list = nullptr;
+    uint32_t listBytes = 0;
+    uint32_t serial = 0;
+    uint32_t rangeCount = 0;
+    std::array<RawMeshTemplateRangeValidation, kRawMeshTemplateRangeCapacity> ranges{};
+#if MKW_VITA_DL_PREFLIGHT_HANDLES
+    uint32_t handleCount = 0;
+    uint32_t replayHandleIndex = 0;
+    bool handleReplayDisabled = false;
+    std::array<uintptr_t, kRawMeshTemplateHandleCapacity> handles{};
+#endif
+};
+RawMeshTemplateValidationScope g_rawMeshTemplateValidation{};
+uint32_t g_rawMeshTemplateValidationSerial = 0;
+
+bool RawMeshRangeInsideValidatedList(const void* data, uint32_t bytes) noexcept {
+    if (!g_rawMeshTemplateValidation.active || !data || bytes == 0 ||
+        !g_rawMeshTemplateValidation.list || g_rawMeshTemplateValidation.listBytes == 0) return false;
+    const uintptr_t begin = reinterpret_cast<uintptr_t>(g_rawMeshTemplateValidation.list);
+    const uintptr_t end = begin + static_cast<uintptr_t>(g_rawMeshTemplateValidation.listBytes);
+    const uintptr_t rangeBegin = reinterpret_cast<uintptr_t>(data);
+    const uintptr_t rangeEnd = rangeBegin + static_cast<uintptr_t>(bytes);
+    if (end < begin || rangeEnd < rangeBegin) return false;
+    return rangeBegin >= begin && rangeEnd <= end;
+}
+
+bool RawMeshTemplateGenerationMatches(const void* data, uint32_t size,
+                                      uint64_t expectedGeneration) noexcept {
+    if (!g_guestWriteGeneration || !data || size == 0 ||
+        expectedGeneration == AURORA_GUEST_WRITE_UNTRACKED) return false;
+    for (uint32_t i = 0; i < g_rawMeshTemplateValidation.rangeCount; ++i) {
+        const auto& cached = g_rawMeshTemplateValidation.ranges[i];
+        if (cached.data == data && cached.size == size) {
+            ++g_gx.frame.rawMeshTemplateGenerationReuses;
+            return cached.observedGeneration == expectedGeneration;
+        }
+    }
+    const uint64_t observed = g_guestWriteGeneration(data, size);
+    ++g_gx.frame.rawMeshTemplateGenerationQueries;
+    if (g_rawMeshTemplateValidation.rangeCount < g_rawMeshTemplateValidation.ranges.size()) {
+        auto& cached = g_rawMeshTemplateValidation.ranges[g_rawMeshTemplateValidation.rangeCount++];
+        cached.data = data; cached.size = size; cached.observedGeneration = observed;
+    }
+    return observed != AURORA_GUEST_WRITE_UNTRACKED && observed == expectedGeneration;
+}
+#endif
 
 size_t RawMeshEntryBytes(u16 capacity) {
     return static_cast<size_t>(capacity) * (sizeof(RenderVertex) + sizeof(u8));
@@ -3753,24 +4047,109 @@ bool RawMeshDependenciesCurrent(const RawMeshCacheEntry& entry) {
     return true;
 }
 
+#if MKW_VITA_DL_TEMPLATE_DEP_SCOPE
+bool RawMeshDependenciesCurrentForTemplate(const RawMeshCacheEntry& entry) {
+    if (!g_rawMeshTemplateValidation.active || !g_guestWriteGeneration) return false;
+    if (RawMeshRangeInsideValidatedList(entry.payload, entry.vertexBytes)) {
+        ++g_gx.frame.rawMeshTemplatePayloadSkips;
+    } else if (!RawMeshTemplateGenerationMatches(entry.payload, entry.vertexBytes, entry.payloadGeneration)) {
+        return false;
+    }
+    for (u8 i = 0; i < entry.dependencyCount; ++i) {
+        const RawMeshArrayDependency& dependency = entry.dependencies[i];
+        const size_t attr = static_cast<size_t>(dependency.attr);
+        if (attr >= g_gx.arrays.size()) return false;
+        const ArrayState& current = g_gx.arrays[attr];
+        if (current.data != dependency.data || current.size != dependency.size ||
+            current.stride != dependency.stride || current.littleEndian != dependency.littleEndian) return false;
+        if (!RawMeshTemplateGenerationMatches(dependency.data, dependency.size, dependency.generation)) return false;
+    }
+    return true;
+}
+
+bool ValidateRawMeshTemplateDraw(GXPrimitive primitive, GXVtxFmt fmt, const uint8_t* payload,
+                                 u16 vtxCount, uint32_t vertexBytes) {
+    if (!g_rawMeshTemplateValidation.active || !payload || vtxCount == 0 ||
+        vertexBytes == 0 || fmt < 0 || fmt >= GX_MAX_VTXFMT) {
+        ++g_gx.frame.rawMeshTemplateFallbacks;
+        return false;
+    }
+    RawLayoutPlan& plan = ResolveRawLayoutPlan(fmt);
+    if (!plan.valid || plan.bytesPerVertex == 0u ||
+        static_cast<uint64_t>(plan.bytesPerVertex) * vtxCount != vertexBytes) {
+        ++g_gx.frame.rawMeshTemplateFallbacks;
+        return false;
+    }
+    const u8 defaultPnMtxRef = DefaultPnMtxRef();
+    RawMeshCacheEntry* entry = FindRawMeshCacheEntry(
+        payload, vertexBytes, primitive, fmt, vtxCount, plan.signature, defaultPnMtxRef);
+    if (!entry || !entry->vertices || !entry->pnMtxRefs || entry->capacity < vtxCount ||
+        !RawMeshDependenciesCurrentForTemplate(*entry)) {
+        ++g_gx.frame.rawMeshTemplateFallbacks;
+        return false;
+    }
+    entry->templateValidationSerial = g_rawMeshTemplateValidation.serial;
+#if MKW_VITA_DL_PREFLIGHT_HANDLES
+    if (g_rawMeshTemplateValidation.handleCount >= g_rawMeshTemplateValidation.handles.size()) {
+        ++g_gx.frame.rawMeshTemplateFallbacks;
+        return false;
+    }
+    g_rawMeshTemplateValidation.handles[g_rawMeshTemplateValidation.handleCount++] = reinterpret_cast<uintptr_t>(entry);
+#endif
+    ++g_gx.frame.rawMeshTemplateValidatedDraws;
+    return true;
+}
+#endif
+
 bool TryReplayRawMeshCache(const RawLayoutPlan& plan, GXPrimitive primitive, GXVtxFmt fmt,
                            const uint8_t* payload, u16 vtxCount, uint32_t vertexBytes,
                            u32 firstVertex) {
     const u8 defaultPnMtxRef = DefaultPnMtxRef();
-    RawMeshCacheEntry* entry = FindRawMeshCacheEntry(
-        payload, vertexBytes, primitive, fmt, vtxCount, plan.signature, defaultPnMtxRef);
+    RawMeshCacheEntry* entry = nullptr;
+#if MKW_VITA_DL_TEMPLATE_DEP_SCOPE && MKW_VITA_DL_PREFLIGHT_HANDLES
+    if (g_rawMeshTemplateValidation.active && !g_rawMeshTemplateValidation.handleReplayDisabled &&
+        g_rawMeshTemplateValidation.replayHandleIndex < g_rawMeshTemplateValidation.handleCount) {
+        RawMeshCacheEntry* candidate = reinterpret_cast<RawMeshCacheEntry*>(
+            g_rawMeshTemplateValidation.handles[g_rawMeshTemplateValidation.replayHandleIndex++]);
+        if (candidate && candidate->valid && candidate->payload == payload &&
+            candidate->vertexBytes == vertexBytes && candidate->primitive == primitive &&
+            candidate->fmt == fmt && candidate->vtxCount == vtxCount &&
+            candidate->layoutSignature == plan.signature &&
+            candidate->defaultPnMtxRef == defaultPnMtxRef &&
+            candidate->templateValidationSerial == g_rawMeshTemplateValidation.serial) {
+            entry = candidate;
+            ++g_gx.frame.rawMeshTemplateHandleHits;
+        } else {
+            g_rawMeshTemplateValidation.handleReplayDisabled = true;
+            ++g_gx.frame.rawMeshTemplateHandleFallbacks;
+        }
+    }
+#endif
+    if (!entry) {
+        entry = FindRawMeshCacheEntry(
+            payload, vertexBytes, primitive, fmt, vtxCount, plan.signature, defaultPnMtxRef);
+    }
     if (!entry) {
         ++g_gx.frame.rawMeshCacheMisses;
         return false;
     }
-    if (!RawMeshDependenciesCurrent(*entry) || !entry->vertices || !entry->pnMtxRefs ||
-        entry->capacity < vtxCount) {
+#if MKW_VITA_DL_TEMPLATE_DEP_SCOPE
+    const bool templatePrevalidated = g_rawMeshTemplateValidation.active &&
+        entry->templateValidationSerial == g_rawMeshTemplateValidation.serial;
+#else
+    const bool templatePrevalidated = false;
+#endif
+    if ((!templatePrevalidated && !RawMeshDependenciesCurrent(*entry)) ||
+        !entry->vertices || !entry->pnMtxRefs || entry->capacity < vtxCount) {
         ++g_gx.frame.rawMeshCacheMisses;
         ++g_gx.frame.rawMeshCacheInvalidations;
         entry->valid = false;
         return false;
     }
     entry->lastUse = ++g_rawMeshCacheUseSerial;
+#if MKW_VITA_DL_TEMPLATE_DEP_SCOPE
+    if (templatePrevalidated) ++g_gx.frame.rawMeshTemplatePrevalidatedHits;
+#endif
     std::memcpy(&g_gx.geometry.vertices[firstVertex], entry->vertices.get(),
                 static_cast<size_t>(vtxCount) * sizeof(RenderVertex));
     std::memcpy(&g_gx.geometry.pnMtxRefs[firstVertex], entry->pnMtxRefs.get(), vtxCount);
@@ -3845,6 +4224,7 @@ bool StoreRawMeshCache(const RawLayoutPlan& plan, GXPrimitive primitive, GXVtxFm
     entry->dependencyCount = dependencyCount;
     entry->dependencies = dependencies;
     entry->lastUse = ++g_rawMeshCacheUseSerial;
+    entry->templateValidationSerial = 0;
     std::memcpy(entry->vertices.get(), &g_gx.geometry.vertices[firstVertex],
                 static_cast<size_t>(vtxCount) * sizeof(RenderVertex));
     std::memcpy(entry->pnMtxRefs.get(), &g_gx.geometry.pnMtxRefs[firstVertex], vtxCount);
@@ -4371,8 +4751,22 @@ RawTextureCpuEntry* FindRawTextureCpu(const DrawTextureState& texture) {
     return nullptr;
 }
 
-void StoreRawTextureCpu(const DrawTextureState& texture, const u8* rgba, size_t bytes) {
-    if (!rgba || bytes == 0 || bytes > kRawTextureCpuCacheBudgetBytes) return;
+void ReleaseRawTextureCpuEntry(RawTextureCpuEntry& entry) noexcept {
+    const size_t retained = entry.rgba.capacity();
+    if (retained != 0) {
+        g_rawTextureCpuCacheBytes =
+            retained <= g_rawTextureCpuCacheBytes ? g_rawTextureCpuCacheBytes - retained : 0;
+        // clear() leaves capacity allocated. Swap with an empty vector so the
+        // cache budget tracks memory that is actually returned to the Vita heap.
+        std::vector<u8>().swap(entry.rgba);
+    }
+    entry.bytes = 0;
+    entry.lastUse = 0;
+    entry.valid = false;
+}
+
+bool StoreRawTextureCpu(const DrawTextureState& texture, const u8* rgba, size_t bytes) noexcept {
+    if (!rgba || bytes == 0 || bytes > kRawTextureCpuCacheBudgetBytes) return false;
     RawTextureCpuEntry* target = nullptr;
     for (auto& entry : g_rawTextureCpuCache) {
         if (entry.valid && SameTextureDecodedSource(entry.source, texture)) {
@@ -4385,25 +4779,56 @@ void StoreRawTextureCpu(const DrawTextureState& texture, const u8* rgba, size_t 
         target = &*std::min_element(g_rawTextureCpuCache.begin(), g_rawTextureCpuCache.end(),
             [](const auto& a, const auto& b) { return a.lastUse < b.lastUse; });
     }
-    while (target->valid && g_rawTextureCpuCacheBytes - target->bytes + bytes > kRawTextureCpuCacheBudgetBytes) {
+
+    const auto projectedRetained = [&]() noexcept {
+        const size_t targetCapacity = target->valid ? target->rgba.capacity() : 0;
+        const size_t desiredCapacity = std::max(targetCapacity, bytes);
+        const size_t withoutTarget =
+            targetCapacity <= g_rawTextureCpuCacheBytes ?
+                g_rawTextureCpuCacheBytes - targetCapacity : 0;
+        return withoutTarget + desiredCapacity;
+    };
+    while (projectedRetained() > kRawTextureCpuCacheBudgetBytes) {
         RawTextureCpuEntry* victim = nullptr;
         for (auto& entry : g_rawTextureCpuCache) {
             if (!entry.valid || &entry == target) continue;
             if (!victim || entry.lastUse < victim->lastUse) victim = &entry;
         }
         if (!victim) break;
-        g_rawTextureCpuCacheBytes -= victim->bytes;
-        victim->rgba.clear();
-        victim->bytes = 0;
-        victim->valid = false;
+        ReleaseRawTextureCpuEntry(*victim);
     }
-    if (target->valid) g_rawTextureCpuCacheBytes -= target->bytes;
+    if (projectedRetained() > kRawTextureCpuCacheBudgetBytes) return false;
+
+    // When the replacement is larger than the current allocation, release the
+    // old block before asking for the new one. This avoids an old+new peak at
+    // scene transitions, exactly where P6.49 exhausted USER heap memory.
+    if (target->valid && target->rgba.capacity() < bytes) {
+        ReleaseRawTextureCpuEntry(*target);
+    }
+    const bool targetWasRetained = target->valid;
+    const size_t oldCapacity = targetWasRetained ? target->rgba.capacity() : 0;
+    try {
+        target->rgba.resize(bytes);
+    } catch (const std::bad_alloc&) {
+        if (targetWasRetained) ReleaseRawTextureCpuEntry(*target);
+        return false;
+    }
+    const size_t newCapacity = target->rgba.capacity();
+    if (!targetWasRetained) {
+        g_rawTextureCpuCacheBytes += newCapacity;
+    } else if (newCapacity > oldCapacity) {
+        g_rawTextureCpuCacheBytes += newCapacity - oldCapacity;
+    }
+    if (g_rawTextureCpuCacheBytes > kRawTextureCpuCacheBudgetBytes) {
+        ReleaseRawTextureCpuEntry(*target);
+        return false;
+    }
+    std::memcpy(target->rgba.data(), rgba, bytes);
     target->source = texture;
-    target->rgba.assign(rgba, rgba + bytes);
     target->bytes = bytes;
     target->lastUse = ++g_rawTextureCpuUseSerial;
     target->valid = true;
-    g_rawTextureCpuCacheBytes += bytes;
+    return true;
 }
 #endif
 
@@ -4520,6 +4945,9 @@ uint64_t PreparedVertexFrameKey(const FrameGeometry& geometry) noexcept {
 void PrepareFrameCpuVertices(FrameQueueSlot& slot) {
     const uint64_t beginUs = sceKernelGetProcessTimeWide();
     FrameGeometry& geometry = slot.packet.geometry;
+    // Any stitched tail belongs to the previous packet that used this slot. The
+    // active upload prefix always starts with the one-to-one transformed frame.
+    slot.preparedUploadVertexCount = geometry.vertexCount;
 #if MKW_VITA_VERTEX_REUSE_CACHE
     const uint64_t frameKey = PreparedVertexFrameKey(geometry);
     if (slot.preparedVerticesValid && slot.preparedVertexFrameKey == frameKey &&
@@ -4755,12 +5183,26 @@ void PrepareFrameCpuTextures(FrameQueueSlot& slot) {
 #endif
 
         if (preparedCount >= slot.preparedTextures.size()) {
-            slot.preparedTextures.emplace_back();
+            try {
+                slot.preparedTextures.emplace_back();
+            } catch (const std::bad_alloc&) {
+                ++slot.prepFailures;
+                ++slot.prepTextureBudgetSkips;
+                return;
+            }
         }
         PreparedTextureCpu& prepared = slot.preparedTextures[preparedCount++];
         prepared.valid = false;
         prepared.source = texture;
-        if (prepared.rgba.size() < rgbaBytes) prepared.rgba.resize(rgbaBytes);
+        if (prepared.rgba.size() < rgbaBytes) {
+            try {
+                prepared.rgba.resize(rgbaBytes);
+            } catch (const std::bad_alloc&) {
+                ++slot.prepFailures;
+                ++slot.prepTextureBudgetSkips;
+                return;
+            }
+        }
 
         const uint64_t decodeBeginUs = sceKernelGetProcessTimeWide();
         const bool sourceBefore = TextureSourceStillMatches(texture);
@@ -4861,6 +5303,10 @@ void PrepareFrameCpuState(FrameQueueSlot& slot) {
     slot.preparedStateValid = false;
     slot.prepStateRuns = 0;
     slot.prepMergeCandidates = 0;
+    slot.prepStripRuns = 0;
+    slot.prepStripMergedDraws = 0;
+    slot.prepStripBridgeVertices = 0;
+    slot.prepStripCapacityFallbacks = 0;
     slot.prepBatchBreaks.fill(0);
     if (slot.preparedDraws.size() < geometry.drawCount) {
         slot.preparedDraws.resize(geometry.drawCount);
@@ -4878,6 +5324,7 @@ void PrepareFrameCpuState(FrameQueueSlot& slot) {
         PreparedDrawCpu& prepared = slot.preparedDraws[drawIndex];
         prepared = {};
         prepared.batchEndDraw = drawIndex;
+        prepared.batchFirstVertex = draw.firstVertex;
         prepared.batchVertexCount = draw.vertexCount;
         prepared.concatPrimitive =
             (draw.primitive == GX_QUADS || draw.primitive == GX_TRIANGLES ||
@@ -4909,6 +5356,101 @@ void PrepareFrameCpuState(FrameQueueSlot& slot) {
         const GeometryDraw& draw = geometry.draws[drawIndex];
         PreparedDrawCpu& prepared = slot.preparedDraws[drawIndex];
         ++slot.prepStateRuns;
+#if MKW_VITA_DIRECT_STRIP_STITCH_PREP && MKW_VITA_DIRECT_VERTEX_PREP
+        // P6.55 / F05: stitch only adjacent compatible triangle strips. The
+        // bridge uses degenerate vertices and one optional parity vertex so no
+        // cross-strip triangle is visible and the next strip keeps GX winding.
+        if (draw.primitive == GX_TRIANGLESTRIP && draw.vertexCount >= 3u &&
+            slot.preparedVerticesValid &&
+            static_cast<uint32_t>(draw.firstVertex) + draw.vertexCount <= geometry.vertexCount) {
+#if MKW_VITA_COMPACT_FRAME_STATE && ((defined(MKW_VITA_PERF_FORCE_3D_SOLID) && MKW_VITA_PERF_FORCE_3D_SOLID) || MKW_VITA_DIRECT_3D_TEXTURED_COMPAT || MKW_VITA_DIRECT_3D_TEXTURE_RESCUE)
+            const bool stripPerspective =
+                geometry.transforms[draw.transformId].projectionType == GX_PERSPECTIVE;
+#endif
+            u16 stripEnd = drawIndex;
+            uint32_t sourceEndVertex = static_cast<uint32_t>(draw.firstVertex) + draw.vertexCount;
+            size_t stitchedVertexCount = draw.vertexCount;
+            uint32_t bridgeVertices = 0;
+            BatchBreakReason stripReason = BatchBreakReason::End;
+            for (u16 candidateIndex = static_cast<u16>(drawIndex + 1u);
+                 candidateIndex < geometry.drawCount; ++candidateIndex) {
+                const GeometryDraw& candidate = geometry.draws[candidateIndex];
+                ++slot.prepMergeCandidates;
+                if (efbBoundary[candidateIndex]) { stripReason = BatchBreakReason::EfbBoundary; break; }
+                if (candidate.primitive != GX_TRIANGLESTRIP) { stripReason = BatchBreakReason::Primitive; break; }
+                if (candidate.vertexCount < 3u ||
+                    static_cast<uint32_t>(candidate.firstVertex) + candidate.vertexCount > geometry.vertexCount) {
+                    stripReason = BatchBreakReason::Invalid; break;
+                }
+                if (candidate.firstVertex != sourceEndVertex) { stripReason = BatchBreakReason::NonContiguous; break; }
+#if MKW_VITA_COMPACT_FRAME_STATE
+                if (candidate.renderStateId != draw.renderStateId) { stripReason = BatchBreakReason::RenderState; break; }
+#if (defined(MKW_VITA_PERF_FORCE_3D_SOLID) && MKW_VITA_PERF_FORCE_3D_SOLID) || MKW_VITA_DIRECT_3D_TEXTURED_COMPAT || MKW_VITA_DIRECT_3D_TEXTURE_RESCUE
+                if (candidate.transformId >= geometry.transforms.size() ||
+                    (geometry.transforms[candidate.transformId].projectionType == GX_PERSPECTIVE) != stripPerspective) {
+                    stripReason = BatchBreakReason::Projection; break;
+                }
+#endif
+#else
+                stripReason = BatchBreakReason::RenderState;
+                break;
+#endif
+                const size_t bridge = 2u + (stitchedVertexCount & 1u);
+                const size_t prospective = stitchedVertexCount + bridge + candidate.vertexCount;
+                if (static_cast<size_t>(slot.preparedUploadVertexCount) + prospective > kMaxFrameVertices) {
+                    ++slot.prepStripCapacityFallbacks;
+                    stripReason = BatchBreakReason::Topology;
+                    break;
+                }
+                stitchedVertexCount = prospective;
+                bridgeVertices += static_cast<uint32_t>(bridge);
+                sourceEndVertex += candidate.vertexCount;
+                stripEnd = candidateIndex;
+            }
+            if (stripEnd != drawIndex) {
+                const uint32_t appendStart = slot.preparedUploadVertexCount;
+                const size_t appendEnd = static_cast<size_t>(appendStart) + stitchedVertexCount;
+                if (slot.preparedVertices.size() < appendEnd) slot.preparedVertices.resize(appendEnd);
+                uint32_t outVertex = appendStart;
+                for (uint32_t v = 0; v < draw.vertexCount; ++v) {
+                    slot.preparedVertices[outVertex++] =
+                        slot.preparedVertices[static_cast<uint32_t>(draw.firstVertex) + v];
+                }
+                size_t currentStripLength = draw.vertexCount;
+                for (u16 candidateIndex = static_cast<u16>(drawIndex + 1u);
+                     candidateIndex <= stripEnd; ++candidateIndex) {
+                    const GeometryDraw& candidate = geometry.draws[candidateIndex];
+                    const RenderVertex previousLast = slot.preparedVertices[outVertex - 1u];
+                    const RenderVertex nextFirst = slot.preparedVertices[candidate.firstVertex];
+                    slot.preparedVertices[outVertex++] = previousLast;
+                    slot.preparedVertices[outVertex++] = nextFirst;
+                    if ((currentStripLength & 1u) != 0u) {
+                        slot.preparedVertices[outVertex++] = nextFirst;
+                    }
+                    for (uint32_t v = 0; v < candidate.vertexCount; ++v) {
+                        slot.preparedVertices[outVertex++] =
+                            slot.preparedVertices[static_cast<uint32_t>(candidate.firstVertex) + v];
+                    }
+                    currentStripLength = static_cast<size_t>(outVertex - appendStart);
+                }
+                if (static_cast<size_t>(outVertex - appendStart) == stitchedVertexCount) {
+                    prepared.batchFirstVertex = appendStart;
+                    prepared.batchEndDraw = stripEnd;
+                    prepared.batchVertexCount = static_cast<uint32_t>(stitchedVertexCount);
+                    prepared.concatPrimitive = 1u;
+                    prepared.stitchedStrip = 1u;
+                    slot.preparedUploadVertexCount = outVertex;
+                    ++slot.prepStripRuns;
+                    slot.prepStripMergedDraws += static_cast<uint32_t>(stripEnd - drawIndex);
+                    slot.prepStripBridgeVertices += bridgeVertices;
+                    ++slot.prepBatchBreaks[static_cast<size_t>(stripReason)];
+                    drawIndex = static_cast<u16>(stripEnd + 1u);
+                    continue;
+                }
+                ++slot.prepStripCapacityFallbacks;
+            }
+        }
+#endif
         if (!prepared.concatPrimitive) {
             ++slot.prepBatchBreaks[static_cast<size_t>(BatchBreakReason::Topology)];
             ++drawIndex;
@@ -5003,14 +5545,36 @@ void PrepWorkerMain() {
         slot->prepBeginUs = prepBeginUs;
         slot->prepRunBegin = CurrentHostThreadRunClocks();
 #endif
+        bool prepOutOfMemory = false;
+        try {
 #if MKW_VITA_DIRECT_VERTEX_PREP
-        PrepareFrameCpuVertices(*slot);
+            PrepareFrameCpuVertices(*slot);
 #endif
-        PrepareFrameCpuTextures(*slot);
+            PrepareFrameCpuTextures(*slot);
 #if MKW_VITA_DIRECT_STATE_PREP
-        PrepareFrameCpuState(*slot);
+            PrepareFrameCpuState(*slot);
 #endif
+        } catch (const std::bad_alloc&) {
+            // CPU prep is an optimization. Never let a transient USER-heap
+            // shortage terminate the process; invalidate prepared products and
+            // let USER_1 take the existing synchronous fallback path.
+            prepOutOfMemory = true;
+#if MKW_VITA_DIRECT_VERTEX_PREP
+            slot->preparedVerticesValid = false;
+#endif
+            for (auto& prepared : slot->preparedTextures) prepared.valid = false;
+#if MKW_VITA_DIRECT_STATE_PREP
+            slot->preparedStateValid = false;
+#endif
+            ++slot->prepFailures;
+        }
         slot->prepUs = sceKernelGetProcessTimeWide() - prepBeginUs;
+        if (prepOutOfMemory) {
+            RT_LOGF(RT_TAG_GX,
+                    "direct_prep_oom serial=%llu prep_us=%llu fallback=sync\n",
+                    static_cast<unsigned long long>(slot->serial),
+                    static_cast<unsigned long long>(slot->prepUs));
+        }
 #if MKW_VITA_SOL_CRITICAL_PROFILE
         slot->prepEndUs = prepBeginUs + slot->prepUs;
         slot->prepRunEnd = CurrentHostThreadRunClocks();
@@ -5328,6 +5892,7 @@ GLuint ResolveTexture(const DrawTextureState& texture, TextureRenderCounters& co
     if (!TextureSourceStillMatches(texture)) {
         ++counters.sourceRaceDraws;
 #if MKW_VITA_SOL_CRITICAL_PROFILE
+        ++counters.missSourceInvalid;
         counters.validateUs += sceKernelGetProcessTimeWide() - validateBeginUs;
 #endif
         return finishResolve(0);
@@ -5367,7 +5932,10 @@ GLuint ResolveTexture(const DrawTextureState& texture, TextureRenderCounters& co
             break;
         }
     }
-    if (sawDecodedIdentity) ++counters.missMaterialVariant;
+    const TextureEvictionCause evictionCause = RecentTextureEvictionCause(texture);
+    if (evictionCause == TextureEvictionCause::Budget) ++counters.missBudgetEviction;
+    else if (evictionCause == TextureEvictionCause::EntryPressure) ++counters.missEntryEviction;
+    else if (sawDecodedIdentity) ++counters.missMaterialVariant;
     else if (sawLayout) ++counters.missLayout;
     else if (sawPointer) ++counters.missContentRevision;
     else ++counters.missCold;
@@ -5420,6 +5988,7 @@ GLuint ResolveTexture(const DrawTextureState& texture, TextureRenderCounters& co
     if (!TextureSourceStillMatches(texture)) {
         ++counters.sourceRaceDraws;
 #if MKW_VITA_SOL_CRITICAL_PROFILE
+        ++counters.missSourceInvalid;
         counters.validateUs += sceKernelGetProcessTimeWide() - validateAfterBeginUs;
 #endif
         return finishResolve(0);
@@ -5436,6 +6005,9 @@ GLuint ResolveTexture(const DrawTextureState& texture, TextureRenderCounters& co
         }
         counters.evictedBytes += victim->gpuBytes;
         ++counters.budgetEvictions;
+#if MKW_VITA_SOL_CRITICAL_PROFILE
+        RecordTextureEviction(*victim, TextureEvictionCause::Budget);
+#endif
         EvictTextureEntry(*victim);
     }
     TextureCacheEntry* entry = OldestTextureEntry();
@@ -5446,6 +6018,9 @@ GLuint ResolveTexture(const DrawTextureState& texture, TextureRenderCounters& co
     if (entry->valid) {
         counters.evictedBytes += entry->gpuBytes;
         ++counters.entryEvictions;
+#if MKW_VITA_SOL_CRITICAL_PROFILE
+        RecordTextureEviction(*entry, TextureEvictionCause::EntryPressure);
+#endif
         EvictTextureEntry(*entry);
     }
 
@@ -5798,11 +6373,19 @@ void RenderWorkerMain() {
     const uint64_t vglInitBeginUs = sceKernelGetProcessTimeWide();
 #if MKW_VITA_SOL_CRITICAL_PROFILE || MKW_VITA_BUILD_MARKER
     RT_LOGF(RT_TAG_GX,
-            "sol_build marker=%08X run_id=%llu scenario=mkw-benchmark-v1 profile=%u detail=%u renderer=%s\n",
+            "sol_build marker=%08X run_id=%llu scenario=mkw-benchmark-v1 profile=%u detail=%u renderer=%s text_dedupe=%u rottrig_fast=%u hot_ranges=%u psq_region=%u pane_fast=%u color_fast=%u prebegin=%u dl_handles=%u\n",
             static_cast<unsigned>(MKW_VITA_BUILD_MARKER),
             static_cast<unsigned long long>(vglInitBeginUs),
             static_cast<unsigned>(MKW_VITA_SOL_CRITICAL_PROFILE),
-            static_cast<unsigned>(MKW_VITA_SOL_DETAIL_BURST), kRendererVariant);
+            static_cast<unsigned>(MKW_VITA_SOL_DETAIL_BURST), kRendererVariant,
+            static_cast<unsigned>(MKW_VITA_TEXT_DEDUPE_SAME_OWNER),
+            static_cast<unsigned>(MKW_VITA_ROTRIG_GENERATED_FAST),
+            static_cast<unsigned>(MKW_VITA_HOT_RESOLVED_RANGES),
+            static_cast<unsigned>(MKW_VITA_PSQ_REGION_LOWERING),
+            static_cast<unsigned>(MKW_VITA_PANE_GETVTXPOS_FAST),
+            static_cast<unsigned>(MKW_VITA_CONVERT_COLOR_FAST),
+            static_cast<unsigned>(MKW_VITA_PREBEGIN_PHASE_PROFILE),
+            static_cast<unsigned>(MKW_VITA_DL_PREFLIGHT_HANDLES));
 #endif
     RT_LOGF(RT_TAG_GX,
             "internal_render=%ux%u panel=%ux%u pixel_ratio_permille=%u mode=%s\n",
@@ -5819,11 +6402,11 @@ void RenderWorkerMain() {
             "perf_log=%u perf_ring=%u perf_summary_interval=%u "
             "compact_vertex=%u frame_batcher=%u direct_stream_write=%u "
             "compact_frame_state=%u frame_queue_depth=%u dl_template_cache=%u "
-            "gx_state_generations=%u raw_layout_cache=%u raw_mesh_cache=%u "
+            "gx_state_generations=%u raw_layout_cache=%u raw_mesh_cache=%u raw_mesh_sets=%u raw_mesh_capacity=%u "
             "efb_readback_flip_y=%u efb_transfer_readback=%u efb_resident_copy=%u "
             "efb_native_res_copy=%u stream_safe_reuse=%u ui_quad_runs=%u "
             "texture_shared_headroom=%u texture_safe_retry=%u clip_w=%u "
-            "wait_timing_service=%u incremental_cache_eviction=%u fiber_irq_state=%u wait_service_profile=%u audio_wait_profile=%u audio_ai_profile=%u native_audioout=%u audio_pacing=%u direct_batcher=%u direct_efb=%u direct_state_cache=%u direct_tev_specialize=%u direct_tev_two_texture=%u direct_3d_textured_compat=%u direct_3d_texture_rescue=%u direct_ffp_prewarm=%u direct_gx_depth_range=%u direct_prep_worker=%u direct_vertex_prep=%u direct_texture_prep=%u direct_texture_priority_prep=%u direct_state_prep=%u direct_texture_cache_antithrash=%u texture_cache_cap=%u texture_cache_budget=%u guest_io_profile=%u fullscreen_present=%u dvd_host_buffering=%u direct_efb_batch_sync=%u render_decouple=%u render_target_hz=%u direct_worker_timing=%u audio_wait_block_budget=%u\n",
+            "wait_timing_service=%u incremental_cache_eviction=%u fiber_irq_state=%u wait_service_profile=%u audio_wait_profile=%u audio_ai_profile=%u native_audioout=%u audio_pacing=%u direct_batcher=%u direct_efb=%u direct_state_cache=%u direct_tev_specialize=%u direct_tev_two_texture=%u direct_3d_textured_compat=%u direct_3d_texture_rescue=%u direct_ffp_prewarm=%u direct_gx_depth_range=%u direct_prep_worker=%u direct_vertex_prep=%u direct_texture_prep=%u direct_texture_priority_prep=%u direct_state_prep=%u direct_texture_cache_antithrash=%u texture_cache_cap=%u texture_cache_budget=%u guest_io_profile=%u fullscreen_present=%u dvd_host_buffering=%u direct_efb_batch_sync=%u render_decouple=%u render_target_hz=%u direct_worker_timing=%u audio_wait_block_budget=%u dl_template_dep_scope=%u\n",
             static_cast<unsigned long long>(vglInitBeginUs), kRendererVariant, kVitaGlVariant,
             static_cast<unsigned>(kRenderTargetScenes), static_cast<unsigned>(kRenderTargetScenes),
             static_cast<unsigned>(kMaxFrameDraws), static_cast<unsigned>(kMaxFrameVertices),
@@ -5853,6 +6436,8 @@ void RenderWorkerMain() {
             static_cast<unsigned>(MKW_VITA_GX_STATE_GENERATIONS),
             static_cast<unsigned>(MKW_VITA_RAW_LAYOUT_CACHE),
             static_cast<unsigned>(MKW_VITA_RAW_MESH_CACHE),
+            static_cast<unsigned>(kRawMeshCacheSetCount),
+            static_cast<unsigned>(kRawMeshCacheCapacity),
             static_cast<unsigned>(MKW_VITA_EFB_READBACK_FLIP_Y),
             static_cast<unsigned>(MKW_VITA_EFB_TRANSFER_READBACK),
             static_cast<unsigned>(MKW_VITA_EFB_RESIDENT_COPY),
@@ -5894,7 +6479,8 @@ void RenderWorkerMain() {
             static_cast<unsigned>(MKW_VITA_RENDER_DECOUPLE),
             static_cast<unsigned>(MKW_VITA_RENDER_TARGET_HZ),
             static_cast<unsigned>(MKW_VITA_DIRECT_WORKER_TIMING),
-            static_cast<unsigned>(MKW_VITA_AUDIO_WAIT_BLOCK_BUDGET));
+            static_cast<unsigned>(MKW_VITA_AUDIO_WAIT_BLOCK_BUDGET),
+            static_cast<unsigned>(MKW_VITA_DL_TEMPLATE_DEP_SCOPE));
     LogVitaFreeMemory("before-vgl");
     if (kVitaGlCircularPoolBytes != 0) {
         vglSetCircularPoolSize(kVitaGlCircularPoolBytes);
@@ -6336,6 +6922,7 @@ void RenderWorkerMain() {
         DirectEfbProfile directEfbProfile{};
         uint64_t directEfbSourceWaitUs = 0;
         uint64_t directEfbClearUs = 0;
+        uint64_t directEfbFailedClearsSuppressed = 0;
 #endif
 #if !defined(MKW_VITA_AURORA_RENDERER)
         uint64_t directPhysicalDraws = 0;
@@ -6499,6 +7086,7 @@ void RenderWorkerMain() {
                     continue;
                 }
                 const uint64_t copyStart = sceKernelGetProcessTimeWide();
+                bool copySucceeded = false;
 #if MKW_VITA_DIRECT_EFB_BATCH_SYNC
                 if (CopyDirectEfb(command, scaleX, scaleY, presentLeft, presentTop, true,
                                   MKW_VITA_EFB_DEFER_TRANSFER_FINISH != 0, &transferPending
@@ -6507,6 +7095,7 @@ void RenderWorkerMain() {
 #endif
                                   )) {
                     ++efbCopiesExecuted;
+                    copySucceeded = true;
                 }
 #else
                 if (CopyDirectEfb(command, scaleX, scaleY, presentLeft, presentTop, false,
@@ -6516,6 +7105,7 @@ void RenderWorkerMain() {
 #endif
                                   )) {
                     ++efbCopiesExecuted;
+                    copySucceeded = true;
                 }
 #endif
                 else {
@@ -6554,7 +7144,12 @@ void RenderWorkerMain() {
                     transferPending = false;
                 }
 #endif
-                if (command.clear) {
+                const bool applyClear = command.clear &&
+                    (copySucceeded || MKW_VITA_EFB_CLEAR_ON_FAILED_COPY != 0);
+#if MKW_VITA_SOL_CRITICAL_PROFILE
+                if (command.clear && !applyClear) ++directEfbFailedClearsSuppressed;
+#endif
+                if (applyClear) {
 #if MKW_VITA_SOL_CRITICAL_PROFILE
                     const uint64_t clearBeginUs = sceKernelGetProcessTimeWide();
 #endif
@@ -6815,7 +7410,9 @@ void RenderWorkerMain() {
 #endif
             }
 #if defined(MKW_VITA_VITAGL_SPEEDHACK)
-            const size_t directUploadVertices = packet.geometry.vertexCount;
+            const size_t directUploadVertices = usePreparedVertices
+                ? static_cast<size_t>(activeSlot->preparedUploadVertexCount)
+                : static_cast<size_t>(packet.geometry.vertexCount);
             if (directUploadVertices != 0) {
                 glBindBuffer(GL_ARRAY_BUFFER, g_legacyVertexBuffer);
                 while (glGetError() != GL_NO_ERROR) {
@@ -7800,6 +8397,7 @@ void RenderWorkerMain() {
 #else
 #if MKW_VITA_DIRECT_BATCHER
                 bool issueDirectDraw = directFrameUploadReady;
+                uint32_t directFirstVertex = draw.firstVertex;
                 uint32_t directVertexCount = draw.vertexCount;
 #if !MKW_VITA_DIRECT_STATE_CACHE
                 if (directSkipActive) {
@@ -7819,6 +8417,7 @@ void RenderWorkerMain() {
                         const u16 runEnd = prepared.batchEndDraw;
                         if (prepared.concatPrimitive && runEnd >= i &&
                             runEnd < packet.geometry.drawCount && prepared.batchVertexCount != 0u) {
+                            directFirstVertex = prepared.batchFirstVertex;
                             directVertexCount = prepared.batchVertexCount;
                             if (runEnd != i) {
                                 directSkipActive = true;
@@ -7925,7 +8524,7 @@ void RenderWorkerMain() {
 #if MKW_VITA_SOL_CRITICAL_PROFILE
                     const uint64_t drawSubmitBeginUs = sceKernelGetProcessTimeWide();
 #endif
-                    glDrawArrays(PrimitiveMode(draw.primitive), draw.firstVertex,
+                    glDrawArrays(PrimitiveMode(draw.primitive), static_cast<GLint>(directFirstVertex),
                                  static_cast<GLsizei>(directVertexCount));
 #if MKW_VITA_SOL_CRITICAL_PROFILE
                     textureCounters.drawSubmitUs += sceKernelGetProcessTimeWide() - drawSubmitBeginUs;
@@ -8129,8 +8728,54 @@ void RenderWorkerMain() {
                     static_cast<unsigned long long>(swapUs), static_cast<unsigned>(packet.geometry.drawCount),
                     static_cast<unsigned long long>(directPhysicalDraws), static_cast<unsigned long long>(directMergedDraws),
                     static_cast<unsigned>(packet.geometry.vertexCount));
+#if MKW_VITA_ROTRIG_STATS
+            const auto rotTrig = VitaGuestLeafSpecializations::TakeRotTrigStats();
             RT_LOGF(RT_TAG_GX,
-                    "sol_texture serial=%llu resolve_us=%llu lookup_us=%llu validate_us=%llu decode_us=%llu bake_us=%llu alloc_us=%llu upload_us=%llu sampler_us=%llu material_us=%llu draw_us=%llu hit=%llu miss=%llu miss_reason=%llu/%llu/%llu/%llu uploads=%llu upload_fail=%llu source_race=%llu unique=%llu/%llu live=%llu/%u evict=%llu/%llu/%llu\n",
+                    "sol_rottrig serial=%llu calls=%llu fast=%llu fallback_axis=%llu fallback_gqr=%llu fallback_range=%llu\n",
+                    static_cast<unsigned long long>(serial),
+                    static_cast<unsigned long long>(rotTrig.calls),
+                    static_cast<unsigned long long>(rotTrig.fast),
+                    static_cast<unsigned long long>(rotTrig.fallbackAxis),
+                    static_cast<unsigned long long>(rotTrig.fallbackGqr),
+                    static_cast<unsigned long long>(rotTrig.fallbackRange));
+#endif
+#if MKW_VITA_TEXT_DEDUPE_SAME_OWNER
+            RT_LOGF(RT_TAG_GX,
+                    "sol_text_dedupe serial=%llu candidates=%llu suppressed=%llu state_mismatch=%llu geometry_mismatch=%llu table_full=%llu\n",
+                    static_cast<unsigned long long>(serial),
+                    static_cast<unsigned long long>(packet.counters.glyphDedupeCandidates),
+                    static_cast<unsigned long long>(packet.counters.glyphDedupeSuppressed),
+                    static_cast<unsigned long long>(packet.counters.glyphDedupeStateMismatch),
+                    static_cast<unsigned long long>(packet.counters.glyphDedupeGeometryMismatch),
+                    static_cast<unsigned long long>(packet.counters.glyphDedupeTableFull));
+#endif
+            RT_LOGF(RT_TAG_GX,
+                    "sol_rawmesh serial=%llu hit=%llu miss=%llu store=%llu invalid=%llu bytes=%llu peak=%llu evict=%llu/%llu clear=%llu/%llu skip=%llu raw_ok=%llu raw_fail=%llu template=%llu/%llu/%llu/%llu gen=%llu/%llu payload_skip=%llu handles=%llu/%llu\n",
+                    static_cast<unsigned long long>(serial),
+                    static_cast<unsigned long long>(packet.counters.rawMeshCacheHits),
+                    static_cast<unsigned long long>(packet.counters.rawMeshCacheMisses),
+                    static_cast<unsigned long long>(packet.counters.rawMeshCacheStores),
+                    static_cast<unsigned long long>(packet.counters.rawMeshCacheInvalidations),
+                    static_cast<unsigned long long>(packet.counters.rawMeshCacheBytes),
+                    static_cast<unsigned long long>(packet.counters.rawMeshCachePeakBytes),
+                    static_cast<unsigned long long>(packet.counters.rawMeshCacheEvictions),
+                    static_cast<unsigned long long>(packet.counters.rawMeshCacheEvictedBytes),
+                    static_cast<unsigned long long>(packet.counters.rawMeshCacheFullClears),
+                    static_cast<unsigned long long>(packet.counters.rawMeshCacheFullClearBytes),
+                    static_cast<unsigned long long>(packet.counters.rawMeshCacheBudgetSkips),
+                    static_cast<unsigned long long>(packet.counters.rawDrawsDecoded),
+                    static_cast<unsigned long long>(packet.counters.rawDrawDecodeFailures),
+                    static_cast<unsigned long long>(packet.counters.rawMeshTemplateScopes),
+                    static_cast<unsigned long long>(packet.counters.rawMeshTemplateValidatedDraws),
+                    static_cast<unsigned long long>(packet.counters.rawMeshTemplatePrevalidatedHits),
+                    static_cast<unsigned long long>(packet.counters.rawMeshTemplateFallbacks),
+                    static_cast<unsigned long long>(packet.counters.rawMeshTemplateGenerationQueries),
+                    static_cast<unsigned long long>(packet.counters.rawMeshTemplateGenerationReuses),
+                    static_cast<unsigned long long>(packet.counters.rawMeshTemplatePayloadSkips),
+                    static_cast<unsigned long long>(packet.counters.rawMeshTemplateHandleHits),
+                    static_cast<unsigned long long>(packet.counters.rawMeshTemplateHandleFallbacks));
+            RT_LOGF(RT_TAG_GX,
+                    "sol_texture serial=%llu resolve_us=%llu lookup_us=%llu validate_us=%llu decode_us=%llu bake_us=%llu alloc_us=%llu upload_us=%llu sampler_us=%llu material_us=%llu draw_us=%llu hit=%llu miss=%llu miss_reason=cold:%llu,revision:%llu,layout:%llu,material:%llu,budget_evict:%llu,entry_evict:%llu,source_invalid:%llu uploads=%llu upload_fail=%llu unsupported=%llu source_race=%llu unique=%llu/%llu live=%llu/%u evict=%llu/%llu/%llu\n",
                     static_cast<unsigned long long>(serial),
                     static_cast<unsigned long long>(textureCounters.resolveUs),
                     static_cast<unsigned long long>(textureCounters.lookupUs),
@@ -8148,8 +8793,12 @@ void RenderWorkerMain() {
                     static_cast<unsigned long long>(textureCounters.missContentRevision),
                     static_cast<unsigned long long>(textureCounters.missLayout),
                     static_cast<unsigned long long>(textureCounters.missMaterialVariant),
+                    static_cast<unsigned long long>(textureCounters.missBudgetEviction),
+                    static_cast<unsigned long long>(textureCounters.missEntryEviction),
+                    static_cast<unsigned long long>(textureCounters.missSourceInvalid),
                     static_cast<unsigned long long>(textureCounters.uploads),
                     static_cast<unsigned long long>(textureCounters.uploadFailures),
+                    static_cast<unsigned long long>(textureCounters.unsupportedDraws),
                     static_cast<unsigned long long>(textureCounters.sourceRaceDraws),
                     static_cast<unsigned long long>(textureCounters.uniqueRequests),
                     static_cast<unsigned long long>(textureCounters.uniqueRequestBytes),
@@ -8179,13 +8828,16 @@ void RenderWorkerMain() {
                     directPrepTextureDecodeFailures, vertexReuseFrames, vertexReuseVertices);
 #if MKW_VITA_DIRECT_STATE_PREP
             RT_LOGF(RT_TAG_GX,
-                    "sol_batch serial=%llu logical=%u physical=%llu merged=%llu runs=%u candidates=%u breaks=%u/%u/%u/%u/%u/%u/%u/%u state_skip=%llu/%llu/%llu\n",
+                    "sol_batch serial=%llu logical=%u physical=%llu merged=%llu runs=%u candidates=%u breaks=%u/%u/%u/%u/%u/%u/%u/%u strip=%u/%u bridge=%u cap_fallback=%u upload_vertices=%u state_skip=%llu/%llu/%llu\n",
                     static_cast<unsigned long long>(serial), static_cast<unsigned>(packet.geometry.drawCount),
                     static_cast<unsigned long long>(directPhysicalDraws), static_cast<unsigned long long>(directMergedDraws),
                     activeSlot->prepStateRuns, activeSlot->prepMergeCandidates,
                     activeSlot->prepBatchBreaks[0], activeSlot->prepBatchBreaks[1], activeSlot->prepBatchBreaks[2],
                     activeSlot->prepBatchBreaks[3], activeSlot->prepBatchBreaks[4], activeSlot->prepBatchBreaks[5],
                     activeSlot->prepBatchBreaks[6], activeSlot->prepBatchBreaks[7],
+                    activeSlot->prepStripRuns, activeSlot->prepStripMergedDraws,
+                    activeSlot->prepStripBridgeVertices, activeSlot->prepStripCapacityFallbacks,
+                    activeSlot->preparedUploadVertexCount,
                     static_cast<unsigned long long>(directLogicalStateSkips),
                     static_cast<unsigned long long>(directRasterStateSkips),
                     static_cast<unsigned long long>(directTextureStateSkips));
@@ -8193,7 +8845,7 @@ void RenderWorkerMain() {
 #endif
 #if MKW_VITA_DIRECT_EFB
             RT_LOGF(RT_TAG_GX,
-                    "sol_efb serial=%llu commands=%u exec=%llu fail=%llu sample=%llu total_us=%llu source_wait_us=%llu alloc_us=%llu submit_us=%llu finish_us=%llu resize_us=%llu convert_us=%llu destroy_us=%llu clear_us=%llu bytes=%llu stale=%llu reason=%u/%u/%u/%u/%u/%u/%u/%u/%u\n",
+                    "sol_efb serial=%llu commands=%u exec=%llu fail=%llu sample=%llu total_us=%llu source_wait_us=%llu alloc_us=%llu submit_us=%llu finish_us=%llu resize_us=%llu convert_us=%llu destroy_us=%llu clear_us=%llu bytes=%llu stale=%llu reason=%u/%u/%u/%u/%u/%u/%u/%u/%u/%u clear_suppressed_failed=%llu\n",
                     static_cast<unsigned long long>(serial), static_cast<unsigned>(packet.geometry.efbCommandCount),
                     static_cast<unsigned long long>(efbCopiesExecuted), static_cast<unsigned long long>(efbCopyFailures),
                     static_cast<unsigned long long>(efbTexturesSampled), static_cast<unsigned long long>(directEfbUs),
@@ -8209,8 +8861,21 @@ void RenderWorkerMain() {
                     static_cast<unsigned long long>(directEfbProfile.staleGeneration),
                     directEfbProfile.failures[0], directEfbProfile.failures[1], directEfbProfile.failures[2],
                     directEfbProfile.failures[3], directEfbProfile.failures[4], directEfbProfile.failures[5],
-                    directEfbProfile.failures[6], directEfbProfile.failures[7], directEfbProfile.failures[8]);
+                    directEfbProfile.failures[6], directEfbProfile.failures[7], directEfbProfile.failures[8],
+                    directEfbProfile.failures[9],
+                    static_cast<unsigned long long>(directEfbFailedClearsSuppressed));
 #endif
+            RT_LOGF(RT_TAG_GX,
+                    "sol_draw_hist serial=%llu primitive=q:%u,t:%u,ts:%u,tf:%u,l:%u,ls:%u,p:%u vertices=1-3:%u,4-7:%u,8-15:%u,16-31:%u,32-63:%u,64-127:%u,128-255:%u,256+:%u\n",
+                    static_cast<unsigned long long>(serial),
+                    packet.counters.primitiveDraws[0], packet.counters.primitiveDraws[1],
+                    packet.counters.primitiveDraws[2], packet.counters.primitiveDraws[3],
+                    packet.counters.primitiveDraws[4], packet.counters.primitiveDraws[5],
+                    packet.counters.primitiveDraws[6], packet.counters.drawVertexBuckets[0],
+                    packet.counters.drawVertexBuckets[1], packet.counters.drawVertexBuckets[2],
+                    packet.counters.drawVertexBuckets[3], packet.counters.drawVertexBuckets[4],
+                    packet.counters.drawVertexBuckets[5], packet.counters.drawVertexBuckets[6],
+                    packet.counters.drawVertexBuckets[7]);
             RT_LOGF(RT_TAG_GX,
                     "sol_jobs serial=%llu background=%llu/%llu wait_us=%llu/%llu run_us=%llu/%llu fail=%llu high=%u prefetch=%llu/%llu wait_us=%llu/%llu run_us=%llu/%llu fail=%llu high=%u\n",
                     static_cast<unsigned long long>(serial),
@@ -8853,6 +9518,11 @@ void SubmitFrame() {
 #endif
 #endif
         g_gx.activeDraw = -1;
+#if MKW_VITA_TEXT_DEDUPE_SAME_OWNER
+        g_glyphDedupeRecordCount = 0;
+        g_nextRawGlyphOwner = 0;
+        g_activeRawGlyphOwner = 0;
+#endif
     };
 
     if (!EnsureRenderWorker()) {
@@ -9283,6 +9953,20 @@ void SetGuestBeginLr(uint32_t lr) noexcept {
     }
 }
 
+void ArmNextGlyphOwner(uint32_t ownerKey) noexcept {
+#if MKW_VITA_TEXT_DEDUPE_SAME_OWNER
+    g_nextRawGlyphOwner = ownerKey;
+#else
+    (void)ownerKey;
+#endif
+}
+
+void ClearNextGlyphOwner() noexcept {
+#if MKW_VITA_TEXT_DEDUPE_SAME_OWNER
+    g_nextRawGlyphOwner = 0;
+#endif
+}
+
 bool Initialize() noexcept {
     InitializeTransformDefaults();
 #if MKW_VITA_COMPACT_FRAME_STATE
@@ -9577,6 +10261,7 @@ void GXBegin(GXPrimitive primitive, GXVtxFmt fmt, u16 nverts) {
     ++g_gx.frame.drawCalls;
     g_gx.frame.vertices += nverts;
     ++g_gx.frame.primitiveDraws[PrimitiveBucket(primitive)];
+    ++g_gx.frame.drawVertexBuckets[DrawVertexBucket(nverts)];
     if (fmt >= 0 && fmt < GX_MAX_VTXFMT) {
         ++g_gx.frame.vertexFormatDraws[static_cast<size_t>(fmt)];
     }
@@ -10329,9 +11014,73 @@ void GXClearBoundingBox() { g_gx.boundingBox = {1023, 0, 1023, 0}; }
 
 namespace aurora::gx::fifo {
 
+void begin_template_state_reuse() {
+#if MKW_VITA_DL_TEMPLATE_STATE_REUSE && MKW_VITA_COMPACT_FRAME_STATE
+    g_templateDrawStateReuse.active = true;
+    g_templateDrawStateReuse.valid = false;
+#endif
+}
+
+void end_template_state_reuse() {
+#if MKW_VITA_DL_TEMPLATE_STATE_REUSE && MKW_VITA_COMPACT_FRAME_STATE
+    g_templateDrawStateReuse.active = false;
+    g_templateDrawStateReuse.valid = false;
+#endif
+}
+
+bool begin_raw_mesh_template_validation(const uint8_t* list, uint32_t nbytes) {
+#if MKW_VITA_DL_TEMPLATE_DEP_SCOPE && MKW_VITA_RAW_MESH_CACHE && MKW_VITA_RAW_LAYOUT_CACHE
+    if (!list || nbytes == 0 || !g_guestWriteGeneration) return false;
+    g_rawMeshTemplateValidation = {};
+    g_rawMeshTemplateValidation.active = true;
+    g_rawMeshTemplateValidation.list = list;
+    g_rawMeshTemplateValidation.listBytes = nbytes;
+    uint32_t serial = ++g_rawMeshTemplateValidationSerial;
+    if (serial == 0) serial = ++g_rawMeshTemplateValidationSerial;
+    g_rawMeshTemplateValidation.serial = serial;
+    ++g_gx.frame.rawMeshTemplateScopes;
+    return true;
+#else
+    (void)list; (void)nbytes; return false;
+#endif
+}
+
+void end_raw_mesh_template_validation() {
+#if MKW_VITA_DL_TEMPLATE_DEP_SCOPE && MKW_VITA_RAW_MESH_CACHE && MKW_VITA_RAW_LAYOUT_CACHE
+    g_rawMeshTemplateValidation.active = false;
+    g_rawMeshTemplateValidation.list = nullptr;
+    g_rawMeshTemplateValidation.listBytes = 0;
+    g_rawMeshTemplateValidation.rangeCount = 0;
+#if MKW_VITA_DL_PREFLIGHT_HANDLES
+    g_rawMeshTemplateValidation.handleCount = 0;
+    g_rawMeshTemplateValidation.replayHandleIndex = 0;
+    g_rawMeshTemplateValidation.handleReplayDisabled = false;
+#endif
+#endif
+}
+
+bool validate_raw_draw_for_template(GXPrimitive primitive, GXVtxFmt fmt,
+                                    const uint8_t* vertices, uint16_t vtxCount,
+                                    uint32_t vertexBytes) {
+#if MKW_VITA_DL_TEMPLATE_DEP_SCOPE && MKW_VITA_RAW_MESH_CACHE && MKW_VITA_RAW_LAYOUT_CACHE
+    return ValidateRawMeshTemplateDraw(primitive, fmt, vertices, vtxCount, vertexBytes);
+#else
+    (void)primitive; (void)fmt; (void)vertices; (void)vtxCount; (void)vertexBytes; return false;
+#endif
+}
+
 bool submit_raw_draw(GXPrimitive primitive, GXVtxFmt fmt, const uint8_t* vertices,
                      uint16_t vtxCount, uint32_t vertexBytes) {
-    if (DecodeRawDraw(primitive, fmt, vertices, vtxCount, vertexBytes)) {
+#if MKW_VITA_TEXT_DEDUPE_SAME_OWNER
+    const uint32_t priorActiveGlyphOwner = g_activeRawGlyphOwner;
+    g_activeRawGlyphOwner = g_nextRawGlyphOwner;
+    g_nextRawGlyphOwner = 0;
+#endif
+    const bool decoded = DecodeRawDraw(primitive, fmt, vertices, vtxCount, vertexBytes);
+#if MKW_VITA_TEXT_DEDUPE_SAME_OWNER
+    g_activeRawGlyphOwner = priorActiveGlyphOwner;
+#endif
+    if (decoded) {
         return true;
     }
     ++g_gx.frame.rawDrawDecodeFailures;

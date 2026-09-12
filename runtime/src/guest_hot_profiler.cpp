@@ -53,6 +53,10 @@ struct PhaseCounters {
     uint64_t alarm = 0;
     uint64_t audio = 0;
     uint64_t hostOther = 0;
+    uint64_t preScheduler = 0;
+    uint64_t preAnimation = 0;
+    uint64_t preSceneMatrix = 0;
+    uint64_t preMaterialVertex = 0;
     uint64_t guest = 0;
 };
 
@@ -79,12 +83,11 @@ void EmitWindow(uint64_t window, uint64_t samples, const PhaseCounters& phases,
     }
 
     const int armMHzRaw = scePowerGetArmClockFrequency();
-    const uint64_t activeCpuUs = (MKW_VITA_GUEST_ACTIVE_CPU_PROFILE && armMHzRaw > 0)
-        ? runClockDelta / static_cast<uint64_t>(armMHzRaw) : 0;
+    const uint64_t activeCpuUs = MKW_VITA_GUEST_ACTIVE_CPU_PROFILE ? runClockDelta : 0;
     const uint32_t activePermille = wallUs != 0
         ? static_cast<uint32_t>(std::min<uint64_t>(1000u, activeCpuUs * 1000u / wallUs)) : 0u;
     RT_LOGF(RT_TAG_OS,
-            "guest_hot_pc window=%llu samples=%llu guest=%llu unknown=%llu wait_vi=%llu wait_alarm=%llu wait_audio=%llu host_other=%llu active_cpu_us=%llu wall_us=%llu active_permille=%u arm_mhz=%d top=%s\n",
+            "guest_hot_pc window=%llu samples=%llu guest=%llu unknown=%llu wait_vi=%llu wait_alarm=%llu wait_audio=%llu host_other=%llu prebegin=scheduler:%llu,animation:%llu,scene:%llu,material_vtx:%llu active_cpu_us=%llu wall_us=%llu active_permille=%u arm_mhz=%d top=%s\n",
             static_cast<unsigned long long>(window),
             static_cast<unsigned long long>(samples),
             static_cast<unsigned long long>(phases.guest),
@@ -93,6 +96,10 @@ void EmitWindow(uint64_t window, uint64_t samples, const PhaseCounters& phases,
             static_cast<unsigned long long>(phases.alarm),
             static_cast<unsigned long long>(phases.audio),
             static_cast<unsigned long long>(phases.hostOther),
+            static_cast<unsigned long long>(phases.preScheduler),
+            static_cast<unsigned long long>(phases.preAnimation),
+            static_cast<unsigned long long>(phases.preSceneMatrix),
+            static_cast<unsigned long long>(phases.preMaterialVertex),
             static_cast<unsigned long long>(activeCpuUs),
             static_cast<unsigned long long>(wallUs), activePermille, armMHzRaw, top);
 }
@@ -116,6 +123,10 @@ void SamplerMain() {
         case kPhaseWaitAlarm: ++phases.alarm; break;
         case kPhaseWaitAudio: ++phases.audio; break;
         case kPhaseHostOther: ++phases.hostOther; break;
+        case kPhasePrebeginScheduler: ++phases.preScheduler; break;
+        case kPhasePrebeginAnimation: ++phases.preAnimation; break;
+        case kPhasePrebeginSceneMatrix: ++phases.preSceneMatrix; break;
+        case kPhasePrebeginMaterialVertex: ++phases.preMaterialVertex; break;
         default:
             ++phases.guest;
             ++guestCounts[token];

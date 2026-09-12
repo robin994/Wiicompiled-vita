@@ -164,7 +164,30 @@ public sealed partial class CxxLinearCodeGenerator
                     var start = RemapAddress(
                         new IrAddress(resolve.Base.RegisterName!, resolve.MinOffset),
                         types, localConstants, linkedAddressRemap);
-                    sb.AppendLine($"{pad}{resolve.Destination} = MemoryInline::ResolveRangeHost({start}, 0, {resolve.Length}u, {(resolve.NeedsReadAccess ? "true" : "false")}, {(resolve.NeedsWriteAccess ? "true" : "false")});");
+                    var vitaHotRangeFunction =
+                        signature.Name.EndsWith("_800797d0", StringComparison.OrdinalIgnoreCase) ||
+                        signature.Name.EndsWith("_805e7b40", StringComparison.OrdinalIgnoreCase);
+                    var vitaHotWriteRange = resolve.NeedsWriteAccess && vitaHotRangeFunction;
+                    var vitaHotWriteArgument = vitaHotWriteRange ? ", true" : string.Empty;
+                    var needsRead = resolve.NeedsReadAccess ? "true" : "false";
+                    var needsWrite = resolve.NeedsWriteAccess ? "true" : "false";
+                    var resolveLine = $"{pad}{resolve.Destination} = MemoryInline::ResolveRangeHost({start}, 0, {resolve.Length}u, {needsRead}, {needsWrite}{vitaHotWriteArgument});";
+                    if (vitaHotWriteRange)
+                    {
+                        sb.AppendLine("#if defined(MKW_TARGET_VITA)");
+                        sb.AppendLine("#if MKW_VITA_HOT_RESOLVED_RANGES");
+                        sb.AppendLine(resolveLine);
+                        sb.AppendLine("#else");
+                        sb.AppendLine($"{pad}{resolve.Destination} = nullptr;");
+                        sb.AppendLine("#endif");
+                        sb.AppendLine("#else");
+                        sb.AppendLine(resolveLine);
+                        sb.AppendLine("#endif");
+                    }
+                    else
+                    {
+                        sb.AppendLine(resolveLine);
+                    }
                 }
                 break;
             case IrResolvedLoad load:

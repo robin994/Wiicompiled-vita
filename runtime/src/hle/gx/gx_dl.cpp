@@ -25,11 +25,32 @@
 #ifndef MKW_VITA_DL_TEMPLATE_CACHE
 #define MKW_VITA_DL_TEMPLATE_CACHE 0
 #endif
+#ifndef MKW_VITA_F06_PRODUCER_DETAIL
+#define MKW_VITA_F06_PRODUCER_DETAIL 0
+#endif
+#ifndef MKW_VITA_DL_TEMPLATE_STATE_REUSE
+#define MKW_VITA_DL_TEMPLATE_STATE_REUSE 0
+#endif
+#ifndef MKW_VITA_DL_TEMPLATE_DEP_SCOPE
+#define MKW_VITA_DL_TEMPLATE_DEP_SCOPE 0
+#endif
+#ifndef MKW_VITA_TEXT_OWNER_PROBE
+#define MKW_VITA_TEXT_OWNER_PROBE 0
+#endif
+#ifndef MKW_VITA_TEXT_OVERDRAW_PROBE
+#define MKW_VITA_TEXT_OVERDRAW_PROBE 0
+#endif
 
 namespace aurora::gx::fifo {
 bool in_display_list();
 bool submit_raw_draw(GXPrimitive prim, GXVtxFmt fmt, const uint8_t* vertices, uint16_t vtxCount,
                      uint32_t vertexBytes);
+void begin_template_state_reuse();
+void end_template_state_reuse();
+bool begin_raw_mesh_template_validation(const uint8_t* list, uint32_t nbytes);
+void end_raw_mesh_template_validation();
+bool validate_raw_draw_for_template(GXPrimitive prim, GXVtxFmt fmt, const uint8_t* vertices,
+                                    uint16_t vtxCount, uint32_t vertexBytes);
 }
 
 // The translated nw4r::lyt::detail::DrawQuad functions call GXBegin and then
@@ -43,6 +64,45 @@ extern "C" void GX_HLE_FIFO_Write32(uint32_t value);
 namespace {
 
 thread_local GxCpuPerfSnapshot g_cpuPerf{};
+#if MKW_VITA_TEXT_OVERDRAW_PROBE
+struct GlyphProbeEntry {
+    uint32_t source = 0;
+    uint32_t textureObject = 0;
+    uint32_t colorKey = 0;
+    uint32_t ownerKey = 0;
+    uint16_t setupKey = 0;
+    int16_t x0 = 0, x1 = 0, y0 = 0, y1 = 0;
+    uint16_t s0 = 0, s1 = 0, t0 = 0, t1 = 0;
+};
+static constexpr size_t kGlyphProbeCapacity = 768;
+thread_local std::array<GlyphProbeEntry, kGlyphProbeCapacity> g_glyphProbeEntries{};
+thread_local size_t g_glyphProbeEntryCount = 0;
+
+static bool SameGlyphPayload(const GlyphProbeEntry& a, const GlyphProbeEntry& b) noexcept {
+    return a.textureObject == b.textureObject && a.colorKey == b.colorKey &&
+           a.setupKey == b.setupKey && a.x0 == b.x0 && a.x1 == b.x1 &&
+           a.y0 == b.y0 && a.y1 == b.y1 && a.s0 == b.s0 && a.s1 == b.s1 &&
+           a.t0 == b.t0 && a.t1 == b.t1;
+}
+
+static int GlyphProbeAbs(int value) noexcept { return value < 0 ? -value : value; }
+
+static bool ShadowLikeGlyphPayload(const GlyphProbeEntry& a, const GlyphProbeEntry& b) noexcept {
+    if (a.textureObject != b.textureObject || a.s0 != b.s0 || a.s1 != b.s1 ||
+        a.t0 != b.t0 || a.t1 != b.t1) {
+        return false;
+    }
+    const int aw = static_cast<int>(a.x1) - static_cast<int>(a.x0);
+    const int bw = static_cast<int>(b.x1) - static_cast<int>(b.x0);
+    const int ah = static_cast<int>(a.y1) - static_cast<int>(a.y0);
+    const int bh = static_cast<int>(b.y1) - static_cast<int>(b.y0);
+    if (aw != bw || ah != bh) return false;
+    const int dx0 = GlyphProbeAbs(static_cast<int>(a.x0) - static_cast<int>(b.x0));
+    const int dy0 = GlyphProbeAbs(static_cast<int>(a.y0) - static_cast<int>(b.y0));
+    if (dx0 > 2 || dy0 > 2) return false;
+    return a.x0 != b.x0 || a.y0 != b.y0 || a.colorKey != b.colorKey || a.setupKey != b.setupKey;
+}
+#endif
 thread_local std::chrono::steady_clock::time_point g_lastGxBeginRecordTime{};
 thread_local std::chrono::steady_clock::time_point g_lastGxPerfSnapshotTime{};
 #if defined(MKW_TARGET_VITA)
@@ -71,6 +131,43 @@ public:
     }
 private:
     bool previous_;
+};
+
+class ScopedDlTemplateStateReuse {
+public:
+    ScopedDlTemplateStateReuse() noexcept {
+#if MKW_VITA_DL_TEMPLATE_STATE_REUSE
+        aurora::gx::fifo::begin_template_state_reuse();
+#endif
+    }
+    ~ScopedDlTemplateStateReuse() noexcept {
+#if MKW_VITA_DL_TEMPLATE_STATE_REUSE
+        aurora::gx::fifo::end_template_state_reuse();
+#endif
+    }
+};
+
+class ScopedRawMeshTemplateValidation {
+public:
+    ScopedRawMeshTemplateValidation(const uint8_t* list, uint32_t nbytes) noexcept {
+#if MKW_VITA_DL_TEMPLATE_DEP_SCOPE
+        active_ = aurora::gx::fifo::begin_raw_mesh_template_validation(list, nbytes);
+#else
+        (void)list; (void)nbytes;
+#endif
+    }
+    ~ScopedRawMeshTemplateValidation() noexcept { Reset(); }
+    bool active() const noexcept { return active_; }
+    void Reset() noexcept {
+#if MKW_VITA_DL_TEMPLATE_DEP_SCOPE
+        if (active_) {
+            aurora::gx::fifo::end_raw_mesh_template_validation();
+            active_ = false;
+        }
+#endif
+    }
+private:
+    bool active_ = false;
 };
 #endif
 
@@ -1260,6 +1357,27 @@ static bool ReplayDlDrawTemplate(const DlScanCacheRecord& record, const uint8_t*
     if (!record.drawTemplateValid || record.drawTemplate.empty()) return false;
     const GXVtxFmt previousFmt = g_hleGxState.currentVtxFmt;
     const bool indexedLayout = !DlVertexLayoutIsAllDirect();
+    ScopedRawMeshTemplateValidation dependencyScope(list, nbytes);
+#if MKW_VITA_DL_TEMPLATE_DEP_SCOPE
+    if (dependencyScope.active()) {
+        bool templateValidated = true;
+        for (const DlTemplateDraw& draw : record.drawTemplate) {
+            if (draw.payloadOffset > nbytes || draw.payloadBytes > nbytes - draw.payloadOffset) {
+                templateValidated = false;
+                break;
+            }
+            const GXVtxFmt fmt = static_cast<GXVtxFmt>(draw.vtxFmt);
+            if (!aurora::gx::fifo::validate_raw_draw_for_template(
+                    OpcodeToGXPrimitive(draw.opcode), fmt, list + draw.payloadOffset,
+                    draw.vertexCount, draw.payloadBytes)) {
+                templateValidated = false;
+                break;
+            }
+        }
+        if (!templateValidated) dependencyScope.Reset();
+    }
+#endif
+    ScopedDlTemplateStateReuse stateReuseScope{};
     for (size_t drawIndex = 0; drawIndex < record.drawTemplate.size(); ++drawIndex) {
         const DlTemplateDraw& draw = record.drawTemplate[drawIndex];
         if (draw.payloadOffset > nbytes || draw.payloadBytes > nbytes - draw.payloadOffset) {
@@ -1738,6 +1856,31 @@ static bool ApplyAuroraIndexedXFArraysForDisplayList(const std::array<uint32_t, 
 GxCpuPerfSnapshot GX_HLE_TakeCpuPerfSnapshot() noexcept {
     const auto now = std::chrono::steady_clock::now();
     GxCpuPerfSnapshot snapshot = g_cpuPerf;
+#if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_CPU_PROFILE
+    const uint64_t runNow = CurrentThreadRunClocks();
+    if (g_lastGxPerfSnapshotTime.time_since_epoch().count() != 0 &&
+        g_lastGxPerfRunClocks != 0 && runNow >= g_lastGxPerfRunClocks) {
+        const auto wall = std::chrono::duration_cast<std::chrono::microseconds>(
+            now - g_lastGxPerfSnapshotTime).count();
+        const uint64_t wallUs = static_cast<uint64_t>(wall > 0 ? wall : 0);
+        const uint64_t runDelta = runNow - g_lastGxPerfRunClocks;
+        const int armMHzRaw = scePowerGetArmClockFrequency();
+        const uint32_t armMHz = armMHzRaw > 0 ? static_cast<uint32_t>(armMHzRaw) : 0u;
+        snapshot.frameWallUs = wallUs;
+        snapshot.frameRunClocks = runDelta;
+        snapshot.frameArmMHz = armMHz;
+        // SceKernelThreadInfo::runClocks is a SceKernelSysClock. Hardware traces
+        // track wall microseconds (e.g. ~337k ticks in a ~387 ms frame); dividing
+        // by the ARM MHz under-reports USER_0 by ~444x. Keep ARM MHz only as
+        // context and interpret the delta as elapsed run-time microseconds.
+        snapshot.frameCpuUs = std::min<uint64_t>(runDelta, wallUs);
+        snapshot.frameOffCpuUs = wallUs - snapshot.frameCpuUs;
+        if (wallUs != 0) {
+            snapshot.frameCpuPermille = static_cast<uint32_t>(std::min<uint64_t>(
+                1000u, snapshot.frameCpuUs * 1000u / wallUs));
+        }
+    }
+#endif
     const auto& dlCache = DlScanCache();
     snapshot.dlCacheEntries = dlCache.entries.size();
     snapshot.dlCacheStoredBytes = dlCache.storedCommandBytes;
@@ -1748,10 +1891,13 @@ GxCpuPerfSnapshot GX_HLE_TakeCpuPerfSnapshot() noexcept {
     snapshot.dlCacheFullClearBytes = dlCache.fullClearBytes;
     snapshot.dlCacheBudgetSkips = dlCache.budgetSkips;
     g_cpuPerf = {};
+#if MKW_VITA_TEXT_OVERDRAW_PROBE
+    g_glyphProbeEntryCount = 0;
+#endif
     g_lastGxBeginRecordTime = {};
     g_lastGxPerfSnapshotTime = now;
 #if defined(MKW_TARGET_VITA) && MKW_VITA_GUEST_CPU_PROFILE
-    g_lastGxPerfRunClocks = CurrentThreadRunClocks();
+    g_lastGxPerfRunClocks = runNow;
 #endif
     return snapshot;
 }
@@ -1781,15 +1927,12 @@ void GX_HLE_RecordBeginCaller(uint32_t lr) noexcept {
             const uint32_t armMHz = armMHzRaw > 0 ? static_cast<uint32_t>(armMHzRaw) : 0u;
             g_cpuPerf.preFirstBeginRunClocks = runDelta;
             g_cpuPerf.preFirstBeginArmMHz = armMHz;
-            if (armMHz != 0) {
-                const uint64_t cpuUs = runDelta / armMHz;
-                g_cpuPerf.preFirstBeginCpuUs = cpuUs;
-                g_cpuPerf.preFirstBeginOffCpuUs =
-                    g_cpuPerf.preFirstBeginUs > cpuUs ? g_cpuPerf.preFirstBeginUs - cpuUs : 0u;
-                if (g_cpuPerf.preFirstBeginUs != 0) {
-                    g_cpuPerf.preFirstBeginCpuPermille = static_cast<uint32_t>(std::min<uint64_t>(
-                        1000u, cpuUs * 1000u / g_cpuPerf.preFirstBeginUs));
-                }
+            const uint64_t cpuUs = std::min<uint64_t>(runDelta, g_cpuPerf.preFirstBeginUs);
+            g_cpuPerf.preFirstBeginCpuUs = cpuUs;
+            g_cpuPerf.preFirstBeginOffCpuUs = g_cpuPerf.preFirstBeginUs - cpuUs;
+            if (g_cpuPerf.preFirstBeginUs != 0) {
+                g_cpuPerf.preFirstBeginCpuPermille = static_cast<uint32_t>(std::min<uint64_t>(
+                    1000u, cpuUs * 1000u / g_cpuPerf.preFirstBeginUs));
             }
         }
 #endif
@@ -1825,6 +1968,64 @@ void GX_HLE_RecordBeginCaller(uint32_t lr) noexcept {
     entry.maxGapUs = gapUs;
 }
 
+void GX_HLE_RecordGlyphProbe(uint32_t source, uint32_t ownerKey, uint32_t textureObject,
+                             uint32_t colorKey, uint16_t setupKey, int16_t x0, int16_t x1,
+                             int16_t y0, int16_t y1, uint16_t s0, uint16_t s1,
+                             uint16_t t0, uint16_t t1) noexcept {
+#if MKW_VITA_TEXT_OVERDRAW_PROBE
+    ++g_cpuPerf.glyphProbeSeen;
+    GlyphProbeEntry sample{};
+    sample.source = source;
+    sample.textureObject = textureObject;
+    sample.colorKey = colorKey;
+    sample.ownerKey = ownerKey;
+#if MKW_VITA_TEXT_OWNER_PROBE
+    if (ownerKey != 0) ++g_cpuPerf.glyphProbeOwnerKnown;
+    else ++g_cpuPerf.glyphProbeOwnerUnknown;
+#endif
+    sample.setupKey = setupKey;
+    sample.x0 = x0; sample.x1 = x1; sample.y0 = y0; sample.y1 = y1;
+    sample.s0 = s0; sample.s1 = s1; sample.t0 = t0; sample.t1 = t1;
+
+    bool exactDuplicate = false;
+    const GlyphProbeEntry* exactMatch = nullptr;
+    bool sourceRepeat = false;
+    bool shadowLike = false;
+    for (size_t i = 0; i < g_glyphProbeEntryCount; ++i) {
+        const auto& entry = g_glyphProbeEntries[i];
+        sourceRepeat = sourceRepeat || entry.source == source;
+        const bool samePayload = SameGlyphPayload(entry, sample);
+        if (samePayload && exactMatch == nullptr) exactMatch = &entry;
+        exactDuplicate = exactDuplicate || samePayload;
+        shadowLike = shadowLike || (!samePayload && ShadowLikeGlyphPayload(entry, sample));
+    }
+    g_cpuPerf.glyphProbeSourceRepeats += sourceRepeat ? 1u : 0u;
+    g_cpuPerf.glyphProbeShadowLike += shadowLike ? 1u : 0u;
+    if (exactDuplicate) {
+        ++g_cpuPerf.glyphProbeExactDuplicates;
+#if MKW_VITA_TEXT_OWNER_PROBE
+        if (exactMatch != nullptr && sample.ownerKey != 0 && exactMatch->ownerKey != 0) {
+            if (sample.ownerKey == exactMatch->ownerKey) ++g_cpuPerf.glyphProbeExactSameOwner;
+            else ++g_cpuPerf.glyphProbeExactDifferentOwner;
+        } else {
+            ++g_cpuPerf.glyphProbeExactOwnerUnknown;
+        }
+#endif
+    } else {
+        ++g_cpuPerf.glyphProbeUnique;
+        if (g_glyphProbeEntryCount < g_glyphProbeEntries.size()) {
+            g_glyphProbeEntries[g_glyphProbeEntryCount++] = sample;
+        } else {
+            ++g_cpuPerf.glyphProbeTableFull;
+        }
+    }
+#else
+    (void)source; (void)ownerKey; (void)textureObject; (void)colorKey; (void)setupKey;
+    (void)x0; (void)x1; (void)y0; (void)y1;
+    (void)s0; (void)s1; (void)t0; (void)t1;
+#endif
+}
+
 void GX_HLE_RecordGlyphFast(bool setupCalled, bool textureLoaded, bool rawDirect) noexcept {
     ++g_cpuPerf.glyphFastCalls;
     g_cpuPerf.glyphSetupCalls += setupCalled ? 1u : 0u;
@@ -1846,6 +2047,9 @@ extern "C" void GX__CallDisplayList_80172f64(uint32_t listAddr, uint32_t nbytes)
         const uint8_t* list = static_cast<const uint8_t*>(GuestToHostPtr(listAddr, nbytes));
         if (!list) return;
 
+#if MKW_VITA_F06_PRODUCER_DETAIL
+        const auto dlProbeBegin = std::chrono::steady_clock::now();
+#endif
         const bool allowScanCache = nbytes <= kDlScanCacheMaxEntryBytes;
         const uint64_t scanLayoutHash = allowScanCache ? HashScanLayoutState() : 0;
         // The digest is computed lazily inside the probe: an entry whose covering
@@ -1865,6 +2069,11 @@ extern "C" void GX__CallDisplayList_80172f64(uint32_t listAddr, uint32_t nbytes)
         // so only a miss pays for DisplayListMayContainDraw.
         const bool mayContainDraw =
             (cached != nullptr) ? cached->mayContainDraw : DisplayListMayContainDraw(list, nbytes);
+#if MKW_VITA_F06_PRODUCER_DETAIL
+        g_cpuPerf.dlProbeUs += static_cast<uint64_t>(std::max<int64_t>(0,
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - dlProbeBegin).count()));
+#endif
         if (!mayContainDraw) {
             EnsureAuroraFrameActive();
             GXMarkFrameWork();
@@ -1927,6 +2136,9 @@ extern "C" void GX__CallDisplayList_80172f64(uint32_t listAddr, uint32_t nbytes)
                 }
             }
         } else {
+#if MKW_VITA_F06_PRODUCER_DETAIL
+            const auto dlScanBegin = std::chrono::steady_clock::now();
+#endif
             std::vector<DlCpWrite> cpWrites{};
             // The scan discovers the list's CP writes as it walks, so this path
             // cannot narrow the snapshot the way the cached one does.
@@ -1994,9 +2206,17 @@ extern "C" void GX__CallDisplayList_80172f64(uint32_t listAddr, uint32_t nbytes)
                 }
 #endif
             }
+#if MKW_VITA_F06_PRODUCER_DETAIL
+            g_cpuPerf.dlScanUs += static_cast<uint64_t>(std::max<int64_t>(0,
+                std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now() - dlScanBegin).count()));
+#endif
         }
 
         if (needsFlatten) {
+#if MKW_VITA_F06_PRODUCER_DETAIL
+            const auto dlApplyBegin = std::chrono::steady_clock::now();
+#endif
             bool flattenApplyOk = flattenOk && scanOk && auroraStream != nullptr && auroraStreamBytes != 0;
             if (flattenApplyOk) {
                 ApplyAuroraVtxDesc();
@@ -2007,6 +2227,11 @@ extern "C" void GX__CallDisplayList_80172f64(uint32_t listAddr, uint32_t nbytes)
                     ApplyAuroraIndexedXFArraysForDisplayList(maxXfIdx, maxXfBytes, sawXfIdx);
                 flattenApplyOk = flattenArraysOk && flattenXfOk;
             }
+#if MKW_VITA_F06_PRODUCER_DETAIL
+            g_cpuPerf.dlApplyUs += static_cast<uint64_t>(std::max<int64_t>(0,
+                std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now() - dlApplyBegin).count()));
+#endif
             if (flattenApplyOk) {
                 EnsureAuroraFrameActive();
                 GXMarkFrameWork();
@@ -2017,6 +2242,9 @@ extern "C" void GX__CallDisplayList_80172f64(uint32_t listAddr, uint32_t nbytes)
             }
 
         } else {
+#if MKW_VITA_F06_PRODUCER_DETAIL
+            const auto dlApplyBegin = std::chrono::steady_clock::now();
+#endif
             bool applyOk = scanOk;
             bool arraysOk = false;
             bool xfOk = false;
@@ -2027,13 +2255,27 @@ extern "C" void GX__CallDisplayList_80172f64(uint32_t listAddr, uint32_t nbytes)
                 xfOk = ApplyAuroraIndexedXFArraysForDisplayList(maxXfIdx, maxXfBytes, sawXfIdx);
                 applyOk = arraysOk && xfOk;
             }
+#if MKW_VITA_F06_PRODUCER_DETAIL
+            g_cpuPerf.dlApplyUs += static_cast<uint64_t>(std::max<int64_t>(0,
+                std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now() - dlApplyBegin).count()));
+#endif
             if (applyOk) {
                 EnsureAuroraFrameActive();
                 GXMarkFrameWork();
 #if defined(MKW_TARGET_VITA)
                 if (MKW_VITA_DL_TEMPLATE_CACHE) {
                     if (cached != nullptr && cached->drawTemplateValid) {
-                        if (ReplayDlDrawTemplate(*cached, list, nbytes)) {
+#if MKW_VITA_F06_PRODUCER_DETAIL
+                        const auto dlTemplateBegin = std::chrono::steady_clock::now();
+#endif
+                        const bool replayedTemplate = ReplayDlDrawTemplate(*cached, list, nbytes);
+#if MKW_VITA_F06_PRODUCER_DETAIL
+                        g_cpuPerf.dlTemplateUs += static_cast<uint64_t>(std::max<int64_t>(0,
+                            std::chrono::duration_cast<std::chrono::microseconds>(
+                                std::chrono::steady_clock::now() - dlTemplateBegin).count()));
+#endif
+                        if (replayedTemplate) {
                             ++g_cpuPerf.dlTemplateHits;
                             SyncAppliedVtxStateFromHleReal();
                             return;

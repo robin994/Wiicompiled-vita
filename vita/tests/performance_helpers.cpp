@@ -146,6 +146,53 @@ void TestYaz0Differential() {
         assert(!Yaz0FastMirror(malformed.first, malformed.second, fast));
     }
 }
+
+using StripTriangle = std::array<int, 3>;
+std::vector<StripTriangle> VisibleStripTriangles(const std::vector<int>& vertices) {
+    std::vector<StripTriangle> triangles;
+    for (size_t i = 0; i + 2 < vertices.size(); ++i) {
+        StripTriangle triangle = (i & 1u)
+            ? StripTriangle{vertices[i + 1], vertices[i], vertices[i + 2]}
+            : StripTriangle{vertices[i], vertices[i + 1], vertices[i + 2]};
+        if (triangle[0] == triangle[1] || triangle[1] == triangle[2] || triangle[0] == triangle[2]) continue;
+        triangles.push_back(triangle);
+    }
+    return triangles;
+}
+
+std::vector<int> StitchTriangleStrips(const std::vector<std::vector<int>>& strips) {
+    assert(!strips.empty());
+    std::vector<int> stitched = strips.front();
+    for (size_t strip = 1; strip < strips.size(); ++strip) {
+        assert(stitched.size() >= 3 && strips[strip].size() >= 3);
+        const int previousLast = stitched.back();
+        const int nextFirst = strips[strip].front();
+        const bool needsParityVertex = (stitched.size() & 1u) != 0u;
+        stitched.push_back(previousLast);
+        stitched.push_back(nextFirst);
+        if (needsParityVertex) stitched.push_back(nextFirst);
+        stitched.insert(stitched.end(), strips[strip].begin(), strips[strip].end());
+    }
+    return stitched;
+}
+
+void TestTriangleStripStitchParity() {
+    for (size_t a = 3; a <= 9; ++a)
+    for (size_t b = 3; b <= 9; ++b)
+    for (size_t c = 3; c <= 9; ++c) {
+        std::vector<std::vector<int>> strips(3);
+        int value = 1;
+        strips[0].resize(a); strips[1].resize(b); strips[2].resize(c);
+        for (auto& strip : strips) for (int& vertex : strip) vertex = value++;
+        std::vector<StripTriangle> expected;
+        for (const auto& strip : strips) {
+            const auto triangles = VisibleStripTriangles(strip);
+            expected.insert(expected.end(), triangles.begin(), triangles.end());
+        }
+        const auto stitched = StitchTriangleStrips(strips);
+        assert(VisibleStripTriangles(stitched) == expected);
+    }
+}
 } // namespace
 struct Op { int type, dest; bool clear; unsigned boundary; };
 struct State {
@@ -163,6 +210,8 @@ struct State {
 };
 int main() {
     TestYaz0Differential();
+    TestTriangleStripStitchParity();
+    std::printf("PASS: triangle-strip stitching preserves visible triangles and winding across odd/even strips\n");
     // Compare every pixel against the old readback->flip->nearest algorithm;
     // padding guards detect writes into adjacent rows/allocations.
     for(unsigned sw : {1u,3u,8u,13u,640u,960u})

@@ -127,6 +127,7 @@ public sealed partial class CxxLinearCodeGenerator
                 types));
         var isGuestCallFree = FunctionEligibleForLeafRegisterCache(func);
         var hasProvenKernelEntry = isGuestCallFree && gqrEntryConstants is { Count: > 0 };
+        var vitaHotResolvedRangeCandidate = entryPoint is 0x800797D0u or 0x805E7B40u;
         func = GqrConstantPropagation.Specialize(
             func, gqrEntryConstants, gqrCalleeWriteMasks,
             gqrConstantsRequireRuntimeGuard);
@@ -134,8 +135,9 @@ public sealed partial class CxxLinearCodeGenerator
         // use the epoch-safe scalar form and a higher threshold to avoid adding
         // pointer locals for incidental field pairs.
         func = GuestMemoryRangeLowering.Lower(
-            func, minimumAccesses: hasProvenKernelEntry ? 2 : 8, ignoreDisabledPcTraces: true,
-            scalarOnly: !hasProvenKernelEntry);
+            func, minimumAccesses: (hasProvenKernelEntry || vitaHotResolvedRangeCandidate) ? 2 : 8,
+            ignoreDisabledPcTraces: true,
+            scalarOnly: !(hasProvenKernelEntry || vitaHotResolvedRangeCandidate));
         var architecturalFunc = func;
         var guestAbiContract = GuestAbiContractAnalyzer.Analyze(architecturalFunc, guestAbiContracts);
         var cfg = IrCfg.Build(func);
@@ -181,6 +183,8 @@ public sealed partial class CxxLinearCodeGenerator
         sb.AppendLine("#include \"guest_hot_profiler.h\"");
         sb.AppendLine("#include \"memory.h\"");
         sb.AppendLine("#include \"recomp_mod_loader.h\"");
+        if (entryPoint is 0x8019A204u or 0x800797D0u or 0x805E7B40u)
+            sb.AppendLine("#include \"vita_guest_leaf_specializations.h\"");
         sb.AppendLine();
 
         var forwardDecls = CollectCallTargets(func)
@@ -283,6 +287,38 @@ public sealed partial class CxxLinearCodeGenerator
             {
                 body.AppendLine("{");
                 body.AppendLine($"    GuestHotProfiler::MarkGuestPc(0x{entryPoint:X8}u);");
+                var prebeginPhaseToken = entryPoint switch
+                {
+                    0x802435DCu => "GuestHotProfiler::kPhasePrebeginScheduler",
+                    0x8006F590u or 0x8006F830u => "GuestHotProfiler::kPhasePrebeginAnimation",
+                    0x8006F9C0u or 0x8006FA50u => "GuestHotProfiler::kPhasePrebeginSceneMatrix",
+                    0x8006FA10u or 0x8006FA30u => "GuestHotProfiler::kPhasePrebeginMaterialVertex",
+                    _ => null
+                };
+                if (prebeginPhaseToken is not null)
+                {
+                    body.AppendLine("#if defined(MKW_TARGET_VITA) && MKW_VITA_PREBEGIN_PHASE_PROFILE");
+                    body.AppendLine($"    GuestHotProfiler::HostPhaseScope mkw_prebegin_phase_scope({prebeginPhaseToken});");
+                    body.AppendLine("#endif");
+                }
+                if (entryPoint == 0x8019A204u)
+                {
+                    body.AppendLine("#if defined(MKW_TARGET_VITA) && MKW_VITA_ROTRIG_GENERATED_FAST");
+                    body.AppendLine("    if (VitaGuestLeafSpecializations::TryPSMTXRotTrig(ctx)) return;");
+                    body.AppendLine("#endif");
+                }
+                else if (entryPoint == 0x800797D0u)
+                {
+                    body.AppendLine("#if defined(MKW_TARGET_VITA) && MKW_VITA_PANE_GETVTXPOS_FAST");
+                    body.AppendLine("    if (VitaGuestLeafSpecializations::TryPaneGetVtxPos(ctx)) return;");
+                    body.AppendLine("#endif");
+                }
+                else if (entryPoint == 0x805E7B40u)
+                {
+                    body.AppendLine("#if defined(MKW_TARGET_VITA) && MKW_VITA_CONVERT_COLOR_FAST");
+                    body.AppendLine("    if (VitaGuestLeafSpecializations::TryConvertColorS10ToUT(ctx)) return;");
+                    body.AppendLine("#endif");
+                }
                 foreach (var local in orderedLocals)
                 {
                     var representation = types.Get(local);

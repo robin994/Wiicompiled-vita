@@ -3,6 +3,9 @@
 #include "hle_stubs.h"
 #include "memory.h"
 #include "memory_access.h"
+#if defined(MKW_TARGET_VITA)
+#include "wiicompiled_vita/gx_backend.h"
+#endif
 
 #include <array>
 #include <cstdint>
@@ -84,6 +87,25 @@ void Text__GlyphDrawer__Draw_HLE_805cf598(CpuContext* ctx) {
     const uint16_t t0 = MemoryInline::ReadResolved16(glyphBytes, 20u, glyph + 20u);
     const uint16_t t1 = MemoryInline::ReadResolved16(glyphBytes, 22u, glyph + 22u);
 
+#if defined(MKW_TARGET_VITA) && (MKW_VITA_TEXT_OVERDRAW_PROBE || MKW_VITA_TEXT_DEDUPE_SAME_OWNER)
+    uint32_t ownerKey = 0;
+#if MKW_VITA_TEXT_OWNER_PROBE || MKW_VITA_TEXT_DEDUPE_SAME_OWNER
+    // func_805CEE08 is the sole translated caller of GlyphDrawer::Draw. Its 48-byte
+    // PPC frame saves the incoming nonvolatile r29 at SP+36 before reusing r29 for
+    // its own writer object. Reading that saved value gives us a stable higher-level
+    // text-owner key without replacing Layout::Draw/TextBox::DrawSelf in the registry.
+    if (ctx->gpr[1] != 0) {
+        (void)Memory::TryRead32(ctx->gpr[1] + 36u, ownerKey);
+    }
+#endif
+#if MKW_VITA_TEXT_OVERDRAW_PROBE
+    GX_HLE_RecordGlyphProbe(glyph, ownerKey, textureObject, colorKey, setupKey,
+                            static_cast<int16_t>(x0), static_cast<int16_t>(x1),
+                            static_cast<int16_t>(y0), static_cast<int16_t>(y1),
+                            s0, s1, t0, t1);
+#endif
+#endif
+
     std::array<uint8_t, 32> fifo{};
     const std::array<uint16_t, 16> words{
         static_cast<uint16_t>(y0), static_cast<uint16_t>(x0), s0, t0,
@@ -97,8 +119,14 @@ void Text__GlyphDrawer__Draw_HLE_805cf598(CpuContext* ctx) {
 
     bool rawDirect = false;
 #if defined(MKW_TARGET_VITA)
+#if MKW_VITA_TEXT_DEDUPE_SAME_OWNER
+    if (ownerKey != 0) WiiCompiledVita::GxBackend::ArmNextGlyphOwner(ownerKey);
+#endif
     rawDirect = GX_HLE_SubmitRawDrawFast(GX_QUADS, GX_VTXFMT0, fifo.data(), 4u,
                                          static_cast<uint32_t>(fifo.size()));
+#if MKW_VITA_TEXT_DEDUPE_SAME_OWNER
+    WiiCompiledVita::GxBackend::ClearNextGlyphOwner();
+#endif
     if (rawDirect) {
         // The logical GXBegin still exists in the guest function even though the native
         // fast path bypasses the incremental HLE parser. Preserve its profiler identity.

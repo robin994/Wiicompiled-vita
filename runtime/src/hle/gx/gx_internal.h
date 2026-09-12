@@ -81,6 +81,10 @@ struct GxCpuPerfSnapshot {
     uint64_t lytFaithful = 0;
     uint64_t dlCalls = 0;
     uint64_t dlUs = 0;
+    uint64_t dlProbeUs = 0;
+    uint64_t dlScanUs = 0;
+    uint64_t dlApplyUs = 0;
+    uint64_t dlTemplateUs = 0;
     uint64_t dlBytes = 0;
     uint64_t dlCacheHits = 0;
     uint64_t dlCacheMisses = 0;
@@ -106,6 +110,24 @@ struct GxCpuPerfSnapshot {
     uint64_t glyphTextureLoads = 0;
     uint64_t glyphRawDirectCalls = 0;
     uint64_t glyphRawFallbacks = 0;
+    uint64_t glyphProbeSeen = 0;
+    uint64_t glyphProbeUnique = 0;
+    uint64_t glyphProbeExactDuplicates = 0;
+    uint64_t glyphProbeSourceRepeats = 0;
+    uint64_t glyphProbeShadowLike = 0;
+    uint64_t glyphProbeTableFull = 0;
+    uint64_t glyphProbeOwnerKnown = 0;
+    uint64_t glyphProbeOwnerUnknown = 0;
+    uint64_t glyphProbeExactSameOwner = 0;
+    uint64_t glyphProbeExactDifferentOwner = 0;
+    uint64_t glyphProbeExactOwnerUnknown = 0;
+    // Whole producer-frame USER_0 accounting between consecutive GXCopyDisp snapshots.
+    uint64_t frameWallUs = 0;
+    uint64_t frameRunClocks = 0;
+    uint64_t frameCpuUs = 0;
+    uint64_t frameOffCpuUs = 0;
+    uint32_t frameCpuPermille = 0;
+    uint32_t frameArmMHz = 0;
     uint64_t preFirstBeginUs = 0;
     // Vita producer truth metric: wall time between the previous GXCopyDisp
     // snapshot and the first GXBegin, split using the kernel's per-thread
@@ -133,6 +155,10 @@ GxCpuPerfSnapshot GX_HLE_TakeCpuPerfSnapshot() noexcept;
 void GX_HLE_RecordBeginCaller(uint32_t lr) noexcept;
 void GX_HLE_RecordCopyDispStart() noexcept;
 void GX_HLE_RecordGlyphFast(bool setupCalled, bool textureLoaded, bool rawDirect) noexcept;
+void GX_HLE_RecordGlyphProbe(uint32_t source, uint32_t ownerKey, uint32_t textureObject,
+                             uint32_t colorKey, uint16_t setupKey, int16_t x0, int16_t x1,
+                             int16_t y0, int16_t y1, uint16_t s0, uint16_t s1,
+                             uint16_t t0, uint16_t t1) noexcept;
 
 extern std::atomic_bool g_auroraFrameActive;
 extern std::atomic_bool g_auroraFrameHadWork;
