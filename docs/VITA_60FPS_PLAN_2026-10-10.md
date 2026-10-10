@@ -106,6 +106,10 @@ python3 scripts/analyze_vita_frame_budget.py \
   stato**. Restano disattivate di default `draw_batching`,
   `prepared_display_lists`, `immediate_draw_view` finche la verifica pixel
   non supera i test.
+- Prima candidata con batching GXM a memoria staging non ancora flushata,
+  protezione per gli altri consumer Aurora e diagnosi white fallback/HUD:
+  [VITA_GXM_PENDING_BATCH_2026-10-10.md](VITA_GXM_PENDING_BATCH_2026-10-10.md).
+  Non attribuire un guadagno alla compattazione prima dell'A/B su hardware.
 
 **P3: GPU fixed vertex e material preparation.**
 - Asset statici e shading precompilabili nel PSARC; animazioni e skinning

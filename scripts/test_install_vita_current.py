@@ -79,6 +79,37 @@ class InstallCurrentTests(unittest.TestCase):
         self.assertEqual(configure(result, menu=True, quiet=True,
                                    legacy_audio=False), result)
 
+    def test_batching_a_b_does_not_modify_game_or_audio(self):
+        baseline = configure(self.ORIGINAL, menu=False, quiet=True,
+                             legacy_audio=False, draw_batching=False)
+        batch = configure(baseline, menu=True, quiet=False, legacy_audio=True,
+                          batching_only=True, draw_batching=True)
+        self.assertEqual(
+            batch.replace(b"draw_batching = true", b"draw_batching = false"),
+            baseline)
+        self.assertIn(b"time_trial = true # old run", batch)
+        self.assertIn(b"legacy_stop_dma_on_queue_full = false", batch)
+        self.assertEqual(configure(batch, menu=True, quiet=False,
+                                   legacy_audio=True, batching_only=True,
+                                   draw_batching=False), baseline)
+        with self.assertRaisesRegex(ValueError, "requires"):
+            configure(baseline, menu=True, quiet=True, legacy_audio=False,
+                      batching_only=True)
+
+    def test_capture_frame_integer_and_existing_config_preserved(self):
+        data = configure(self.ORIGINAL, menu=False, quiet=False,
+                         legacy_audio=False, draw_batching=True,
+                         capture_frame=690)
+        self.assertIn(b"capture_frame = 690", data)
+        self.assertIn(b"draw_batching = true", data)
+        self.assertIn(b"shader_binary_preload = true", data)
+        self.assertIn(b'dvd_psarc = "ux0:data/wiicompiled-vita/mariokart.psarc"', data)
+        self.assertEqual(configure(data, menu=False, quiet=False, legacy_audio=False,
+                                   draw_batching=True, capture_frame=690), data)
+        with self.assertRaisesRegex(ValueError, "Invalid type"):
+            write_toml_value(b'[diagnostics]\ncapture_frame = "700"\n',
+                             "diagnostics", "capture_frame", 700)
+
     def test_malformed_setting_does_not_replace_other_options(self):
         raw = b"[audio]\nlegacy_stop_dma_on_queue_full = \"false\"\n"
         with self.assertRaisesRegex(ValueError, "Invalid type"):

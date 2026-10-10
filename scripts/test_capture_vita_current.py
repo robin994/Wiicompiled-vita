@@ -6,7 +6,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from capture_vita_current import fetch_log_tail, latest_boot, stream_sha256
+from capture_vita_current import fetch_log_tail, latest_boot, stream_sha256, verify_frame_ppm
 
 
 class MemoryFTP:
@@ -51,6 +51,15 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual(sha, hashlib.sha256(content).hexdigest())
         self.assertEqual(size, len(content))
         self.assertEqual(ftp.commands, ["RETR self"])
+
+    def test_ppm_requires_success_from_latest_boot(self):
+        valid = b"P6\n960 544\n255\n" + bytes(960*544*3)
+        session = b"[boot] build=latest\n[frame-capture] frame=700 saved=1 path=frame-700.ppm\n"
+        self.assertEqual(verify_frame_ppm(session,700,valid),valid)
+        with self.assertRaisesRegex(ValueError, "stale"):
+            verify_frame_ppm(b"[boot] build=new\n",700,valid)
+        with self.assertRaisesRegex(ValueError, "invalid"):
+            verify_frame_ppm(session,700,valid[:-1])
 
     def test_ftp_tail_uses_rest_instead_of_full_log(self):
         path = "ux0:/data/wiicompiled-vita/runtime.log"

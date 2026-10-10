@@ -95,22 +95,24 @@ def verify_build(folder: Path, *, async_required: bool = True) -> tuple[dict[str
     return payloads, delivery
 
 
-def write_toml_value(data: bytes, section: str, key: str, value: bool) -> bytes:
+def write_toml_value(data: bytes, section: str, key: str, value: bool | int) -> bytes:
+    if type(value) not in (bool, int):
+        raise ValueError("Only validated boolean/integer options are supported")
     text = data.decode("utf-8")
     before = tomllib.loads(text)
     section_values = before.get(section, {})
     if not isinstance(section_values, dict):
         raise ValueError(f"Unsupported TOML section: {section}")
-    if key in section_values and type(section_values[key]) is not bool:
+    if key in section_values and type(section_values[key]) is not type(value):
         raise ValueError(f"Invalid type: [{section}].{key}")
-    if key in section_values and section_values[key] is value:
+    if key in section_values and section_values[key] == value:
         return data
     newline = "\r\n" if "\r\n" in text else "\n"
     lines = text.splitlines(keepends=True)
     section_re = re.compile(r"\s*\[" + re.escape(section) + r"\]\s*(?:#.*)?$")
     section_index = next((i for i, line in enumerate(lines)
                           if section_re.fullmatch(line.strip())), None)
-    literal = "true" if value else "false"
+    literal = ("true" if value else "false") if type(value) is bool else str(value)
     if section_index is None:
         text = text.rstrip("\r\n") + newline + newline + (
             f"[{section}]{newline}{key} = {literal}{newline}")
@@ -118,7 +120,7 @@ def write_toml_value(data: bytes, section: str, key: str, value: bool) -> bytes:
         section_end = next((i for i in range(section_index + 1, len(lines))
                             if re.match(r"\s*\[", lines[i])), len(lines))
         assignment = re.compile(r"^(\s*" + re.escape(key) + r"\s*=\s*)"
-                                r"(true|false)(\s*(?:#.*)?)$")
+                                r"(true|false|[0-9]+)(\s*(?:#.*)?)$")
         key_index = next((i for i in range(section_index + 1, section_end)
                           if re.match(r"\s*" + re.escape(key) + r"\s*=", lines[i])), None)
         if key_index is None:
@@ -135,18 +137,27 @@ def write_toml_value(data: bytes, section: str, key: str, value: bool) -> bytes:
     updated = text.encode("utf-8")
     actual = tomllib.loads(text)
     expected = {**before, section: {**section_values, key: value}}
-    if actual != expected or type(actual[section][key]) is not bool:
+    if actual != expected or type(actual[section][key]) is not type(value):
         raise ValueError("TOML update changed unrelated configuration")
     return updated
 
 
 def configure(data: bytes, *, menu: bool, quiet: bool, legacy_audio: bool,
-              audio_only: bool = False) -> bytes:
+              audio_only: bool = False, batching_only: bool = False,
+              draw_batching: bool | None = None,
+              capture_frame: int | None = None) -> bytes:
+    if batching_only:
+        if draw_batching is None:
+            raise ValueError("batching_only requires an explicit draw_batching value")
+        return write_toml_value(data, "vita", "draw_batching", draw_batching)
     if not audio_only:
         data = write_toml_value(data, "test", "time_trial", not menu)
         data = write_toml_value(data, "diagnostics", "enabled", not quiet)
-    return write_toml_value(data, "audio", "legacy_stop_dma_on_queue_full",
-                            legacy_audio)
+        if capture_frame is not None:
+            data = write_toml_value(data, "diagnostics", "capture_frame", capture_frame)
+        if draw_batching is not None:
+            data = write_toml_value(data, "vita", "draw_batching", draw_batching)
+    return write_toml_value(data, "audio", "legacy_stop_dma_on_queue_full", legacy_audio)
 
 
 def read_remote(ftp, path: str) -> bytes:
@@ -215,6 +226,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="Verify device state and planned changes without uploads")
     parser.add_argument("--audio-only", action="store_true",
                         help="Change only the queue-full audio policy; keep menu/diagnostics intact")
+    parser.add_argument("--batch-only", action="store_true",
+                        help="Change only [vita] draw_batching; SELF must already match")
+    parser.add_argument("--render-batching", choices=("keep", "on", "off"), default="keep",
+                        help="Default keep; opt-in experimental GXM pending-draw batching")
+    parser.add_argument("--capture-frame", type=int, default=None,
+                        help="Single diagnostic screenshot at an explicit completed frame")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--menu", action="store_true", help="Manual 1 Player (default)")
     group.add_argument("--time-trial", action="store_true",
@@ -222,6 +239,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--audio-policy", choices=("continue", "legacy"), default="continue")
     parser.add_argument("--diagnostics", choices=("quiet", "enabled"), default="quiet")
     args = parser.parse_args(argv)
+    if args.batch_only and (args.audio_only or args.render_batching == "keep"):
+        parser.error("--batch-only requires --render-batching on/off, not --audio-only")
+    if args.audio_only and args.render_batching != "keep":
+        parser.error("--audio-only preserves rendering; omit --render-batching")
+    if args.capture_frame is not None and (
+            args.capture_frame < 1 or args.capture_frame > 100000 or
+            args.diagnostics != "enabled" or args.batch_only or args.audio_only):
+        parser.error("--capture-frame requires --diagnostics enabled, frame 1..100000")
 
     build = args.build_dir.resolve()
     payloads, delivery = verify_build(build)
@@ -243,13 +268,17 @@ def main(argv: list[str] | None = None) -> int:
                     "mode": "time-trial" if args.time_trial else "menu",
                     "diagnostics": args.diagnostics,
                     "audio_policy": args.audio_policy,
-                    "audio_only": args.audio_only, "dry_run": args.dry_run,
+                    "audio_only": args.audio_only, "batch_only": args.batch_only,
+                    "render_batching": args.render_batching,
+                    "capture_frame": args.capture_frame, "dry_run": args.dry_run,
                     "launched": False}
     with ftplib.FTP() as ftp:
         ftp.connect(args.host, args.port, timeout=30)
         ftp.login()
         ftp.set_pasv(True)
         prior_self = read_remote(ftp, APP_ROOT + "/eboot.bin")
+        if args.batch_only and prior_self != new_self:
+            raise RuntimeError("--batch-only requires the current SELF to be installed first")
         prior_config = read_remote(ftp, CONFIG_PATH)
         original_files = {APP_ROOT + "/eboot.bin": prior_self, CONFIG_PATH: prior_config}
         (output / "prior-eboot.bin").write_bytes(prior_self)
@@ -264,7 +293,11 @@ def main(argv: list[str] | None = None) -> int:
         next_config = configure(prior_config, menu=not args.time_trial,
                                 quiet=args.diagnostics == "quiet",
                                 legacy_audio=args.audio_policy == "legacy",
-                                audio_only=args.audio_only)
+                                audio_only=args.audio_only,
+                                batching_only=args.batch_only,
+                                draw_batching=None if args.render_batching == "keep"
+                                    else args.render_batching == "on",
+                                capture_frame=args.capture_frame)
         (output / "Config.next.toml").write_bytes(next_config)
         changes: list[tuple[str, bytes]] = []
         if prior_self != new_self:

@@ -30,6 +30,16 @@ def latest_boot(log: bytes) -> bytes:
         raise ValueError("Latest boot marker is not line-aligned; increase --tail-mb")
     return log[offset:]
 
+def verify_frame_ppm(session: bytes, frame: int, screenshot: bytes) -> bytes:
+    expected = f"[frame-capture] frame={frame} saved=1".encode()
+    if expected not in session:
+        raise ValueError("Current boot does not confirm the requested frame capture;"
+                         " refusing a stale screenshot from a previous run")
+    header = b"P6\n960 544\n255\n"
+    if not screenshot.startswith(header) or len(screenshot) != len(header) + 960*544*3:
+        raise ValueError("Captured PPM has invalid dimensions or byte length")
+    return screenshot
+
 
 def stream_sha256(ftp, path: str) -> tuple[str, int]:
     value = hashlib.sha256()
@@ -61,6 +71,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=1337)
     parser.add_argument("--label", required=True, help="menu-continue, menu-legacy, time-trial")
     parser.add_argument("--tail-mb", type=int, default=8)
+    parser.add_argument("--frame-ppm", type=int,
+                        help="Fetch a verified screenshot from the latest boot only")
     parser.add_argument("--output-root", type=Path,
                         default=ROOT / "build/vita-psarc/device-runs")
     args = parser.parse_args(argv)
@@ -68,6 +80,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--label must contain only letters, digits, underscores or hyphens")
     if not 1 <= args.tail_mb <= 32:
         parser.error("--tail-mb must be between 1 and 32")
+    if args.frame_ppm is not None and not 1 <= args.frame_ppm <= 100000:
+        parser.error("--frame-ppm must be between 1 and 100000")
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     output = args.output_root / (args.label + "-" + stamp)
@@ -81,9 +95,19 @@ def main(argv: list[str] | None = None) -> int:
         psarc = remote_metadata(ftp, PSARC_PATH)
         remote_log = remote_metadata(ftp, "ux0:/data/wiicompiled-vita/runtime.log")
         tail, log_size, offset = fetch_log_tail(ftp, tail_mb=args.tail_mb)
-    session = latest_boot(tail)
+        session = latest_boot(tail)
+        screenshot = None
+        if args.frame_ppm is not None:
+            expected = f"[frame-capture] frame={args.frame_ppm} saved=1".encode()
+            if expected not in session:
+                raise ValueError("Current boot does not confirm the requested frame capture;"
+                                 " refusing a stale screenshot from a previous run")
+            screenshot = verify_frame_ppm(session,args.frame_ppm,read_remote(
+                ftp,f"ux0:/data/wiicompiled-vita/aurora/diagnostics/frame-{args.frame_ppm}.ppm"))
     (output / "Config.toml").write_bytes(config)
     (output / "runtime-session.log").write_bytes(session)
+    if screenshot is not None:
+        (output / f"frame-{args.frame_ppm}.ppm").write_bytes(screenshot)
     record = {
         "label": args.label, "created_utc": datetime.now(timezone.utc).isoformat(),
         "device": f"{args.host}:{args.port}", "title_id": "WICMKW001",
@@ -94,6 +118,10 @@ def main(argv: list[str] | None = None) -> int:
         "boot_line": session.split(b"\n", 1)[0].decode("utf-8", errors="replace"),
         "capture_only": True,
     }
+    if screenshot is not None:
+        record["screenshot"] = {"frame": args.frame_ppm,
+                                "bytes": len(screenshot),
+                                "sha256": digest(screenshot)}
     (output / "CAPTURE.json").write_text(json.dumps(record, indent=2) + "\n",
                                          encoding="utf-8")
     print("Read-only capture:", output)
