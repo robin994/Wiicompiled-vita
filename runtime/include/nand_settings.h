@@ -2,7 +2,9 @@
 
 #include <array>
 #include <atomic>
+#include <cerrno>
 #include <chrono>
+#include <cstdio>
 #include <ctime>
 #include <cstdint>
 #include <filesystem>
@@ -174,6 +176,34 @@ inline bool Ensure(const std::filesystem::path& root, std::string& error,
         error = "Cannot create NAND settings directory: " + ec.message();
         return false;
     }
+#if defined(MKW_TARGET_VITA)
+    // Vita does not provide the hard-link publication primitive used by the
+    // desktop path below. This file is created only when it did not already
+    // exist, so write the complete 256-byte payload directly and verify it by
+    // parsing it back before boot continues.
+    std::FILE* output = std::fopen(path.c_str(), "wb");
+    if (!output) {
+        error = "Cannot create NAND setting.txt: " +
+                std::error_code(errno, std::generic_category()).message();
+        return false;
+    }
+    const size_t written = std::fwrite(bytes->data(), 1, bytes->size(), output);
+    const int closeResult = std::fclose(output);
+    if (written != bytes->size() || closeResult != 0) {
+        const int savedErrno = errno;
+        ec.clear();
+        std::filesystem::remove(path, ec);
+        error = "Cannot write NAND setting.txt: " +
+                std::error_code(savedErrno ? savedErrno : EIO, std::generic_category()).message();
+        return false;
+    }
+    const auto persisted = Read(root);
+    if (persisted && HasIdentity(*persisted)) {
+        return true;
+    }
+    error = "Cannot read newly initialized NAND setting.txt";
+    return false;
+#else
     static std::atomic<unsigned> sequence{0};
 #ifdef _WIN32
     const auto processId = GetCurrentProcessId();
@@ -215,6 +245,7 @@ inline bool Ensure(const std::filesystem::path& root, std::string& error,
     error = published ? "Cannot read newly initialized NAND setting.txt" :
                         "Cannot persist NAND setting.txt; check NAND directory permissions";
     return false;
+#endif
 }
 
 } // namespace RuntimeNandSettings

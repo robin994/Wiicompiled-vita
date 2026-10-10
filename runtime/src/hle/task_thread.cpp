@@ -3,6 +3,9 @@
 #include "ppc_runtime.h"
 #include "memory.h"
 #include "runtime_log.h"
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+#include "guest_stall_probe.h"
+#endif
 
 namespace {
 
@@ -56,7 +59,13 @@ uint32_t RunMovieManagerPrepareAsync(uint32_t manager, CpuContext* cpu)
         return cpu->gpr[3];
     };
 
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+    WicGuestStallProbe::taskPhase.store(10, std::memory_order_relaxed);
+#endif
     uint32_t openResult = callThpPlayerOpen();
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+    WicGuestStallProbe::taskPhase.store(11, std::memory_order_relaxed);
+#endif
     if (openResult == 0 && ShouldRetryThpPrepareAfterClose(0x80529D68u, manager, 0)) {
         {
             CpuContextScope scope(cpu);
@@ -80,6 +89,9 @@ uint32_t RunMovieManagerPrepareAsync(uint32_t manager, CpuContext* cpu)
 
     {
         CpuContextScope scope(cpu);
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+        WicGuestStallProbe::taskPhase.store(20, std::memory_order_relaxed);
+#endif
         cpu->gpr[3] = manager + 0x10u;
         InvokeIndirectCpu(0x80551D38u, cpu); // THP__PlayerGetVideoInfo
         InvokeIndirectCpu(0x80550F9Cu, cpu); // THP__PlayerCalcNeedMemory
@@ -91,6 +103,9 @@ uint32_t RunMovieManagerPrepareAsync(uint32_t manager, CpuContext* cpu)
     const uint32_t setBufferArg = Memory::Read32(manager + 0x1Cu);
     {
         CpuContextScope scope(cpu);
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+        WicGuestStallProbe::taskPhase.store(30, std::memory_order_relaxed);
+#endif
         cpu->gpr[3] = setBufferArg;
         InvokeIndirectCpu(0x80551054u, cpu); // THP__PlayerSetBuffer
     }
@@ -100,12 +115,18 @@ uint32_t RunMovieManagerPrepareAsync(uint32_t manager, CpuContext* cpu)
     uint32_t prepareResult = 0;
     {
         CpuContextScope scope(cpu);
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+        WicGuestStallProbe::taskPhase.store(40, std::memory_order_relaxed);
+#endif
         cpu->gpr[3] = Memory::Read32(manager + 0x24u);
         cpu->gpr[4] = audioSystem;
         cpu->gpr[5] = 0;
         InvokeIndirectCpu(0x80551378u, cpu); // THP__PlayerPrepare
         prepareResult = cpu->gpr[3];
     }
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+    WicGuestStallProbe::taskPhase.store(41, std::memory_order_relaxed);
+#endif
     if (prepareResult != 0) {
         Memory::Write32(manager + 0xACu, 1);
     }
@@ -134,6 +155,9 @@ void ClearTaskJob(uint32_t taskThread, uint32_t job)
 // This mirrors the worker loop from the original implementation so job slots
 // are retired exactly when the callback has finished.
 extern "C" void TaskThread_run_HLE_80242d7c(CpuContext* ctx) {
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+    WicGuestStallProbe::thpTaskRuns.fetch_add(1, std::memory_order_relaxed);
+#endif
     CpuContext* cpu = ctx ? ctx : &GetPersistentCpuContext();
     const uint32_t taskThread = cpu->gpr[3];
     if (!Memory::Contains(taskThread + kTaskMessageQueueOffset, 0x4Cu)) {
@@ -149,6 +173,9 @@ extern "C" void TaskThread_run_HLE_80242d7c(CpuContext* ctx) {
     cpu->gqr[5] = 0x00070007u;
 
     while (true) {
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+        WicGuestStallProbe::taskPhase.store(1, std::memory_order_relaxed);
+#endif
         const uint32_t stackPointer = cpu->gpr[1];
         const uint32_t outMsgPtr = stackPointer >= 0x20u ? (stackPointer - 0x20u) : 0;
         if (outMsgPtr == 0 || !Memory::Contains(outMsgPtr, 4)) {
@@ -170,11 +197,18 @@ extern "C" void TaskThread_run_HLE_80242d7c(CpuContext* ctx) {
 
         if (job != 0 && Memory::Contains(job, kJobSize)) {
             const uint32_t callback = Memory::Read32(job + kJobCallbackOffset);
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+            WicGuestStallProbe::thpTaskCallbacks.fetch_add(1, std::memory_order_relaxed);
+            WicGuestStallProbe::lastTaskCallback.store(callback, std::memory_order_relaxed);
+#endif
             const uint32_t arg = Memory::Read32(job + kJobArgOffset);
             const uint32_t token = Memory::Read32(job + kJobTokenOffset);
             const uint32_t onDone = Memory::Read32(job + kJobOnDoneOffset);
 
             if (callback != 0) {
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+                WicGuestStallProbe::taskPhase.store(2, std::memory_order_relaxed);
+#endif
                 CpuContextScope scope(cpu);
                 if (callback == 0x80529D68u) {
                     RunMovieManagerPrepareAsync(arg, cpu);
@@ -182,16 +216,25 @@ extern "C" void TaskThread_run_HLE_80242d7c(CpuContext* ctx) {
                     cpu->gpr[3] = arg;
                     InvokeIndirectCpu(callback, cpu);
                 }
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+                WicGuestStallProbe::thpTaskCompleted.fetch_add(1, std::memory_order_relaxed);
+#endif
             }
 
             const uint32_t currentJob = Memory::Read32(taskThread + kTaskCurrentJobOffset);
             if (currentJob != 0 && onDone != 0) {
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+                WicGuestStallProbe::taskPhase.store(3, std::memory_order_relaxed);
+#endif
                 CpuContextScope scope(cpu);
                 cpu->gpr[3] = Memory::Read32(currentJob + kJobArgOffset);
                 InvokeIndirectCpu(onDone, cpu);
             }
 
             if (Memory::Contains(taskThread + kTaskDoneQueueOffset, 4)) {
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+                WicGuestStallProbe::taskPhase.store(4, std::memory_order_relaxed);
+#endif
                 const uint32_t doneQueue = Memory::Read32(taskThread + kTaskDoneQueueOffset);
                 if (doneQueue != 0) {
                     CpuContextScope scope(cpu);

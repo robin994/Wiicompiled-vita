@@ -1,0 +1,63 @@
+include("${VITASDK}/share/vita.cmake")
+# ATTRIBUTE2=12 selects the 109 MiB application memory mode. ATTRIBUTE is a
+# different SFO field; preserve its VitaSDK homebrew default (0x8000).
+# vita_create_vpk mutates its flags, so restore the caller's flags per package.
+set(WIC_VITA_SFO_FLAGS "${VITA_MKSFOEX_FLAGS}")
+set(AURORA_ENABLE_VITA_BACKEND ON CACHE BOOL "" FORCE)
+set(AURORA_VITA_BACKEND_ONLY ON CACHE BOOL "" FORCE)
+set(AURORA_ENABLE_GX OFF CACHE BOOL "" FORCE)
+set(AURORA_VITA_WITH_GX_FRONTEND ON CACHE BOOL "" FORCE)
+set(AURORA_VITA_RENDERER GXM CACHE STRING "" FORCE)
+option(AURORA_VITA_ASYNC_GX "Run GX decode and GXM submission on Aurora's native worker" OFF)
+set(AURORA_VITA_BUILD_PROBE OFF CACHE BOOL "" FORCE)
+set(AURORA_VITA_LTO OFF CACHE BOOL "" FORCE)
+set(AURORA_VITA_SDL3_NATIVE OFF CACHE BOOL "" FORCE)
+option(WIC_FAST_PPC_MATH "ARM32 non-fused paired math; changes guest rounding" OFF)
+option(WIC_EXACT_FLOAT_FMA "Avoid software float32 FMA using exact float64 products and a midpoint fallback; device comparison required" OFF)
+option(WIC_FAST_RAM_RANGES "Resolve checked RAM blocks once for translated bulk stores; device comparison required" OFF)
+option(WIC_CPU_DIAGNOSTICS "Sample software FMA callers and trace layout build failures; diagnostic overhead" OFF)
+option(WIC_DISTINCT_CPU_CORES "Pin the game to CPU0 and avoid dispatching a helper on the caller's core; device comparison required" OFF)
+option(WIC_RESIDENT_GEOMETRY "Use Aurora immutable geometry cache (device comparison required)" OFF)
+option(WIC_RESIDENT_TEXTURES "Keep verified small texture snapshots in GXM memory (device comparison required)" OFF)
+option(WIC_BUILD_GAME "Link freshly translated Mario Kart and its HLE runtime" OFF)
+option(WIC_NATIVE_TEXTURES "GXM native CMPR and packed GX textures; requires device image comparison" OFF)
+option(WIC_PRECOMPILED_ASSETS "Consume verified native sidecars from the mounted PSARC" OFF)
+option(WIC_NATIVE_DIRECT_SUBMIT "Submit prepared GXM packets directly on the render owner" OFF)
+option(WIC_NATIVE_DIRECT_STREAM "Pack vertices and indices directly in retired GXM ring pages" OFF)
+set(AURORA_VITA_GXM_DIRECT_DRAW_SUBMIT ${WIC_NATIVE_DIRECT_SUBMIT} CACHE BOOL "" FORCE)
+set(AURORA_VITA_GXM_DIRECT_STREAM_WRITE ${WIC_NATIVE_DIRECT_STREAM} CACHE BOOL "" FORCE)
+option(WIC_PROFILE_GUEST "Instrument translated calls; diagnostic overhead, no FPS comparison" OFF)
+option(WIC_NATIVE_CALL_PROFILE "Profile native-stack requests and waits on the game thread; diagnostic overhead" OFF)
+option(WIC_NATIVE_THP "Decode bounded THP video components with native JPEG and parallel GX I8 packing; device comparison required" OFF)
+option(WIC_HARDWARE_AVC "Decode converted PSARC video with Vita's hardware H264 decoder; experimental device validation required" OFF)
+set(AURORA_VITA_NATIVE_CMPR ${WIC_NATIVE_TEXTURES} CACHE BOOL "" FORCE)
+set(AURORA_VITA_NATIVE_GX_TEXTURES ${WIC_NATIVE_TEXTURES} CACHE BOOL "" FORCE)
+add_subdirectory("${PROJECT_SOURCE_DIR}/aurora-main" "${PROJECT_BINARY_DIR}/aurora")
+
+add_library(wiicompiled_backend STATIC "${PROJECT_SOURCE_DIR}/vita/backend.cpp")
+target_link_libraries(wiicompiled_backend PUBLIC aurora::vita_backend)
+target_compile_definitions(wiicompiled_backend PRIVATE WIC_RESIDENT_GEOMETRY=$<BOOL:${WIC_RESIDENT_GEOMETRY}>)
+target_compile_definitions(wiicompiled_backend PRIVATE WIC_RESIDENT_TEXTURES=$<BOOL:${WIC_RESIDENT_TEXTURES}>)
+target_compile_definitions(wiicompiled_backend PRIVATE WIC_DISTINCT_CPU_CORES=$<BOOL:${WIC_DISTINCT_CPU_CORES}>)
+target_compile_definitions(wiicompiled_backend PRIVATE WIC_PRECOMPILED_ASSETS=$<BOOL:${WIC_PRECOMPILED_ASSETS}>)
+target_compile_definitions(wiicompiled_backend PRIVATE WIC_NATIVE_DIRECT_SUBMIT=$<BOOL:${WIC_NATIVE_DIRECT_SUBMIT}>
+    WIC_NATIVE_DIRECT_STREAM=$<BOOL:${WIC_NATIVE_DIRECT_STREAM}>)
+# Scheduling is implemented inside Aurora. This legacy consumer define is
+# unused; the backend startup flag is private to the Aurora target.
+target_compile_definitions(wiicompiled_backend PRIVATE AURORA_VITA_ASYNC_GX=0)
+target_compile_features(wiicompiled_backend PUBLIC cxx_std_20)
+target_include_directories(wiicompiled_backend PUBLIC "${PROJECT_SOURCE_DIR}/vita" "${PROJECT_SOURCE_DIR}/runtime/include")
+
+add_executable(wiicompiled-vita-iso-check "${PROJECT_SOURCE_DIR}/vita/frontend.cpp")
+target_compile_definitions(wiicompiled-vita-iso-check PRIVATE AURORA_VITA_ASYNC_GX=0)
+target_link_libraries(wiicompiled-vita-iso-check PRIVATE wiicompiled_core wiicompiled_backend ScePower_stub)
+target_link_options(wiicompiled-vita-iso-check PRIVATE -Wl,--gc-sections -Wl,-q
+    -Wl,-Map=${PROJECT_BINARY_DIR}/wiicompiled-vita-iso-check.map)
+vita_create_self(eboot.bin wiicompiled-vita-iso-check UNSAFE)
+set(VITA_MKSFOEX_FLAGS "${WIC_VITA_SFO_FLAGS} -d ATTRIBUTE2=12")
+vita_create_vpk(wiicompiled-vita-iso-check.vpk WICISO001 eboot.bin
+    VERSION 00.01 NAME "WiiCompiled ISO Check")
+
+if(WIC_BUILD_GAME)
+    include("${PROJECT_SOURCE_DIR}/vita/game.cmake")
+endif()

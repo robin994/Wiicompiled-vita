@@ -2834,7 +2834,7 @@ int RunGenerateDataInit()
 
     // Load the REL file for runtime embedding (apply relocations since runtime does not OSLink)
     RelImage? relImage = null;
-    if (!string.IsNullOrWhiteSpace(relPath) && loadedProject.Inputs.Rel is { } configuredRel && File.Exists(relPath))
+    if (!string.IsNullOrWhiteSpace(relPath) && loadedProject.Inputs.Rel is { } configuredRel && BinaryInput.Exists(relPath))
     {
         relImage = RelFile.Load(relPath).BuildImage(
             configuredRel.LoadAddress,
@@ -3999,4 +3999,3 @@ sealed record ResolvedDispatchEntry(
     uint NonvolatileFprWriteMask,
     bool MustRemainDynamicallyDispatchable,
     string SourceFile);
-

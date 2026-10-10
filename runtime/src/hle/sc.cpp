@@ -43,6 +43,7 @@ uint32_t LookupProductRegion(uint32_t table, uint32_t stride, uint32_t count,
 // Returns: 0 = success, 1 = busy, 2 = error
 extern "C" uint32_t SCCheckStatus_HLE()
 {
+    RT_LOGF(RT_TAG_HLE, "SCCheckStatus_HLE\n");
     // Return 0 (success) immediately to avoid infinite busy-wait in OSInit
     return 0;
 }
@@ -53,6 +54,7 @@ PPC_NATIVE_OVERRIDE(801B0220, SCCheckStatus_HLE, uint32_t, (), ());
 // Returns: 0 = 4:3, 1 = 16:9
 extern "C" uint32_t SCGetAspectRatio_HLE()
 {
+    RT_LOGF(RT_TAG_HLE, "SCGetAspectRatio_HLE\n");
     return (RuntimeConfigFile::WidescreenEnabled(true) || MkwForceAspect169Requested()) ? 1u : 0u;
 }
 
@@ -62,6 +64,7 @@ PPC_NATIVE_OVERRIDE(801B1BE4, SCGetAspectRatio_HLE, uint32_t, (), ());
 // Returns: 0 = PAL50, 1 = PAL60/RGB60
 extern "C" uint32_t SCGetEuRgb60Mode_HLE()
 {
+    RT_LOGF(RT_TAG_HLE, "SCGetEuRgb60Mode_HLE\n");
     // Default to PAL60 so PAL builds do not fall back to the half-rate PAL50
     // sync path on modern displays. Actual texture/cache correctness is handled
     // elsewhere; this only exposes the intended SYSCONF setting.
@@ -74,6 +77,7 @@ PPC_NATIVE_OVERRIDE(801B1CAC, SCGetEuRgb60Mode_HLE, uint32_t, (), ());
 
 extern "C" uint32_t SCGetProductArea_HLE()
 {
+    RT_LOGF(RT_TAG_HLE, "SCGetProductArea_HLE enter\n");
     return LookupProductRegion(0x8029CEB0u, 5, 13,
                                RuntimeConsoleIdentity::Current().area);
 }
@@ -82,6 +86,7 @@ PPC_NATIVE_OVERRIDE(801B23A0, SCGetProductArea_HLE, uint32_t, (), ());
 
 extern "C" uint32_t SCGetProductCode_HLE()
 {
+    RT_LOGF(RT_TAG_HLE, "SCGetProductCode_HLE enter\n");
     // Original PAL SC storage for the six-byte CODE value.
     constexpr uint32_t kProductCodeAddress = 0x803869E0u;
     const std::string& productCode = RuntimeConsoleIdentity::Current().productCode;
@@ -98,6 +103,7 @@ PPC_NATIVE_OVERRIDE(801B2424, SCGetProductCode_HLE, uint32_t, (), ());
 
 extern "C" uint32_t SCGetProductSN_HLE(uint32_t serialAddress)
 {
+    RT_LOGF(RT_TAG_HLE, "SCGetProductSN_HLE enter addr=0x%08x\n", serialAddress);
     const std::string& serial = RuntimeConsoleIdentity::Current().serial;
     return RuntimeScSerial::Write(serial, serialAddress,
         [](uint32_t address, size_t size) { return Memory::Contains(address, size); },
@@ -108,6 +114,7 @@ PPC_NATIVE_OVERRIDE(801B2460, SCGetProductSN_HLE, uint32_t, (uint32_t serialAddr
 
 extern "C" uint32_t SCGetProductGameRegion_HLE()
 {
+    RT_LOGF(RT_TAG_HLE, "SCGetProductGameRegion_HLE enter\n");
     return LookupProductRegion(0x8029CEF8u, 4, 4,
                                RuntimeConsoleIdentity::Current().gameRegion);
 }

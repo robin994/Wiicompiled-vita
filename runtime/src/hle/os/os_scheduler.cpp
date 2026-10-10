@@ -10,6 +10,9 @@
 #include "fiber_manager.h"
 #include "runtime_log.h"
 #include "os_internal.h"
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+#include "guest_stall_probe.h"
+#endif
 
 namespace {
 void LinkMutexToThread(uint32_t threadPtr, uint32_t mutexPtr)
@@ -129,6 +132,9 @@ extern "C" void func_801A1ED8(CpuContext* ctx);
 
 extern "C" void SelectThread_801a9c08(CpuContext* ctx)
 {
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+    WicGuestStallProbe::selectCalls.fetch_add(1, std::memory_order_relaxed);
+#endif
     CpuContext* cpu = ctx ? ctx : &GetPersistentCpuContext();
     const uint32_t forceSwitch = cpu->gpr[3];
 
@@ -145,6 +151,9 @@ extern "C" void SelectThread_801a9c08(CpuContext* ctx)
     // Get current context
     const uint32_t currentContext = ::Memory::Read32(kOSCurrentContextAddr);
     const uint32_t runningContext = ::Memory::Read32(kOSRunningContextAddr);
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+    WicGuestStallProbe::lastRunning.store(runningContext, std::memory_order_relaxed);
+#endif
     
     // Early exit if no thread system is initialized yet
         // (both current and running contexts are 0)
@@ -227,6 +236,14 @@ extern "C" void SelectThread_801a9c08(CpuContext* ctx)
             OS__EnableInterrupts_801a65c0();
 
             while (::Memory::Read32(kSchedulerPendingFlagAddr) == 0) {
+#if defined(MKW_TARGET_VITA)
+                // AI can wake SoundThread on every idle pass. Service the
+                // independent VI interrupt before any callback can switch away
+                // or make the pending-mask check below skip it indefinitely.
+                // Deferred dispatch preserves registers and leaves thread
+                // selection to this scheduler, without recursive renderer work.
+                VI_HLE_ProcessRetracesDeferred(8);
+#endif
                 ProcessSleepTimers(cpu);
                 // Dolphin models DSP audio DMA as an independent 4 kHz timing
                 // event.  Poll it from the guest scheduler instead of batching
@@ -236,7 +253,9 @@ extern "C" void SelectThread_801a9c08(CpuContext* ctx)
                 if (::Memory::Read32(kSchedulerPendingFlagAddr) != 0) {
                     break;
                 }
+#if !defined(MKW_TARGET_VITA)
                 VI_HLE_PollRetrace(cpu);
+#endif
                 if (Fiber::GuestFiberManager::IsInitialized()) {
                     Fiber::GuestFiberManager::ProcessTimerEvents(cpu);
                 }
@@ -245,6 +264,9 @@ extern "C" void SelectThread_801a9c08(CpuContext* ctx)
                     break;
                 }
                 VI_HLE_WaitForNextRetracePoll();
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+                WicGuestStallProbe::idlePolls.fetch_add(1, std::memory_order_relaxed);
+#endif
             }
 
             OS__DisableInterrupts_801a65ac();
@@ -328,6 +350,10 @@ extern "C" void SelectThread_801a9c08(CpuContext* ctx)
 
     // Update running context
     ::Memory::Write32(kOSRunningContextAddr, nextThread);
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+    WicGuestStallProbe::contextSwitches.fetch_add(1, std::memory_order_relaxed);
+    WicGuestStallProbe::lastSelected.store(nextThread, std::memory_order_relaxed);
+#endif
     
     // Set as current context
     OS__SetCurrentContext_801a1e70(nextThread);
@@ -384,6 +410,9 @@ static void WakeupThreadQueue(CpuContext* ctx, bool allowImmediateReschedule)
 {
     CpuContext* cpu = ctx ? ctx : &GetPersistentCpuContext();
     const uint32_t queueAddr = cpu->gpr[3];
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+    WicGuestStallProbe::wakeCalls.fetch_add(1, std::memory_order_relaxed);
+#endif
     if (queueAddr == 0) {
         return;
     }
@@ -560,4 +589,3 @@ extern "C" void OSUnlockMutex_HLE_801a7fc0(CpuContext* ctx)
     OS__RestoreInterrupts_801a65d4(irqState);
 }
 PPC_NATIVE_OVERRIDE_VOID(801A7FC0, OSUnlockMutex_HLE_801a7fc0, (CpuContext* ctx), (ctx));
-

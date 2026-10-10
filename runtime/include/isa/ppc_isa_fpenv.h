@@ -16,7 +16,7 @@
 // MXCSR: FTZ (bit 15, flushes arithmetic *output* denormals) and DAZ (bit 6, treats denormal
 // *inputs* as zero) are two separate bits on x86; both are set/cleared together here.
 inline constexpr uint32_t kMkwFpControlFlushToZeroBits = (1u << 15) | (1u << 6); // FTZ | DAZ
-#elif defined(__aarch64__)
+#elif defined(__aarch64__) || defined(__arm__)
 // FPCR: a single FZ bit (bit 24) flushes both single- and double-precision denormals, both as
 // inputs and outputs - actually a cleaner match to the "flush everything" trade above than x86's
 // two-bit combo, not an extra deviation.
@@ -38,7 +38,11 @@ inline thread_local double g_mkwNiFlushThreshold = 0.0;
 // their own per-arch branch.
 inline uint32_t MkwGetHostFpControl() noexcept
 {
-#if defined(__x86_64__)
+#if defined(__arm__)
+    uint32_t fpscr = 0;
+    __asm__ __volatile__("vmrs %0, fpscr" : "=r"(fpscr));
+    return fpscr;
+#elif defined(__x86_64__)
     return _mm_getcsr();
 #elif defined(__aarch64__)
     uint64_t fpcr = 0;
@@ -49,7 +53,9 @@ inline uint32_t MkwGetHostFpControl() noexcept
 
 inline void MkwSetHostFpControl(uint32_t value) noexcept
 {
-#if defined(__x86_64__)
+#if defined(__arm__)
+    __asm__ __volatile__("vmsr fpscr, %0" :: "r"(value));
+#elif defined(__x86_64__)
     _mm_setcsr(value);
 #elif defined(__aarch64__)
     // Read-modify-write the full 64-bit FPCR: only the low 32 bits are architecturally defined

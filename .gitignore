@@ -14,11 +14,21 @@
 *.u8
 *.carc
 *.iso
+*.psarc
+*.pyc
+__pycache__/
 *.rvz
 *.wbfs
 *.nkit
 *.ciso
 *.gcm
+*.psp2dmp
+/crashdumps/psarc-*/
+# Crash memory and ELF note dumps can embed copyrighted game bytes, NAND
+# contents and device-specific state. Keep them local; publish analyses only.
+/crashdumps/*.raw
+/crashdumps/*.notes.txt
+/device-runs/
 *.wad
 Code.pul
 

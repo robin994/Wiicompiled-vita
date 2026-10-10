@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: GPL-2.0-or-later
 //
 // Copyright 2018 Dolphin Emulator Project
 //
@@ -80,7 +80,7 @@ inline void PpcSetPairedFprInline(PPC_FPR& fpr, double packed)
 
 #if defined(__x86_64__)
 using PpcPairVec = __m128;
-#elif defined(__aarch64__)
+#elif (defined(__aarch64__) || defined(__arm__))
 // Only 2 lanes are ever meaningful (a PPC paired-single register), so a 2-lane float32x2_t
 // (one 64-bit D register) is a more natural fit than mirroring x86's 128-bit register usage.
 using PpcPairVec = float32x2_t;
@@ -93,8 +93,13 @@ inline PpcPairVec PpcPsToM128Inline(double value)
 {
 #if defined(__x86_64__)
     return _mm_castpd_ps(_mm_set_sd(value));
-#elif defined(__aarch64__)
+#elif (defined(__aarch64__) || defined(__arm__))
+    #if defined(__arm__)
+    uint64_t bits; std::memcpy(&bits, &value, sizeof(bits));
+    return vreinterpret_f32_u64(vdup_n_u64(bits));
+#else
     return vreinterpret_f32_f64(vdup_n_f64(value));
+#endif
 #endif
 }
 
@@ -102,8 +107,13 @@ inline double PpcM128ToPsInline(PpcPairVec value)
 {
 #if defined(__x86_64__)
     return _mm_cvtsd_f64(_mm_castps_pd(value));
-#elif defined(__aarch64__)
+#elif (defined(__aarch64__) || defined(__arm__))
+    #if defined(__arm__)
+    const uint64_t bits = vget_lane_u64(vreinterpret_u64_f32(value), 0);
+    double result; std::memcpy(&result, &bits, sizeof(result)); return result;
+#else
     return vget_lane_f64(vreinterpret_f64_f32(value), 0);
+#endif
 #endif
 }
 
@@ -112,7 +122,7 @@ inline PpcPairVec PpcBroadcastPs0Inline(double value)
 #if defined(__x86_64__)
     const __m128 lanes = PpcPsToM128Inline(value);
     return _mm_shuffle_ps(lanes, lanes, _MM_SHUFFLE(1, 1, 1, 1));
-#elif defined(__aarch64__)
+#elif (defined(__aarch64__) || defined(__arm__))
     // ps0 lives in lane 1 (see the lane-accessor comment below).
     return vdup_lane_f32(PpcPsToM128Inline(value), 1);
 #endif
@@ -123,7 +133,7 @@ inline PpcPairVec PpcBroadcastPs1Inline(double value)
 #if defined(__x86_64__)
     const __m128 lanes = PpcPsToM128Inline(value);
     return _mm_shuffle_ps(lanes, lanes, _MM_SHUFFLE(0, 0, 0, 0));
-#elif defined(__aarch64__)
+#elif (defined(__aarch64__) || defined(__arm__))
     // ps1 is already lane 0.
     return vdup_lane_f32(PpcPsToM128Inline(value), 0);
 #endif
@@ -136,7 +146,7 @@ inline PpcPairVec PpcNegateNonNanLanesInline(PpcPairVec value)
     const __m128 negated = _mm_xor_ps(value, signMask);
     const __m128 ordered = _mm_cmpord_ps(value, value);
     return _mm_or_ps(_mm_and_ps(ordered, negated), _mm_andnot_ps(ordered, value));
-#elif defined(__aarch64__)
+#elif (defined(__aarch64__) || defined(__arm__))
     const uint32x2_t signMask = vdup_n_u32(0x80000000u);
     const float32x2_t negated = vreinterpret_f32_u32(veor_u32(vreinterpret_u32_f32(value), signMask));
     // NEON has no direct "ordered compare"; a value compares equal to itself iff it's not NaN.
@@ -155,7 +165,7 @@ inline float PpcGetPs0Inline(double value)
     // ps0 lives in lane 1; PpcBroadcastPs0Inline already splats it.
 #if defined(__x86_64__)
     return _mm_cvtss_f32(PpcBroadcastPs0Inline(value));
-#elif defined(__aarch64__)
+#elif (defined(__aarch64__) || defined(__arm__))
     return vget_lane_f32(PpcBroadcastPs0Inline(value), 0);
 #endif
 }
@@ -165,7 +175,7 @@ inline float PpcGetPs1Inline(double value)
     // ps1 is already lane 0 of the packed representation.
 #if defined(__x86_64__)
     return _mm_cvtss_f32(PpcPsToM128Inline(value));
-#elif defined(__aarch64__)
+#elif (defined(__aarch64__) || defined(__arm__))
     return vget_lane_f32(PpcPsToM128Inline(value), 0);
 #endif
 }
@@ -176,7 +186,7 @@ inline double PpcPackPairedInline(float ps0, float ps1)
     // _mm_unpacklo_ps(x, y) -> { x[0], y[0], x[1], y[1] }, so lane 0 becomes
     // ps1 and lane 1 becomes ps0, matching the union layout bit for bit.
     return PpcM128ToPsInline(_mm_unpacklo_ps(_mm_set_ss(ps1), _mm_set_ss(ps0)));
-#elif defined(__aarch64__)
+#elif (defined(__aarch64__) || defined(__arm__))
     // Lane 0 = ps1, lane 1 = ps0, matching the union layout bit for bit.
     const float32x2_t lane0 = vdup_n_f32(ps1);
     return PpcM128ToPsInline(vset_lane_f32(ps0, lane0, 1));
@@ -205,7 +215,11 @@ inline float PpcForceSingleValueInline(double value)
     const __m128d flush = _mm_cmplt_sd(magnitude, _mm_set_sd(g_mkwNiFlushThreshold));
     const __m128d kept = _mm_andnot_pd(_mm_andnot_pd(signMask, flush), v);
     return static_cast<float>(_mm_cvtsd_f64(kept));
-#elif defined(__aarch64__)
+#elif (defined(__aarch64__) || defined(__arm__))
+#if defined(__arm__)
+    if (std::fabs(value) < g_mkwNiFlushThreshold) value = std::copysign(0.0, value);
+    return static_cast<float>(value);
+#else
     const float64x1_t v = vdup_n_f64(value);
     const uint64x1_t signMask = vdup_n_u64(0x8000000000000000ULL);
     const float64x1_t magnitude = vreinterpret_f64_u64(vbic_u64(vreinterpret_u64_f64(v), signMask));
@@ -213,6 +227,7 @@ inline float PpcForceSingleValueInline(double value)
     const uint64x1_t signOnly = vand_u64(vreinterpret_u64_f64(v), signMask);
     const uint64x1_t kept = vbsl_u64(flush, signOnly, vreinterpret_u64_f64(v));
     return static_cast<float>(vget_lane_f64(vreinterpret_f64_u64(kept), 0));
+#endif
 #endif
 }
 
@@ -526,7 +541,7 @@ inline double PpcFnmsubsInline(double a, double c, double b)
     return static_cast<double>(std::isnan(result) ? result : -result);
 }
 
-#if defined(__aarch64__)
+#if (defined(__aarch64__) || defined(__arm__))
 // x86 resolves a single NaN source operand (SNaN or QNaN alike) to that operand quieted with
 // sign and payload kept, and an invalid op with no NaN input to 0xFFC00000; NEON prefers SNaNs,
 // checks the accumulator first, and yields the positive default NaN 0x7FC00000. NaN result
@@ -569,13 +584,13 @@ inline PpcPairVec PpcResolveNanLanes3Inline(
     const uint32x2_t resultNan = vmvn_u32(vceq_f32(result, result));
     return vbsl_f32(resultNan, replacement, result);
 }
-#endif // defined(__aarch64__)
+#endif // (defined(__aarch64__) || defined(__arm__))
 
 inline PpcPairVec PpcMulPairInline(PpcPairVec lhs, PpcPairVec rhs)
 {
 #if defined(__x86_64__)
     return _mm_mul_ps(lhs, rhs);
-#elif defined(__aarch64__)
+#elif (defined(__aarch64__) || defined(__arm__))
     const PpcPairVec result = vmul_f32(lhs, rhs);
     if (PpcPairNanLaneBitsInline(result) != 0) [[unlikely]]
         return PpcResolveNanLanesInline(result, lhs, rhs);
@@ -608,8 +623,17 @@ inline PpcPairVec PpcFmaddPairInline(PpcPairVec multiplicand, PpcPairVec multipl
 {
 #if defined(__x86_64__)
     return _mm_fmadd_ps(multiplicand, multiplier, addend);
-#elif defined(__aarch64__)
+#elif (defined(__aarch64__) || defined(__arm__))
+#if defined(__arm__)
+#if defined(WIC_FAST_PPC_MATH) && WIC_FAST_PPC_MATH
+    const PpcPairVec result = vmla_f32(addend, multiplicand, multiplier);
+#else
+    const PpcPairVec result{std::fma(vget_lane_f32(multiplicand,0),vget_lane_f32(multiplier,0),vget_lane_f32(addend,0)),
+                            std::fma(vget_lane_f32(multiplicand,1),vget_lane_f32(multiplier,1),vget_lane_f32(addend,1))};
+#endif
+#else
     const PpcPairVec result = vfma_f32(addend, multiplicand, multiplier);
+#endif
     if (PpcPairNanLaneBitsInline(result) != 0) [[unlikely]]
         return PpcResolveNanLanes3Inline(result, multiplicand, multiplier, addend);
     return result;
@@ -620,8 +644,17 @@ inline PpcPairVec PpcFmsubPairInline(PpcPairVec multiplicand, PpcPairVec multipl
 {
 #if defined(__x86_64__)
     return _mm_fmsub_ps(multiplicand, multiplier, subtractor);
-#elif defined(__aarch64__)
+#elif (defined(__aarch64__) || defined(__arm__))
+#if defined(__arm__)
+#if defined(WIC_FAST_PPC_MATH) && WIC_FAST_PPC_MATH
+    const PpcPairVec result = vmla_f32(vneg_f32(subtractor), multiplicand, multiplier);
+#else
+    const PpcPairVec result{std::fma(vget_lane_f32(multiplicand,0),vget_lane_f32(multiplier,0),-vget_lane_f32(subtractor,0)),
+                            std::fma(vget_lane_f32(multiplicand,1),vget_lane_f32(multiplier,1),-vget_lane_f32(subtractor,1))};
+#endif
+#else
     const PpcPairVec result = vfma_f32(vneg_f32(subtractor), multiplicand, multiplier);
+#endif
     if (PpcPairNanLaneBitsInline(result) != 0) [[unlikely]]
         return PpcResolveNanLanes3Inline(result, multiplicand, multiplier, subtractor);
     return result;
@@ -726,7 +759,7 @@ inline double PPC_PsMerge00Inline(double aValue, double bValue)
     const __m128 gathered = _mm_shuffle_ps(
         PpcPsToM128Inline(bValue), PpcPsToM128Inline(aValue), _MM_SHUFFLE(1, 1, 1, 1));
     return PpcM128ToPsInline(_mm_shuffle_ps(gathered, gathered, _MM_SHUFFLE(0, 0, 2, 0)));
-#elif defined(__aarch64__)
+#elif (defined(__aarch64__) || defined(__arm__))
     return PpcPackPairedInline(PpcGetPs0Inline(aValue), PpcGetPs0Inline(bValue));
 #endif
 }
@@ -738,7 +771,7 @@ inline double PPC_PsMerge01Inline(double aValue, double bValue)
     const __m128 gathered = _mm_shuffle_ps(
         PpcPsToM128Inline(bValue), PpcPsToM128Inline(aValue), _MM_SHUFFLE(1, 1, 0, 0));
     return PpcM128ToPsInline(_mm_shuffle_ps(gathered, gathered, _MM_SHUFFLE(0, 0, 2, 0)));
-#elif defined(__aarch64__)
+#elif (defined(__aarch64__) || defined(__arm__))
     return PpcPackPairedInline(PpcGetPs0Inline(aValue), PpcGetPs1Inline(bValue));
 #endif
 }
@@ -750,7 +783,7 @@ inline double PPC_PsMerge10Inline(double aValue, double bValue)
     const __m128 gathered = _mm_shuffle_ps(
         PpcPsToM128Inline(bValue), PpcPsToM128Inline(aValue), _MM_SHUFFLE(0, 0, 1, 1));
     return PpcM128ToPsInline(_mm_shuffle_ps(gathered, gathered, _MM_SHUFFLE(0, 0, 2, 0)));
-#elif defined(__aarch64__)
+#elif (defined(__aarch64__) || defined(__arm__))
     return PpcPackPairedInline(PpcGetPs1Inline(aValue), PpcGetPs0Inline(bValue));
 #endif
 }
@@ -762,7 +795,7 @@ inline double PPC_PsMerge11Inline(double aValue, double bValue)
 #if defined(__x86_64__)
     return PpcM128ToPsInline(
         _mm_unpacklo_ps(PpcPsToM128Inline(bValue), PpcPsToM128Inline(aValue)));
-#elif defined(__aarch64__)
+#elif (defined(__aarch64__) || defined(__arm__))
     return PpcPackPairedInline(PpcGetPs1Inline(aValue), PpcGetPs1Inline(bValue));
 #endif
 }
@@ -771,7 +804,7 @@ inline PpcPairVec PpcAddPairInline(PpcPairVec lhs, PpcPairVec rhs)
 {
 #if defined(__x86_64__)
     return _mm_add_ps(lhs, rhs);
-#elif defined(__aarch64__)
+#elif (defined(__aarch64__) || defined(__arm__))
     const PpcPairVec result = vadd_f32(lhs, rhs);
     if (PpcPairNanLaneBitsInline(result) != 0) [[unlikely]]
         return PpcResolveNanLanesInline(result, lhs, rhs);
@@ -783,7 +816,7 @@ inline PpcPairVec PpcSubPairInline(PpcPairVec lhs, PpcPairVec rhs)
 {
 #if defined(__x86_64__)
     return _mm_sub_ps(lhs, rhs);
-#elif defined(__aarch64__)
+#elif (defined(__aarch64__) || defined(__arm__))
     const PpcPairVec result = vsub_f32(lhs, rhs);
     if (PpcPairNanLaneBitsInline(result) != 0) [[unlikely]]
         return PpcResolveNanLanesInline(result, lhs, rhs);
@@ -795,8 +828,12 @@ inline PpcPairVec PpcDivPairInline(PpcPairVec lhs, PpcPairVec rhs)
 {
 #if defined(__x86_64__)
     return _mm_div_ps(lhs, rhs);
-#elif defined(__aarch64__)
+#elif (defined(__aarch64__) || defined(__arm__))
+#if defined(__arm__)
+    const PpcPairVec result{vget_lane_f32(lhs,0)/vget_lane_f32(rhs,0),vget_lane_f32(lhs,1)/vget_lane_f32(rhs,1)};
+#else
     const PpcPairVec result = vdiv_f32(lhs, rhs);
+#endif
     if (PpcPairNanLaneBitsInline(result) != 0) [[unlikely]]
         return PpcResolveNanLanesInline(result, lhs, rhs);
     return result;

@@ -10,7 +10,27 @@ namespace NetworkHle {
 
 bool RetroRewindProfileActive();
 
-static std::mutex g_mutex;
+#if defined(MKW_TARGET_VITA)
+class NetworkMutex {
+public:
+    void lock() noexcept {
+        while (flag_.test_and_set(std::memory_order_acquire)) {
+            std::atomic_signal_fence(std::memory_order_seq_cst);
+        }
+    }
+
+    void unlock() noexcept {
+        flag_.clear(std::memory_order_release);
+    }
+
+private:
+    std::atomic_flag flag_ = ATOMIC_FLAG_INIT;
+};
+#else
+using NetworkMutex = std::mutex;
+#endif
+
+static NetworkMutex g_mutex;
 static std::map<int32_t, DeviceKind> g_devices;
 static int32_t g_nextDeviceFd = 2000;
 
@@ -97,14 +117,19 @@ bool WriteVectorReturn(const std::vector<IoVector>& out, size_t index, int32_t v
 }
 
 static int32_t AllocateDevice(DeviceKind kind) {
-    std::lock_guard<std::mutex> lock(g_mutex);
+    RT_LOGF(RT_TAG_NET, "AllocateDevice enter kind=%u next_fd=%d\n",
+            static_cast<unsigned>(kind), g_nextDeviceFd);
+    std::lock_guard<NetworkMutex> lock(g_mutex);
+    RT_LOGF(RT_TAG_NET, "AllocateDevice locked kind=%u\n", static_cast<unsigned>(kind));
     const int32_t fd = g_nextDeviceFd++;
+    RT_LOGF(RT_TAG_NET, "AllocateDevice emplace fd=%d\n", fd);
     g_devices.emplace(fd, kind);
+    RT_LOGF(RT_TAG_NET, "AllocateDevice ready fd=%d devices=%zu\n", fd, g_devices.size());
     return fd;
 }
 
 std::optional<DeviceKind> GetDeviceKind(uint32_t fd) {
-    std::lock_guard<std::mutex> lock(g_mutex);
+    std::lock_guard<NetworkMutex> lock(g_mutex);
     auto it = g_devices.find(static_cast<int32_t>(fd));
     if (it == g_devices.end()) {
         return std::nullopt;
@@ -113,7 +138,7 @@ std::optional<DeviceKind> GetDeviceKind(uint32_t fd) {
 }
 
 static bool RemoveDevice(uint32_t fd) {
-    std::lock_guard<std::mutex> lock(g_mutex);
+    std::lock_guard<NetworkMutex> lock(g_mutex);
     return g_devices.erase(static_cast<int32_t>(fd)) != 0;
 }
 

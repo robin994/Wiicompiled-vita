@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -17,6 +18,7 @@
 #include "recomp_mod_loader.h"
 #include "runtime_log.h"
 #include "system_bridge.h"
+#include "host_wait.h"
 
 extern "C" void func_801A961C(CpuContext* ctx);
 extern "C" void func_8055531C(CpuContext* ctx);
@@ -84,7 +86,7 @@ extern "C" void GKI_delay_HLE_801301b4(CpuContext* ctx)
 {
     const uint32_t delayMs = ctx ? static_cast<uint32_t>(ctx->gpr[3]) : 0;
     const uint32_t sleepMs = delayMs == 0 ? 1u : std::min(delayMs, 10u);
-    std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
+    HostWait::SleepFor(std::chrono::milliseconds(sleepMs), HostWait::Site::ControllerDelay);
 }
 
 extern "C" uint32_t BTM_IsDeviceUp_HLE_8013a300(CpuContext* ctx)
@@ -248,8 +250,13 @@ PPC_NATIVE_OVERRIDE_VOID(80006348,__init_hardware_80006348, (), ());
 
 // Each PPC_NATIVE_OVERRIDE_VOID line stays written out per stub (not looped) because the
 // translator text-scans them to decide which addresses to skip translating.
+#if defined(MKW_TARGET_VITA)
+#define PPC_SPR_STUB_BODY(name, message) \
+    extern "C" void name() { std::fprintf(stderr, "[os] %s\n", message); }
+#else
 #define PPC_SPR_STUB_BODY(name, message) \
     extern "C" void name() { RT_LOG(RT_TAG_OS) << message << std::endl; }
+#endif
 
 PPC_SPR_STUB_BODY(PPCMfhid0_8012e574, "PPCMfhid0 called (stubbed) - Move From HID0")
 PPC_NATIVE_OVERRIDE_VOID(8012e574, PPCMfhid0_8012e574, (), ());

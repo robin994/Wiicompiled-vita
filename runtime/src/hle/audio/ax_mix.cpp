@@ -7,6 +7,7 @@
 #include "ax_mix_kernels.h"
 #include "isa/big_endian.h"
 #include "memory.h"
+#include "native_stack_call.h"
 #include "ppc_runtime.h"
 #include "runtime_config.h"
 #include "runtime_log.h"
@@ -1342,18 +1343,30 @@ private:
         if (g_mixMem1.load(std::memory_order_relaxed) == nullptr) {
             return false;
         }
+        if (m_mixWorkerStartFailed) return false;
         RT_LOGF(RT_TAG_AUDIO, "starting the AX/DSP mix worker thread\n");
         std::fflush(stderr);
         m_mixStop = false;
         m_mixPending = false;
         m_mixBusy = false;
         try {
+#if defined(MKW_TARGET_VITA)
+            HostContext::CallOnNativeStack([this] {
+                m_mixThread = std::thread([this] { MixWorkerMain(); });
+            });
+#else
             m_mixThread = std::thread([this] { MixWorkerMain(); });
-        } catch (const std::system_error&) {
-            RT_LOGF(RT_TAG_AUDIO, "failed to start the mix worker; mixing inline\n");
+#endif
+        } catch (const std::system_error& error) {
+#if defined(MKW_TARGET_VITA)
+            m_mixWorkerStartFailed = true;
+#endif
+            RT_LOGF(RT_TAG_AUDIO, "mix worker start failed code=%d category=%s what=%s; mixing inline, retries_disabled=%d\n",
+                error.code().value(), error.code().category().name(), error.what(), m_mixWorkerStartFailed);
             std::fflush(stderr);
             return false;
         }
+        RT_LOGF(RT_TAG_AUDIO, "AX/DSP mix worker started\n");
         return true;
     }
 
@@ -1395,6 +1408,7 @@ private:
     }
 
     mutable std::mutex m_mutex;
+    bool m_mixWorkerStartFailed = false;
     MailState m_mailState = MailState::WaitingForCmdListSize;
     bool m_toDspBusy = false;
     uint32_t m_cmdListSize = 0;

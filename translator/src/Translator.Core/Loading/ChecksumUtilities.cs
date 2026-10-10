@@ -21,7 +21,7 @@ public static class ChecksumUtilities
     /// <summary>Streams the file rather than materializing it, so hashing a REL costs no copy.</summary>
     public static string Sha256HexOfFile(string path)
     {
-        using var stream = File.OpenRead(path);
+        using var stream = Translator.Core.IO.BinaryInput.OpenRead(path);
         return ToHex(SHA256.HashData(stream));
     }
 }

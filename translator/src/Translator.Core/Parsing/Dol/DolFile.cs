@@ -34,7 +34,7 @@ public sealed class DolFile
 
     public static DolFile Load(string path)
     {
-        using var stream = File.OpenRead(path);
+        using var stream = BinaryInput.OpenRead(path);
         return Load(stream);
     }
 

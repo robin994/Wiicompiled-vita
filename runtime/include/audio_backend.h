@@ -7,6 +7,14 @@
 
 #include <SDL3/SDL_audio.h>
 
+// A full output queue is a transient drop, not a failed guest DMA read.
+enum class AudioPushResult : uint8_t {
+    Accepted,
+    QueueFull,
+    InvalidBuffer,
+    BackendUnavailable,
+};
+
 class AudioBackend {
 public:
     static AudioBackend& Instance();
@@ -16,8 +24,8 @@ public:
 
     // Wii AI DMA frames are big-endian and ordered right, left. SDL expects
     // native-endian interleaved left, right samples.
-    bool PushWiiAiSamplesBE16(const uint8_t* data, size_t bytes);
-    bool PushSamplesLE16(const int16_t* samples, size_t sampleCount);
+    AudioPushResult PushWiiAiSamplesBE16(const uint8_t* data, size_t bytes);
+    AudioPushResult PushSamplesLE16(const int16_t* samples, size_t sampleCount);
 
     // Applied to the final host output, covering both AX and direct AI DMA.
     void SetMasterVolume(float volume);

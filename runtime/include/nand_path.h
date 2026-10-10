@@ -7,6 +7,9 @@
 
 #include <cstdlib>
 #include <cstdio>
+#include <array>
+#include <atomic>
+#include <cerrno>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -15,6 +18,12 @@
 #include <string_view>
 
 namespace RuntimeNandPath {
+
+#if defined(MKW_TARGET_VITA)
+inline std::filesystem::path g_vitaNandRoot;
+inline std::atomic<bool> g_vitaNandRootReady{false};
+inline std::atomic_flag g_vitaNandRootLock = ATOMIC_FLAG_INIT;
+#endif
 
 inline std::optional<std::filesystem::path> ExistingDirectory(const std::filesystem::path& path) {
     std::error_code ec;
@@ -94,8 +103,52 @@ inline bool CopyBootstrapFile(const std::filesystem::path& sourceRoot,
     if (ec) {
         return false;
     }
+#if defined(MKW_TARGET_VITA)
+    // Vita's std::filesystem::copy_file backend does not reliably copy across
+    // device prefixes (app0: -> ux0:). Use plain stdio so first-run bootstrap
+    // files can be seeded from the read-only application mount.
+    std::FILE* input = std::fopen(source.c_str(), "rb");
+    if (!input) {
+        ec = std::error_code(errno, std::generic_category());
+        return false;
+    }
+    std::FILE* output = std::fopen(destination.c_str(), "wb");
+    if (!output) {
+        const int savedErrno = errno;
+        std::fclose(input);
+        ec = std::error_code(savedErrno, std::generic_category());
+        return false;
+    }
+
+    bool ok = true;
+    std::array<unsigned char, 4096> buffer{};
+    for (;;) {
+        const size_t read = std::fread(buffer.data(), 1, buffer.size(), input);
+        if (read != 0 && std::fwrite(buffer.data(), 1, read, output) != read) {
+            ok = false;
+            break;
+        }
+        if (read < buffer.size()) {
+            if (std::ferror(input)) {
+                ok = false;
+            }
+            break;
+        }
+    }
+    if (std::fclose(output) != 0) {
+        ok = false;
+    }
+    std::fclose(input);
+    if (!ok) {
+        ec = std::error_code(errno ? errno : EIO, std::generic_category());
+        return false;
+    }
+    ec.clear();
+    return true;
+#else
     std::filesystem::copy_file(source, destination, std::filesystem::copy_options::none, ec);
     return !ec;
+#endif
 }
 
 // Create these WC24 files only for a new profile; never overwrite user data.
@@ -175,12 +228,52 @@ inline std::filesystem::path ResolveNandRootPath() {
             }
             return *existing;
         }
+#if defined(MKW_TARGET_VITA)
+        // Vita's generated Config.toml intentionally points at the app's writable
+        // data directory. Treat a missing configured root as a first-run profile
+        // instead of requiring the user to create the directory by hand.
+        std::error_code ec;
+        std::filesystem::create_directories(path, ec);
+        if (!ec) {
+            ec.clear();
+            if (std::filesystem::is_directory(path, ec) && !ec) {
+                if (!SeedMissingBootstrapFiles(path)) {
+                    FailNandRoot("Unable to initialize configured NAND", path);
+                }
+                RT_LOGF(RT_TAG_NAND, "created Vita NAND root: %s\n",
+                        RuntimeConfigFile::PathToUtf8(path).c_str());
+                return path;
+            }
+        }
+#endif
         FailNandRoot("Configured NAND root is not an existing directory", path);
     }
     return CreateManagedNandRoot();
 }
 
 inline std::filesystem::path DiscoverNandRootPath() {
+#if defined(MKW_TARGET_VITA)
+    if (!g_vitaNandRootReady.load(std::memory_order_acquire)) {
+        while (g_vitaNandRootLock.test_and_set(std::memory_order_acquire)) {
+            std::atomic_signal_fence(std::memory_order_seq_cst);
+        }
+        if (!g_vitaNandRootReady.load(std::memory_order_relaxed)) {
+            RT_LOGF(RT_TAG_NAND, "initializing Vita NAND root\n");
+            const auto resolved = ResolveNandRootPath();
+            std::string error;
+            if (!RuntimeNandSettings::Ensure(resolved, error)) {
+                g_vitaNandRootLock.clear(std::memory_order_release);
+                FailNandRoot(error.c_str(), RuntimeNandSettings::FilePath(resolved));
+            }
+            g_vitaNandRoot = resolved;
+            g_vitaNandRootReady.store(true, std::memory_order_release);
+            RT_LOGF(RT_TAG_NAND, "Vita NAND root ready: %s\n",
+                    RuntimeConfigFile::PathToUtf8(g_vitaNandRoot).c_str());
+        }
+        g_vitaNandRootLock.clear(std::memory_order_release);
+    }
+    return g_vitaNandRoot;
+#else
     static const auto root = [] {
         const auto resolved = ResolveNandRootPath();
         std::string error;
@@ -190,6 +283,7 @@ inline std::filesystem::path DiscoverNandRootPath() {
         return resolved;
     }();
     return root;
+#endif
 }
 
 } // namespace RuntimeNandPath

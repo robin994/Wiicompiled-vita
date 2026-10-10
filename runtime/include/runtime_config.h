@@ -19,6 +19,7 @@
 #include <utility>
 #include <vector>
 #include <toml.hpp>
+#include "vita_render_options.h"
 #include "platform/host_platform.h"
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -56,6 +57,15 @@ struct RuntimeUserConfig {
     std::optional<float> audioVoicesVolume;
     std::optional<bool> audioMuted;
     std::optional<bool> audioMixWorker;
+    // Vita regression A/B: restore the original queue-full DMA stop without
+    // reverting GX/AVC or mutating the installed game data.
+    std::optional<bool> audioLegacyStopDmaOnQueueFull;
+    std::optional<bool> testTimeTrial;
+    // Vita: disable draw/CPU attribution, traces and framebuffer readbacks for
+    // a cadence comparison. An explicit frame replaces the legacy captures.
+    std::optional<bool> diagnosticsEnabled;
+    std::optional<uint32_t> diagnosticsCaptureFrame;
+    VitaRenderOptions vitaRender;
     std::optional<bool> attenuateMusicWhenMediaPlays;
     // Real Wii Remotes (with or without Nunchuk / Classic Controller) and Wii U Pro
     // Controllers paired over Bluetooth, driven by SDL's HIDAPI Wii driver. The driver
@@ -84,6 +94,8 @@ struct RuntimeUserConfig {
     std::optional<std::string> discordClientId;
     std::optional<std::string> nandRoot;
     std::optional<std::string> dvdRoot;
+    std::optional<std::string> dvdPsarc;
+    std::optional<std::string> dvdIso;
     // The one canonical Retro Rewind installation, owned and updated by the frontend. Setup records
     // it here instead of copying the pack, so an asset-only update is visible on the next launch.
     std::optional<std::string> retroRewindRoot;
@@ -168,7 +180,9 @@ inline bool IsSupportedResolutionMultiplier(float value) {
 // Must stay in step with the backend table in main.cpp, which is what actually
 // maps these to AuroraBackend.
 inline bool IsSupportedGraphicsApi(std::string_view value) {
-#if defined(__APPLE__)
+#if defined(MKW_TARGET_VITA)
+    static constexpr std::array<std::string_view, 2> values{"auto", "gxm"};
+#elif defined(__APPLE__)
     static constexpr std::array<std::string_view, 2> values{"auto", "metal"};
 // only vulkan for linux
 #elif defined(__linux__)
@@ -206,7 +220,7 @@ inline std::optional<std::filesystem::path> ExecutableDirectory() {
         }
         buffer.resize(buffer.size() * 2);
     }
-#elif defined(__APPLE__)
+#elif defined(__APPLE__) || defined(MKW_TARGET_VITA)
     return RuntimePlatform::ExecutableDirectory();
 #else
     // /proc/self/exe is a Linux-specific magic symlink to the running executable; readlink()
@@ -255,6 +269,9 @@ inline const std::optional<std::filesystem::path>& PortableRootDirectory() {
 }
 
 inline std::filesystem::path ApplicationDataDirectory() {
+#if defined(MKW_TARGET_VITA)
+    return RuntimePlatform::ApplicationDataDirectory(kApplicationDirectoryName);
+#endif
     if (const auto& portableRoot = PortableRootDirectory()) {
         return *portableRoot / kPortableUserDataDirectoryName;
     }
@@ -296,6 +313,45 @@ inline void EnsureConfigFile() {
     if (!output) {
         return;
     }
+#if defined(MKW_TARGET_VITA)
+    output << "# WiiCompiled Vita configuration\n"
+              "[paths]\n"
+              "dvd_psarc = \"\"\n"
+              "dvd_iso = \"ux0:data/wiicompiled-vita/mariokart.iso\"\n"
+              "nand_root = \"ux0:data/wiicompiled-vita/nand\"\n\n"
+              "[video]\n"
+              "graphics_api = \"gxm\"\n"
+              "widescreen = true\n"
+              "force_16_9 = false\n"
+              "frame_interpolation_fps = 0\n"
+              "disabled_post_processing_paths = 0\n\n"
+              "[audio]\n"
+              "legacy_stop_dma_on_queue_full = false\n\n"
+              "[test]\n"
+              "# Mario, Standard Kart M, Luigi Circuit; existing licence required.\n"
+              "time_trial = false\n\n"
+              "[diagnostics]\n"
+              "enabled = true\n"
+              "# Set capture_frame = 300 for a single race framebuffer capture.\n\n"
+              "[vita]\n"
+              "shader_binary_preload = true\n"
+              "shader_preload_limit = 1024\n"
+              "pipeline_prewarm_limit = 192\n"
+              "native_asset_cache_mb = 2\n"
+              "worker_threads = 2\n"
+              "renderer_lanes = 0\n"
+              "geometry_min_vertices = 48\n"
+              "prepared_display_lists = false\n"
+              "draw_batching = false\n"
+              "immediate_draw_view = false\n"
+              "fragment_prepare_cache = false\n"
+              "fixed_uniform_pool = false\n"
+              "geometry_preflight = false\n"
+              "distinct_cpu_dispatch = false\n"
+              "native_materials = true\n\n"
+              "[network]\n"
+              "enabled = false\n";
+#else
     output << "# WiiCompiled user configuration\n"
               "# Set paths.dvd_root to an extracted Mario Kart Wii DATA directory.\n\n"
               "[video]\n"
@@ -341,6 +397,7 @@ inline void EnsureConfigFile() {
               "# nand_root = \"D:\\\\WiiNand\"\n"
               "# retro_rewind_root = \"D:\\\\RetroRewind\\\\RetroRewind6\"\n"
               "# overlay_roots = [\"D:\\\\RetroRewind\"]\n";
+#endif
 }
 
 template <typename T>
@@ -483,6 +540,35 @@ inline RuntimeUserConfig ParseConfigDocument(const toml::value& document) {
     config.audioVoicesVolume = readVolume("voices_volume");
     config.audioMuted = FindConfigValue<bool>(document, "audio", "muted");
     config.audioMixWorker = FindConfigValue<bool>(document, "audio", "mix_worker");
+    config.audioLegacyStopDmaOnQueueFull =
+        FindConfigValue<bool>(document, "audio", "legacy_stop_dma_on_queue_full");
+    config.testTimeTrial = FindConfigValue<bool>(document, "test", "time_trial");
+    config.diagnosticsEnabled = FindConfigValue<bool>(document, "diagnostics", "enabled");
+    config.diagnosticsCaptureFrame = FindConfigUint(document, "diagnostics", "capture_frame");
+    auto renderBool = [&](const char* key, bool& output) {
+        if (auto v=FindConfigValue<bool>(document,"vita",key)) output=*v;
+    };
+    auto renderUint = [&](const char* key,uint32_t& output,uint32_t lo,uint32_t hi) {
+        if (auto v=FindConfigUint(document,"vita",key); v && *v>=lo && *v<=hi) output=*v;
+    };
+    auto& render=config.vitaRender;
+    renderBool("shader_binary_preload",render.shaderBinaryPreload);
+    renderUint("shader_preload_limit",render.shaderPreloadLimit,0,1024);
+    renderUint("pipeline_prewarm_limit",render.pipelinePrewarmLimit,0,512);
+    renderUint("native_asset_cache_mb",render.nativeAssetCacheMb,0,32);
+    renderUint("worker_threads",render.workerThreads,0,2);
+    renderUint("renderer_lanes",render.rendererLanes,0,3);
+    renderUint("geometry_min_vertices",render.geometryMinVertices,3,65535);
+    renderBool("prepared_display_lists",render.preparedDisplayLists);
+    renderBool("draw_batching",render.drawBatching);
+    renderBool("immediate_draw_view",render.immediateDrawView);
+    renderBool("fragment_prepare_cache",render.fragmentPrepareCache);
+    renderBool("fixed_uniform_pool",render.fixedUniformPool);
+    renderBool("geometry_preflight",render.geometryPreflight);
+    renderBool("distinct_cpu_dispatch",render.distinctCpuDispatch);
+    renderBool("native_materials",render.nativeMaterials);
+    render.geometryCache=FindConfigValue<bool>(document,"vita","geometry_cache");
+    render.gpuLighting=FindConfigValue<bool>(document,"vita","gpu_lighting");
     config.attenuateMusicWhenMediaPlays =
         FindConfigValue<bool>(document, "audio", "attenuate_music_when_media_plays");
     config.wiiRemotes = FindConfigValue<bool>(document, "controller", "wii_remotes");
@@ -497,6 +583,8 @@ inline RuntimeUserConfig ParseConfigDocument(const toml::value& document) {
 
     config.nandRoot = FindConfigValue<std::string>(document, "paths", "nand_root");
     config.dvdRoot = FindConfigValue<std::string>(document, "paths", "dvd_root");
+    config.dvdPsarc = FindConfigValue<std::string>(document, "paths", "dvd_psarc");
+    config.dvdIso = FindConfigValue<std::string>(document, "paths", "dvd_iso");
     config.retroRewindRoot = FindConfigValue<std::string>(document, "paths", "retro_rewind_root");
     if (auto roots = FindConfigValue<std::vector<std::string>>(document, "paths", "overlay_roots")) {
         for (auto& root : *roots) {
@@ -856,6 +944,18 @@ inline bool AudioMixWorkerEnabled(bool fallback = true) {
     return Get().audioMixWorker.value_or(fallback);
 }
 
+// Temporary Vita-only regression control: true reproduces the pre-fix DMA
+// shutdown after the first output queue overflow (including skipped callback).
+// Once the cause of the 1 Player freeze is isolated, remove this workaround.
+inline bool AudioLegacyStopDmaOnQueueFull(bool fallback = false) {
+#if defined(MKW_TARGET_VITA)
+    return Get().audioLegacyStopDmaOnQueueFull.value_or(fallback);
+#else
+    (void)fallback;
+    return false;
+#endif
+}
+
 // Whether background music should duck automatically for other media playback.
 inline bool AttenuateMusicWhenMediaPlays(bool fallback = false) {
     return Get().attenuateMusicWhenMediaPlays.value_or(fallback);
@@ -971,12 +1071,19 @@ inline std::string DvdRoot(std::string fallback = "") {
     return Get().dvdRoot.value_or(std::move(fallback));
 }
 
+inline std::string DvdPsarc(std::string fallback = "") {
+    return Get().dvdPsarc.value_or(std::move(fallback));
+}
+
 // The one resolver for configured paths. A relative value means the same thing
 // everywhere it can be configured: relative to the config file that named it,
 // never to the process working directory (docs/WHEELWIZARD_CONTRACT.md).
 inline std::filesystem::path ResolveRelativeTo(const std::filesystem::path& base,
                                                const std::string& value) {
     std::filesystem::path path = PathFromUtf8(value);
+#if defined(MKW_TARGET_VITA)
+    if(value.find(':')!=std::string::npos)return path.lexically_normal();
+#endif
     if (path.is_relative()) {
         path = base / path;
     }
@@ -990,6 +1097,24 @@ inline std::filesystem::path ResolveRelativeToConfig(const std::string& value) {
 // The extracted DATA directory. Empty when nothing is configured.
 inline std::filesystem::path ResolvedDvdRoot() {
     const std::string configured = DvdRoot();
+    return configured.empty() ? std::filesystem::path{} : ResolveRelativeToConfig(configured);
+}
+
+inline std::filesystem::path ResolvedDvdPsarc() {
+#if defined(MKW_TARGET_VITA)
+    const std::string configured = Get().dvdPsarc.value_or("");
+#else
+    const std::string configured = Get().dvdPsarc.value_or("");
+#endif
+    return configured.empty() ? std::filesystem::path{} : ResolveRelativeToConfig(configured);
+}
+
+inline std::filesystem::path ResolvedDvdIso() {
+#if defined(MKW_TARGET_VITA)
+    const std::string configured = Get().dvdIso.value_or("ux0:data/wiicompiled-vita/mariokart.iso");
+#else
+    const std::string configured = Get().dvdIso.value_or("");
+#endif
     return configured.empty() ? std::filesystem::path{} : ResolveRelativeToConfig(configured);
 }
 

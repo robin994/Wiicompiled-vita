@@ -11,6 +11,14 @@ or data of any kind - see the [README](README.md).
 
 ## Bundled in this repository
 
+### PSARC asset pipeline
+
+The host container module `scripts/vita_psarc.py` reuses the Strikers asset
+pipeline, derived from Rinnegatamante/re4 PSARC tooling under CC0-1.0. License:
+`scripts/LICENSE-CC0-PSARC.txt`; source provenance: `scripts/PSARC_UPSTREAM.md`.
+The portable C reader in `core/src/asset_archive.c` and its header are reused
+from Strikers with local Vita I/O adaptations under this project's GPL-3.0.
+
 ### aurora - MIT
 
 Copyright (c) 2022 Luke Street.

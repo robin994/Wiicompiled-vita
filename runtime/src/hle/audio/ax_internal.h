@@ -14,6 +14,11 @@
 #include <cstring>
 #include <type_traits>
 
+#if defined(MKW_TARGET_VITA) && WIC_PRECOMPILED_ASSETS
+extern "C" unsigned WicNativeAudioFrame(const uint8_t*,const int16_t*,int16_t,int16_t,
+    unsigned,unsigned,int16_t*,uint8_t*) noexcept;
+#endif
+
 namespace AxDspHle {
 
 constexpr uint32_t kMailCmdList = 0xBABE0000u;
@@ -533,6 +538,9 @@ public:
         m_yn1 = pb->adpcm.yn1;
         m_yn2 = pb->adpcm.yn2;
         m_reads_stopped = false;
+#if defined(MKW_TARGET_VITA) && WIC_PRECOMPILED_ASSETS
+        m_nativeCount=0;m_nativeIndex=0;m_nativeAttemptFrame=UINT32_MAX;
+#endif
     }
 
     int16_t ReadSample() {
@@ -547,6 +555,23 @@ public:
 
         if (decode == 0) {
             raw &= 0xf;
+#if defined(MKW_TARGET_VITA) && WIC_PRECOMPILED_ASSETS
+            if(m_nativeCount==0&&m_nativeAttemptFrame!=(m_current>>4)) {
+                m_nativeAttemptFrame=m_current>>4;
+                const unsigned cursor=m_current&15u;
+                const auto* frame=MixResolveRange((m_current&~15u)>>1,8);
+                if(cursor>=2&&frame) {
+                    m_nativeCount=WicNativeAudioFrame(frame,m_pb->adpcm.coefs,m_yn1,m_yn2,
+                        cursor-2,m_pred_scale,m_nativePcm.data(),m_nativeNibbles.data());
+                    m_nativeIndex=0;m_nativeAddress=m_current;
+                }
+            }
+            const bool native=m_nativeCount&&m_current==m_nativeAddress&&raw==m_nativeNibbles[m_nativeIndex];
+            if(native) {
+                value=m_nativePcm[m_nativeIndex++];--m_nativeCount;++m_nativeAddress;
+            } else {
+                m_nativeCount=0;
+#endif
             int32_t nibble = raw >= 8 ? static_cast<int32_t>(raw) - 16 : static_cast<int32_t>(raw);
             const int coef_idx = (m_pred_scale >> 4) & 0x7;
             const int32_t coef1 = m_pb->adpcm.coefs[coef_idx * 2 + 0];
@@ -554,6 +579,9 @@ public:
             const int32_t scale = 1 << (m_pred_scale & 0xf);
             const int32_t decoded = scale * nibble + ((0x400 + coef1 * m_yn1 + coef2 * m_yn2) >> 11);
             value = ClampAdpcmS16(decoded);
+#if defined(MKW_TARGET_VITA) && WIC_PRECOMPILED_ASSETS
+            }
+#endif
             m_yn2 = m_yn1;
             m_yn1 = value;
             ++m_current;
@@ -646,6 +674,12 @@ private:
     int16_t m_yn2 = 0;
     uint16_t m_pred_scale = 0;
     bool m_reads_stopped = false;
+#if defined(MKW_TARGET_VITA) && WIC_PRECOMPILED_ASSETS
+    std::array<int16_t,14> m_nativePcm{};
+    std::array<uint8_t,14> m_nativeNibbles{};
+    uint32_t m_nativeAddress=0,m_nativeAttemptFrame=UINT32_MAX;
+    unsigned m_nativeCount=0,m_nativeIndex=0;
+#endif
 };
 
 }

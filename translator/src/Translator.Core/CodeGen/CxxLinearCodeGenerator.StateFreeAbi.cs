@@ -477,7 +477,9 @@ public sealed partial class CxxLinearCodeGenerator
                 values.Add(packed ? $"static_cast<uint64_t>(native_hid{hid})" : $"native_hid{hid}");
         return values.Count == 1
             ? $"return {values[0]};"
-            : $"return {{ {string.Join(", ", values)} }};";
+            : values.Count == 2
+                ? $"return MkwStateFreeResult2{{ {string.Join(", ", values)} }};"
+                : $"return {{ {string.Join(", ", values)} }};";
     }
 
     private static string RemoveStateFreeDirectCallFallbacks(string body)

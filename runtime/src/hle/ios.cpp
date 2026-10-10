@@ -114,6 +114,8 @@ PPC_NATIVE_OVERRIDE_VOID(80194158, IOS_IoctlAsync_80194158, (CpuContext* ctx), (
 
 // 0x801937E0 -> IOS_OpenAsync
 extern "C" void IOS_OpenAsync_HLE(CpuContext* ctx) {
+    RT_LOGF(RT_TAG_NAND, "IOS_OpenAsync_HLE fdpath=0x%08x mode=%u cb=0x%08x\n",
+            ctx->gpr[3], ctx->gpr[4], ctx->gpr[5]);
     const uint32_t pathPtr = ctx->gpr[3];
     const uint32_t mode = ctx->gpr[4];
     const uint32_t callback = ctx->gpr[5];
@@ -147,12 +149,14 @@ PPC_NATIVE_OVERRIDE_VOID(80193A18, IOS_CloseAsync_HLE, (CpuContext* ctx), (ctx))
 
 // 0x80193B80 -> IOS_ReadAsync
 extern "C" void IOS_ReadAsync_HLE(CpuContext* ctx) {
+    RT_LOGF(RT_TAG_NAND, "IOS_ReadAsync_HLE fd=%u len=%u\n", ctx->gpr[3], ctx->gpr[5]);
     IosBufferAsync(ctx, NAND_IOS_Read_HLE);
 }
 PPC_NATIVE_OVERRIDE_VOID(80193B80, IOS_ReadAsync_HLE, (CpuContext* ctx), (ctx));
 
 // 0x80193D88 -> IOS_WriteAsync
 extern "C" void IOS_WriteAsync_HLE(CpuContext* ctx) {
+    RT_LOGF(RT_TAG_NAND, "IOS_WriteAsync_HLE fd=%u len=%u\n", ctx->gpr[3], ctx->gpr[5]);
     IosBufferAsync(ctx, NAND_IOS_Write_HLE);
 }
 PPC_NATIVE_OVERRIDE_VOID(80193D88, IOS_WriteAsync_HLE, (CpuContext* ctx), (ctx));

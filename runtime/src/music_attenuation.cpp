@@ -46,7 +46,11 @@ std::atomic<float> g_musicVolume{1.0f};
 std::atomic<float> g_soundEffectsVolume{1.0f};
 std::atomic<float> g_uiVolume{1.0f};
 std::atomic<float> g_voicesVolume{1.0f};
+#if defined(MKW_TARGET_VITA)
+std::atomic<bool> g_monitorStarted{false};
+#else
 std::once_flag g_monitorStart;
+#endif
 
 // These fields are touched only from the guest scheduler thread.
 uint32_t g_soundPlayerArray = 0;
@@ -497,7 +501,15 @@ void StartMonitor() noexcept {
 
 void SetEnabled(bool enabled) noexcept {
     if (enabled) {
+#if defined(MKW_TARGET_VITA)
+        bool expected = false;
+        if (g_monitorStarted.compare_exchange_strong(
+                expected, true, std::memory_order_acq_rel, std::memory_order_acquire)) {
+            StartMonitor();
+        }
+#else
         std::call_once(g_monitorStart, StartMonitor);
+#endif
     }
     g_enabled.store(enabled, std::memory_order_release);
 }

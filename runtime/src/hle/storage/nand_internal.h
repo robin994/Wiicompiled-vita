@@ -17,6 +17,7 @@
 #include "wii_es_crypto.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -78,8 +79,32 @@ struct FileHandle {
     std::filesystem::path safeCommitPath;
 };
 
+#if defined(MKW_TARGET_VITA)
+// Vita's libstdc++ std::mutex backend can fail with system_error(-1) in this
+// runtime. NAND critical sections are tiny bookkeeping operations, so keep them
+// non-throwing on Vita instead of letting an emulated filesystem call abort the
+// whole guest during boot.
+class NandMutex {
+public:
+    void lock() noexcept {
+        while (flag_.test_and_set(std::memory_order_acquire)) {
+            std::atomic_signal_fence(std::memory_order_seq_cst);
+        }
+    }
+
+    void unlock() noexcept {
+        flag_.clear(std::memory_order_release);
+    }
+
+private:
+    std::atomic_flag flag_ = ATOMIC_FLAG_INIT;
+};
+#else
+using NandMutex = std::mutex;
+#endif
+
 extern std::map<int32_t, FileHandle> g_fileHandles;
-extern std::mutex g_fdMutex;
+extern NandMutex g_fdMutex;
 
 int32_t AllocateFd(const std::filesystem::path& path, FILE* file, int32_t mode);
 FileHandle* GetHandle(int32_t fd);

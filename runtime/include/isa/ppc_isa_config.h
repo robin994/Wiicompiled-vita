@@ -6,7 +6,7 @@
 #define MKW_RESTRICT __restrict
 #if defined(__x86_64__)
 #include <immintrin.h>
-#elif defined(__aarch64__)
+#elif defined(__aarch64__) || defined(__arm__)
 #include <arm_neon.h>
 #else
 #error "ppc_isa_config.h has no SIMD intrinsics header for this architecture"
@@ -35,4 +35,8 @@ inline constexpr bool MkwStateFreeAbiEnabled(uint32_t) noexcept
 #define MKW_PPC_COLD __attribute__((cold))
 
 
+#if defined(__clang__)
 using MkwStateFreeResult2 = uint64_t __attribute__((ext_vector_type(2)));
+#else
+using MkwStateFreeResult2 = uint64_t __attribute__((vector_size(16)));
+#endif

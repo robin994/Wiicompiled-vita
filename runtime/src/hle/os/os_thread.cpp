@@ -11,6 +11,9 @@
 #include "fiber_manager.h"
 #include "runtime_log.h"
 #include "os_internal.h"
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+#include "guest_stall_probe.h"
+#endif
 
 namespace OsHleInternal {
 void RemoveThreadFromList(uint32_t threadPtr)
@@ -251,12 +254,18 @@ void TerminateThreadCommon(CpuContext* cpu, uint32_t threadPtr, bool publishExit
 // Creates a new guest thread and associates a host fiber with it.
 extern "C" void OSCreateThread_HLE_801a9e84(CpuContext* ctx)
 {
+    RT_LOGF(RT_TAG_OS, "OSCreateThread_HLE enter\n");
     CpuContext* cpu = ctx ? ctx : &GetPersistentCpuContext();
     
     // r3..r9 = thread struct, entry func, entry arg, stack top, stack size, priority, attributes.
 
     const uint32_t threadPtr  = cpu->gpr[3];
     const uint32_t entryFunc  = cpu->gpr[4];
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+    WicGuestStallProbe::threadCreates.fetch_add(1, std::memory_order_relaxed);
+    WicGuestStallProbe::lastCreatedThread.store(threadPtr, std::memory_order_relaxed);
+    WicGuestStallProbe::lastCreatedEntry.store(entryFunc, std::memory_order_relaxed);
+#endif
     const uint32_t entryArg   = cpu->gpr[5];
     const uint32_t stackTop   = cpu->gpr[6];
     const uint32_t stackSize  = cpu->gpr[7];
@@ -619,6 +628,10 @@ extern "C" void OSResumeThread_HLE_801aa58c(CpuContext* ctx)
 {
     CpuContext* cpu = ctx ? ctx : &GetPersistentCpuContext();
     const uint32_t threadPtr = cpu->gpr[3];
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+    WicGuestStallProbe::resumeCalls.fetch_add(1, std::memory_order_relaxed);
+    WicGuestStallProbe::lastResumedThread.store(threadPtr, std::memory_order_relaxed);
+#endif
     
     if (threadPtr == 0) {
         cpu->gpr[3] = 0;

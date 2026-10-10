@@ -16,6 +16,9 @@
 #include "ppc_runtime.h"
 #include "runtime_log.h"
 #include "system_bridge.h"
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+extern "C" void WicObserveDeferredRead(uint32_t,size_t,uint32_t,size_t,bool) __attribute__((weak));
+#endif
 #include <mutex>
 #include <sstream>
 #include <unordered_map>
@@ -170,6 +173,20 @@ uint64_t Memory::RegisterDeferredRead(uint32_t addr, size_t length,
     return token;
 }
 
+void Memory::CancelDeferredRead(uint64_t token) {
+    if(!token)return;
+    std::lock_guard lock{DeferredReadMutex()};
+    auto& reads=DeferredReads();
+    const auto it=std::find_if(reads.begin(),reads.end(),[token](const auto& read){return read.token==token;});
+    if(it==reads.end())return;
+    const auto read=*it;
+    GuestFlat::UnprotectDeferredRange(read.start,read.length);
+    reads.erase(it);
+    const uint32_t first=read.start>>MemoryInline::kPageShift;
+    const uint32_t last=static_cast<uint32_t>((uint64_t(read.start)+read.length-1)>>MemoryInline::kPageShift);
+    for(uint32_t page=first;page<=last;++page)RefreshDeferredReadPage(page);
+}
+
 void Memory::ClearDeferredReads() {
     std::lock_guard lock{DeferredReadMutex()};
     auto& reads = DeferredReads();
@@ -216,9 +233,15 @@ bool MemoryInline::ResolveDeferredReads(uint32_t addr, size_t length) {
     // The range is removed before entering renderer code so any memory reads
     // made while submitting the copy cannot recursively trigger it.
     for (const auto& match : matches) {
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+        if(WicObserveDeferredRead)WicObserveDeferredRead(addr,length,match.start,match.length,false);
+#endif
         if (!match.callback(match.user)) {
             throw Memory::AccessViolation(addr, length, "deferred read materialization failed");
         }
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+        if(WicObserveDeferredRead)WicObserveDeferredRead(addr,length,match.start,match.length,true);
+#endif
     }
     return true;
 }
@@ -463,6 +486,11 @@ T ReadScalar(uint32_t address) {
 
 template <typename T>
 void WriteScalar(uint32_t address, T value) {
+#if defined(MKW_TARGET_VITA)
+    // Complete prior GPU writes before this CPU store, preserving both the
+    // new CPU bytes and any untouched portion of a partially updated copy.
+    MemoryInline::ResolveDeferredReads(address,sizeof(T));
+#endif
     if (RecompMod::HandleExecutableWrite(address, sizeof(T), static_cast<uint64_t>(value))) {
         return;
     }

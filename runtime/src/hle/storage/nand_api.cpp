@@ -158,7 +158,7 @@ extern "C" int32_t NANDOpen_HLE(uint32_t pathPtr, uint32_t fileInfoPtr, uint32_t
                     } else {
                         const int32_t shadowFd = AllocateFd(tempPath, shadow, static_cast<int32_t>(mode));
                         {
-                            std::lock_guard<std::mutex> lock(g_fdMutex);
+                            std::lock_guard<NandMutex> lock(g_fdMutex);
                             auto it = g_fileHandles.find(shadowFd);
                             if (it != g_fileHandles.end()) {
                                 it->second.safeCommitPath = hostPath;
@@ -384,8 +384,8 @@ PPC_NATIVE_OVERRIDE(8019BBE0, NANDCreateDir_HLE, int32_t, (uint32_t pathPtr, uin
 extern "C" int32_t NANDMove_HLE(uint32_t srcPathPtr, uint32_t dstPathPtr) {
     // A cross-mount move is implemented as several host operations. Keep two
     // guest moves from interleaving those operations and corrupting recovery.
-    static std::mutex moveMutex;
-    std::lock_guard<std::mutex> lock(moveMutex);
+    static NandMutex moveMutex;
+    std::lock_guard<NandMutex> lock(moveMutex);
 
     const char* srcPath = srcPathPtr ? (const char*)Memory::GetPointer(srcPathPtr) : nullptr;
     const char* dstPath = dstPathPtr ? (const char*)Memory::GetPointer(dstPathPtr) : nullptr;

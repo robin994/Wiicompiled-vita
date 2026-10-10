@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <iostream>
+#include <atomic>
 #include <mutex>
 
 #include "abi_bridge.h"
@@ -46,10 +47,17 @@ void EnsureSda1Base(CpuContext* cpu, bool logOnce = false)
     }
 
     if (logOnce) {
+#if defined(MKW_TARGET_VITA)
+        static std::atomic<bool> logged{false};
+        if (!logged.exchange(true, std::memory_order_acq_rel)) {
+            RT_LOG(RT_TAG_OS) << "OS_HLE_ProcessAlarms: fixing r13 to SDA1 base" << std::endl;
+        }
+#else
         static std::once_flag r13_fix_once;
         std::call_once(r13_fix_once, []() {
             RT_LOG(RT_TAG_OS) << "OS_HLE_ProcessAlarms: fixing r13 to SDA1 base" << std::endl;
         });
+#endif
     }
     cpu->gpr[13] = RuntimeConfig::SDA1_BASE;
 }

@@ -8,6 +8,10 @@
 #include "fiber_manager.h"
 #include "platform/host_platform.h"
 #include "runtime_log.h"
+#include "host_wait.h"
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+#include "guest_stall_probe.h"
+#endif
 
 #include <dolphin/vi.h>
 
@@ -38,6 +42,9 @@ extern "C" void OSSleepThread_HLE_801aa9b8(CpuContext* cpu);
 extern "C" int g_gxFrameCount;
 extern "C" int32_t OS__DisableInterrupts_801a65ac();
 extern "C" int32_t OS__RestoreInterrupts_801a65d4(int32_t level);
+#if defined(MKW_TARGET_VITA)
+extern "C" void WicSetPresentationBlack(bool black);
+#endif
 
 // Aurora frame cycle tracking - needs external linkage for the GX HLE
 // (declared in gx_internal.h, consumed by gx_frame.cpp). We need to call
@@ -195,11 +202,11 @@ void SleepPreciselyUntil(Clock::time_point deadline, bool finishWithSpin = false
     }
 #endif
     if (!finishWithSpin) {
-        std::this_thread::sleep_until(deadline);
+        HostWait::SleepUntil(deadline, HostWait::Site::VideoRetrace);
         return;
     }
     if (Clock::now() < timerDeadline) {
-        std::this_thread::sleep_until(timerDeadline);
+        HostWait::SleepUntil(timerDeadline, HostWait::Site::VideoRetrace);
     }
     // This runs only for the final fraction of a VI interval. Do not yield the
     // host thread here: a scheduler quantum is larger than the remaining
@@ -301,6 +308,9 @@ void AdvanceRetrace(CpuContext* ctx, Clock::time_point retraceStamp, bool servic
         }
         
         g_vi.retraceCount++;
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+        WicGuestStallProbe::viRetraces.fetch_add(1, std::memory_order_relaxed);
+#endif
         g_vi.fieldOdd = !g_vi.fieldOdd;
         g_vi.currentFrameBuffer = g_vi.nextFrameBuffer;
         currentFb = g_vi.currentFrameBuffer;
@@ -351,6 +361,7 @@ void AdvanceRetrace(CpuContext* ctx, Clock::time_point retraceStamp, bool servic
     // VISetBlack(TRUE) keeps frame submission running but shows only the clear color: GX render work is
     // skipped and Aurora's end_frame() clears to black, matching the hardware manual's "signal continues,
     // pixels go black" behavior. When not black, submission waits for hasXfbReady (GXCopyDisp done).
+#if !defined(MKW_TARGET_VITA)
     if (serviceAurora && !s_presentSequenceActive.load(std::memory_order_acquire)) {
         const bool frameActive = g_auroraFrameActive.load(std::memory_order_acquire);
         const bool xfbMatches = (readyXfb != 0 && readyXfb == currentFb);
@@ -372,6 +383,7 @@ void AdvanceRetrace(CpuContext* ctx, Clock::time_point retraceStamp, bool servic
             UpdateAuroraAndProcessEvents();
         }
     }
+#endif
 
     // Clear re-entry guard
     s_inAdvanceRetrace.store(false);
@@ -432,6 +444,9 @@ void VI_HLE_ProcessRetracesDeferred(int maxToProcess) {
     if (maxToProcess <= 0 || !OS_HLE_InterruptsEnabled()) {
         return;
     }
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+    WicGuestStallProbe::viPolls.fetch_add(1, std::memory_order_relaxed);
+#endif
 
     // This entry point runs from the middle of an arbitrary translated function
     // (GX__Begin's timing service, the host frame loop). Retrace callbacks are
@@ -577,6 +592,22 @@ void VI_HLE_PresentFrame(bool presentedXfb, bool paceToRetrace) {
         aurora_set_present_schedule(0, 0);
     }
 
+#if defined(MKW_TARGET_VITA)
+    bool black=false;
+    {
+        std::lock_guard<std::mutex> lock(g_viMutex);
+        black=g_vi.black;
+    }
+    WicSetPresentationBlack(black);
+    static bool logged=false,lastBlack=false;
+    static uint32_t presents=0;
+    if(!logged || lastBlack!=black || presents<8) {
+        std::fprintf(stderr,"[vi-vita-present] n=%u owner=copy-disp xfb=%u black=%u retrace_present=0\n",
+                     presents+1,unsigned(presentedXfb),unsigned(black));
+        logged=true;lastBlack=black;
+    }
+    ++presents;
+#endif
     aurora_end_frame();
     if (paceThisFrame) {
         PaceToRetraceBoundary(paceDeadline);

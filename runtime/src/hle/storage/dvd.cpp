@@ -3,6 +3,13 @@
 #include "hle/dvd_contract.h"
 #include "hle/runtime_parse_helpers.h"
 #include "memory.h"
+#include "wiicompiled/disc.hpp"
+#include "wiicompiled/disc_index.hpp"
+#if defined(MKW_TARGET_VITA)
+#include "psarc_backend.hpp"
+#include "native_stack_call.h"
+#endif
+#include <memory>
 
 // Defined in hle/gx/gx_objects.cpp. DVD reads are DMA-class writes to guest
 // RAM: the game brackets them with DCInvalidateRange (not a flush), so the GX
@@ -19,6 +26,7 @@ extern "C" void GxNotifyGuestRamDmaWrite(uint32_t addr, uint32_t size);
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <atomic>
 #include <algorithm>
 #include <vector>
 #include <string>
@@ -41,11 +49,112 @@ namespace fs = std::filesystem;
 // root "/" and its "sys" subfolder to "/sys/". The root is user-owned input:
 // it is never embedded into or copied by the public runtime.
 static fs::path g_dvdRoot;
+#if defined(MKW_TARGET_VITA)
+class DvdOnceFlag {
+public:
+    template <typename Fn>
+    void Call(Fn&& fn) {
+        if (done_.load(std::memory_order_acquire)) {
+            return;
+        }
+        while (busy_.test_and_set(std::memory_order_acquire)) {
+            std::atomic_signal_fence(std::memory_order_seq_cst);
+        }
+        if (!done_.load(std::memory_order_relaxed)) {
+            try {
+                fn();
+                done_.store(true, std::memory_order_release);
+            } catch (...) {
+                busy_.clear(std::memory_order_release);
+                throw;
+            }
+        }
+        busy_.clear(std::memory_order_release);
+    }
+
+private:
+    std::atomic<bool> done_{false};
+    std::atomic_flag busy_ = ATOMIC_FLAG_INIT;
+};
+
+static DvdOnceFlag g_dvdRootOnce;
+#else
 static std::once_flag g_dvdRootOnce;
+#endif
+static std::unique_ptr<wiicompiled::Disc> g_disc;
+static std::unique_ptr<wiicompiled::DiscIndex> g_psarcIndex;
+static std::unordered_set<std::string> g_psarcDiscPaths;
+static std::string HostPathText(const fs::path& path);
 
 static uint32_t CurrentDiscGameCode() {
     return RuntimeHle::CurrentGameCode(0x524D4350u); // RMCP
 }
+
+static std::string PsarcArchivePathForDvd(std::string dvdPath) {
+    std::replace(dvdPath.begin(), dvdPath.end(), '\\', '/');
+    while (!dvdPath.empty() && dvdPath.front() == '/') dvdPath.erase(dvdPath.begin());
+    return std::string("disc/") + dvdPath;
+}
+
+static bool OriginalDiscPathExists(const std::string& dvdPath) {
+    if (g_disc && g_disc->find(dvdPath)) return true;
+    return g_psarcDiscPaths.find(DvdFstContract::NormalizeLookupPath(dvdPath)) !=
+           g_psarcDiscPaths.end();
+}
+
+#if defined(MKW_TARGET_VITA)
+static bool LoadPsarcIndex(const fs::path& archivePath) {
+    if (!wiicompiled::vita::psarc::IsMounted() &&
+        !wiicompiled::vita::psarc::Mount(HostPathText(archivePath).c_str())) {
+        return false;
+    }
+    std::vector<uint8_t> bytes;
+    if (!wiicompiled::vita::psarc::ReadWhole("disc/index.bin", bytes, 8 * 1024 * 1024)) {
+        RT_LOGF(RT_TAG_DVD, "PSARC mounted but disc/index.bin is unavailable\n");
+        wiicompiled::vita::psarc::Shutdown();
+        return false;
+    }
+    try {
+        uint64_t profileBytes=0;
+        if(wiicompiled::vita::psarc::Size("disc/native-video-profile.bin",profileBytes)) {
+            std::vector<uint8_t> profile;
+            if(profileBytes!=16 || !wiicompiled::vita::psarc::ReadWhole("disc/native-video-profile.bin",profile,16) ||
+                std::memcmp(profile.data(),"WICAVC01",8)!=0 || profile[8]!=1 || profile[9] || profile[10] || profile[11])
+                throw std::runtime_error("invalid PSARC native-video profile");
+#if !WIC_HARDWARE_AVC
+            throw std::runtime_error("converted video PSARC requires a WIC_HARDWARE_AVC build");
+#else
+            RT_LOGF(RT_TAG_DVD,"PSARC video codec: native hardware AVC v1\n");
+#endif
+        }
+        auto index = std::make_unique<wiicompiled::DiscIndex>(
+            wiicompiled::decodeDiscIndex(bytes.data(), bytes.size()));
+        if (index->gameId != "RMCP01") {
+            RT_LOGF(RT_TAG_DVD, "PSARC game id mismatch: %s\n", index->gameId.c_str());
+            wiicompiled::vita::psarc::Shutdown();
+            return false;
+        }
+        g_psarcDiscPaths.clear();
+        for (const auto& entry : index->entries)
+            g_psarcDiscPaths.insert(DvdFstContract::NormalizeLookupPath(entry.path));
+        for (const auto& entry : index->entries) if(!entry.directory) {
+            uint64_t size=0;
+            if(!wiicompiled::vita::psarc::Size("disc"+entry.path,size) || size!=entry.size)
+                throw std::runtime_error("PSARC payload missing or wrong size: "+entry.path);
+        }
+        RT_LOGF(RT_TAG_DVD,
+                "PSARC index loaded: id=%s iso_bytes=%llu partition_bytes=%llu entries=%zu\n",
+                index->gameId.c_str(), static_cast<unsigned long long>(index->isoSize),
+                static_cast<unsigned long long>(index->partitionSize), index->entries.size());
+        g_psarcIndex = std::move(index);
+        return true;
+    } catch (const std::exception& error) {
+        RT_LOGF(RT_TAG_DVD, "PSARC disc index rejected: %s\n", error.what());
+        wiicompiled::vita::psarc::Shutdown();
+        return false;
+    }
+}
+#endif
 
 // ============================================================================
 // DVD Constants & Structures
@@ -103,12 +212,32 @@ extern "C" void DVDInit_8015EA1C();
 extern "C" uint32_t g_dvdFstReservedBase;
 extern "C" uint32_t g_dvdFstReservedSize;
 
-// Byte-wise copy into guest RAM plus the DMA notification the GX caches need.
-static void CopyToGuestAsDma(uint32_t dest, const uint8_t* data, size_t size) {
+// The native libc memory primitives also enter SceLibKernel. Keep the whole
+// DVD staging/copy lifetime on the native stack, before completing guest I/O.
+template <class Callback>
+static auto DvdHostWork(Callback callback) {
+#if defined(MKW_TARGET_VITA)
+    return HostContext::CallOnNativeStack(callback);
+#else
+    return callback();
+#endif
+}
+
+static void CopyToGuestAsDmaNow(uint32_t dest, const uint8_t* data, size_t size) {
+    if (!size) return;
+    if (auto* target = Memory::GetPointer(dest, size)) {
+        std::memcpy(target, data, size);
+        GxNotifyGuestRamDmaWrite(dest, static_cast<uint32_t>(size));
+        return;
+    }
     for (size_t i = 0; i < size; ++i) {
         Memory::Write8(dest + static_cast<uint32_t>(i), data[i]);
     }
     GxNotifyGuestRamDmaWrite(dest, static_cast<uint32_t>(size));
+}
+
+static void CopyToGuestAsDma(uint32_t dest, const uint8_t* data, size_t size) {
+    DvdHostWork([=] { CopyToGuestAsDmaNow(dest, data, size); });
 }
 
 // Host path strings only ever leave this module as UTF-8 display text.
@@ -154,7 +283,40 @@ static bool IsDvdDataRoot(const fs::path& path) {
 }
 
 static const fs::path& GetDvdRoot() {
+#if defined(MKW_TARGET_VITA)
+    g_dvdRootOnce.Call([]() {
+#else
     std::call_once(g_dvdRootOnce, []() {
+#endif
+#if defined(MKW_TARGET_VITA)
+        const fs::path psarc = RuntimeConfigFile::ResolvedDvdPsarc();
+        if (!psarc.empty()) {
+            if (LoadPsarcIndex(psarc)) {
+                g_dvdRoot = psarc;
+                return;
+            }
+            FailDvd("dvd_psarc", "Configured PSARC is unavailable or invalid",
+                    wiicompiled::vita::psarc::LastError());
+        }
+#endif
+        const fs::path iso = RuntimeConfigFile::ResolvedDvdIso();
+        if (!iso.empty()) {
+            try {
+                auto disc = std::make_unique<wiicompiled::Disc>();
+                disc->open(HostPathText(iso));
+                RT_LOGF(RT_TAG_DVD, "ISO mounted: %s id=%s bytes=%llu entries=%zu\n",
+                        HostPathText(iso).c_str(), disc->gameId().c_str(),
+                        static_cast<unsigned long long>(disc->isoSize()), disc->entries().size());
+                g_disc = std::move(disc);
+                g_dvdRoot = iso;
+                return;
+            } catch (const std::exception& error) {
+                FailDvd("dvd_iso", "Cannot mount mariokart.iso", error.what());
+            }
+        }
+#if defined(MKW_TARGET_VITA)
+        FailDvd("dvd_iso", "ISO path missing", "Set paths.dvd_iso to mariokart.iso.");
+#endif
         const fs::path path = RuntimeConfigFile::ResolvedDvdRoot();
         if (path.empty()) {
             FailDvdRoot("No DVD root is configured");
@@ -166,6 +328,105 @@ static const fs::path& GetDvdRoot() {
     });
 
     return g_dvdRoot;
+}
+
+static bool ReadDiscExact(const fs::path& path, uint64_t offset, uint32_t length,
+                          std::vector<uint8_t>& destination, DvdReadContract::HostReadFailure& failure) {
+#if defined(MKW_TARGET_VITA)
+    if (g_psarcIndex) {
+        try {
+            std::vector<uint8_t> staged(length);
+            if (!wiicompiled::vita::psarc::Read(
+                    PsarcArchivePathForDvd(HostPathText(path)), offset,
+                    staged.data(), staged.size())) {
+                failure = DvdReadContract::HostReadFailure::ShortRead;
+                return false;
+            }
+            destination = std::move(staged);
+            failure = DvdReadContract::HostReadFailure::None;
+            return true;
+        } catch (...) {
+            failure = DvdReadContract::HostReadFailure::ShortRead;
+            return false;
+        }
+    }
+#endif
+    if (!g_disc) return DvdReadContract::ReadExact(path, offset, length, destination, failure);
+    try {
+        std::vector<uint8_t> staged(length);
+        g_disc->readFile(HostPathText(path), offset, staged.data(), staged.size());
+        destination = std::move(staged);
+        failure = DvdReadContract::HostReadFailure::None;
+        return true;
+    } catch (const std::exception& error) {
+        RT_LOGF(RT_TAG_DVD, "ISO read failed: %s: %s\n", HostPathText(path).c_str(), error.what());
+        failure = DvdReadContract::HostReadFailure::ShortRead;
+        return false;
+    }
+}
+
+static bool ReadDiscToGuest(const fs::path& path, uint64_t offset, uint32_t length,
+                            uint32_t buffer, DvdReadContract::HostReadFailure& failure) {
+    return DvdHostWork([&] {
+#if defined(MKW_TARGET_VITA)
+        static unsigned nativeReads = 0;
+        if (++nativeReads <= 8) {
+            unsigned stackMarker = 0;
+            std::fprintf(stderr, "[dvd-native] read=%u stack=%p bytes=%u path=%s\n",
+                         nativeReads, static_cast<void*>(&stackMarker), length,
+                         HostPathText(path).c_str());
+        }
+#endif
+        std::vector<uint8_t> staged;
+        if (!ReadDiscExact(path, offset, length, staged, failure)) return false;
+        CopyToGuestAsDma(buffer, staged.data(), staged.size());
+        // Destruction is inside this callback: free() can enter the kernel too.
+        return true;
+    });
+}
+
+static bool ReadIsoToGuestNow(uint32_t buffer,uint32_t length,uint64_t offset,bool raw,std::string& error) {
+    if(!length)return true;
+    try {
+        if(!Memory::Contains(buffer,length))throw std::runtime_error("DVD destination is outside guest RAM");
+        std::vector<uint8_t> bytes(length);
+        if(g_psarcIndex) {
+#if defined(MKW_TARGET_VITA)
+            if(raw) {
+                if(!wiicompiled::vita::psarc::Read("disc/raw/header.bin",offset,bytes.data(),length))
+                    throw std::runtime_error("PSARC does not retain this raw ISO range");
+            } else wiicompiled::readDiscIndex(*g_psarcIndex,offset,bytes.data(),length,
+                [](void*,const std::string& path,uint64_t at,void* out,size_t count) {
+                    return wiicompiled::vita::psarc::Read(path,at,out,count);
+                },nullptr);
+#endif
+        } else if(raw)g_disc->readRaw(offset,bytes.data(),length);
+        else g_disc->read(offset,bytes.data(),length);
+        CopyToGuestAsDma(buffer,bytes.data(),bytes.size());
+        return true;
+    } catch(const std::exception& failure) { error=failure.what();return false; }
+}
+
+static bool ReadIsoToGuest(uint32_t buffer,uint32_t length,uint64_t offset,bool raw,std::string& error) {
+    return DvdHostWork([&] { return ReadIsoToGuestNow(buffer,length,offset,raw,error); });
+}
+
+extern "C" void DvdLogIsoStats() {
+#if defined(MKW_TARGET_VITA)
+    if(g_psarcIndex) {
+        const auto stats=wiicompiled::vita::psarc::Statistics();
+        std::fprintf(stderr,"[psarc] reads=%llu bytes=%llu native_io_us=%llu failures=%llu stored_blocks=1\n",
+            static_cast<unsigned long long>(stats.reads),static_cast<unsigned long long>(stats.bytes),
+            static_cast<unsigned long long>(stats.ioMicros),static_cast<unsigned long long>(stats.failures));
+        return;
+    }
+#endif
+    if(!g_disc)return;
+    const auto stats=g_disc->stats();
+    std::fprintf(stderr,"[iso] requested=%llu raw=%llu hit=%llu miss=%llu io_us=%llu aes_h0_us=%llu\n",
+        static_cast<unsigned long long>(stats.requestedBytes),static_cast<unsigned long long>(stats.rawBytes),
+        static_cast<unsigned long long>(stats.cacheHits),static_cast<unsigned long long>(stats.cacheMisses),
+        static_cast<unsigned long long>(stats.rawReadMicros),static_cast<unsigned long long>(stats.decryptHashMicros));
 }
 
 static std::string NormalizePath(const std::string& path);
@@ -237,6 +498,32 @@ static void LoadFstIndex() {
         return;
     }
     g_fstLoaded = true;
+
+    GetDvdRoot();
+    if (g_psarcIndex) {
+        for (const auto& file : g_psarcIndex->entries) if (!file.directory) {
+            if (file.offset > UINT32_MAX || file.size > UINT32_MAX - file.offset)
+                FailDvd("dvd_psarc", "Partition extent is too large", file.path);
+            g_fstFiles.push_back({static_cast<uint32_t>(file.offset),
+                                 static_cast<uint32_t>(file.offset + file.size), file.size,
+                                 file.path, fs::path(file.path)});
+        }
+        std::sort(g_fstFiles.begin(), g_fstFiles.end(),
+                  [](const auto& a, const auto& b) { return a.start < b.start; });
+        return;
+    }
+    if (g_disc) {
+        for (const auto& file : g_disc->entries()) if (!file.directory) {
+            if (file.offset > UINT32_MAX || file.size > UINT32_MAX - file.offset)
+                FailDvd("dvd_iso", "Partition extent is too large", file.path);
+            g_fstFiles.push_back({static_cast<uint32_t>(file.offset),
+                                 static_cast<uint32_t>(file.offset + file.size), file.size,
+                                 file.path, fs::path(file.path)});
+        }
+        std::sort(g_fstFiles.begin(), g_fstFiles.end(),
+                  [](const auto& a, const auto& b) { return a.start < b.start; });
+        return;
+    }
 
     const fs::path fstPath = GetDvdRoot() / "sys" / "fst.bin";
     std::ifstream fstFile(fstPath, std::ios::binary);
@@ -643,6 +930,9 @@ static void BuildAndPublishRuntimeFst() {
         if (entry.isDirectory || entry.discOffsetWords != 0) {
             continue;
         }
+        // /sys/boot.bin starts at the real partition offset zero. Zero is not
+        // a missing extent for an ISO entry and must not receive a synthetic one.
+        if(OriginalDiscPathExists(entry.dvdPath))continue;
         nextFreeBytes = (nextFreeBytes + 31ull) & ~31ull;
         if (nextFreeBytes / 4ull > 0xFFFFFFFFull) {
             FailRuntimeFst("synthetic disc extents exceed the 32-bit FST word offset range");
@@ -810,10 +1100,18 @@ extern "C" void DVDInit_8015EA1C()
     const fs::path& rootPath = GetDvdRoot();
     
     // Map "<dvd_root>/files" -> "/"
+    if (g_psarcIndex) {
+        for (const auto& file : g_psarcIndex->entries) if (!file.directory)
+            RegisterFileEntry(file.path, fs::path(file.path), file.size);
+    } else if (g_disc) {
+        for (const auto& file : g_disc->entries()) if (!file.directory)
+            RegisterFileEntry(file.path, fs::path(file.path), file.size);
+    } else {
     ScanDirectory(rootPath / "files", "/");
 
     // Map "<dvd_root>/sys" -> "/sys/" (e.g. main.dol, bi2.bin)
     ScanDirectory(rootPath / "sys", "/sys/");
+    }
 
     const auto& overlays = RuntimeRiivolution::Overlays();
     if (overlays.empty() && RuntimeProduct::IsRetroRewind()) {
@@ -829,6 +1127,8 @@ extern "C" void DVDInit_8015EA1C()
     // manifest.
     const size_t vanillaEntryCount = g_fileEntries.size();
     for (auto overlay = overlays.rbegin(); overlay != overlays.rend(); ++overlay) {
+        if (g_disc || g_psarcIndex)
+            FailDvd("dvd_data", "Unsupported packed-disc overlay", "This Vita profile loads the vanilla PAL disc.");
         ScanOverlayRoot(*overlay);
     }
     RT_LOG(RT_TAG_DVD) << "disc index: " << vanillaEntryCount << " disc file(s), "
@@ -856,6 +1156,7 @@ PPC_NATIVE_OVERRIDE_VOID(8015EA1C, DVDInit_8015EA1C, (), ());
 extern "C" int32_t DVDReadPrio_8015E834(uint32_t fileInfoPtr, uint32_t bufferPtr, int32_t length, int32_t offset, int32_t prio)
 {
     (void)prio;
+    GetDvdRoot();
 
     uint32_t startWords = 0;
     try {
@@ -902,14 +1203,11 @@ extern "C" int32_t DVDReadPrio_8015E834(uint32_t fileInfoPtr, uint32_t bufferPtr
                             "DVD read destination is outside guest memory");
     }
 
-    std::vector<uint8_t> tempBuf;
     DvdReadContract::HostReadFailure failure;
-    if (!DvdReadContract::ReadExact(entry.hostPath, uOffset, uLength, tempBuf, failure)) {
+    if (!ReadDiscToGuest(entry.hostPath, uOffset, uLength, bufferPtr, failure)) {
         return DvdReadFatal(fileInfoPtr, HostPathText(entry.hostPath), offset, uLength,
                             DvdReadContract::Describe(failure));
     }
-
-    CopyToGuestAsDma(bufferPtr, tempBuf.data(), uLength);
 
     Memory::Write32(fileInfoPtr + DVD_CB_OFFSET_TRANSFERRED, uLength);
     Memory::Write32(fileInfoPtr + DVD_CB_OFFSET_STATE, DVD_STATE_END);
@@ -948,6 +1246,7 @@ extern "C" int32_t DVD__ReadAbsAsyncPrio_HLE_801628cc(uint32_t cmdBlockPtr,
                                                       int32_t prio)
 {
     (void)prio;
+    GetDvdRoot();
     int32_t bytesRead = -1;
     {
         AbsReadResult readInfo;
@@ -956,6 +1255,12 @@ extern "C" int32_t DVD__ReadAbsAsyncPrio_HLE_801628cc(uint32_t cmdBlockPtr,
         if (length < 0) {
             bytesRead = DvdReadFatal(cmdBlockPtr, "<unmapped DVD offset>", absoluteOffset, 0,
                                      "negative absolute DVD read length");
+        } else if (g_disc || g_psarcIndex) {
+            std::string error;
+            // Wii SDK absolute offsets are four-byte words, including above 2 GiB.
+            if(ReadIsoToGuest(bufferPtr,requestedLength,uint64_t(absoluteOffset)*4,false,error))
+                bytesRead=static_cast<int32_t>(requestedLength);
+            else bytesRead=DvdReadFatal(cmdBlockPtr,"<ISO partition>",absoluteOffset,requestedLength,error.c_str());
         } else if (!ResolveAbsRead(absoluteOffset, requestedLength, readInfo)) {
             bytesRead = DvdReadFatal(cmdBlockPtr, "<unmapped DVD offset>", absoluteOffset,
                                      requestedLength,
@@ -969,19 +1274,17 @@ extern "C" int32_t DVD__ReadAbsAsyncPrio_HLE_801628cc(uint32_t cmdBlockPtr,
                                      readInfo.fileOffset, requestedLength,
                                      "DVD read destination is outside guest memory");
         } else {
-            std::vector<uint8_t> tempBuf;
             DvdReadContract::HostReadFailure failure;
-            if (!DvdReadContract::ReadExact(readInfo.entry->hostPath,
+            if (!ReadDiscToGuest(readInfo.entry->hostPath,
                                             readInfo.fileOffset,
                                             readInfo.readLength,
-                                            tempBuf,
+                                            bufferPtr,
                                             failure)) {
                 bytesRead = DvdReadFatal(cmdBlockPtr, HostPathText(readInfo.entry->hostPath),
                                          readInfo.fileOffset, readInfo.readLength,
                                          DvdReadContract::Describe(failure));
             } else {
-                CopyToGuestAsDma(bufferPtr, tempBuf.data(), tempBuf.size());
-                bytesRead = static_cast<int32_t>(tempBuf.size());
+                bytesRead = static_cast<int32_t>(readInfo.readLength);
             }
         }
 
@@ -1031,6 +1334,15 @@ PPC_NATIVE_OVERRIDE(80165A30, DVDLowInquiry_80165A30, int32_t, (uint32_t b, uint
 
 // 0x80164AAC -> DVDLowReadDiskID
 extern "C" int32_t DVDLowReadDiskID_80164AAC(uint32_t diskIdPtr, uint32_t callback) {
+    GetDvdRoot();
+    if(g_disc || g_psarcIndex) {
+        std::string error;
+        const bool okay=ReadIsoToGuest(diskIdPtr,0x20,0,true,error);
+        if(!okay)ReportDvdReadError("<ISO disc ID>",0,0x20,error.c_str());
+        const auto completion=DvdReadContract::CompletionFor(okay);
+        InvokeDvdLowCallback(callback,completion.callbackResult);CompleteDvdCancelState();
+        return completion.returnValue;
+    }
     if (diskIdPtr) {
         Memory::Write32(diskIdPtr + 0x00, CurrentDiscGameCode());
         Memory::Write16(diskIdPtr + 0x04, 0x3031);
@@ -1054,6 +1366,14 @@ extern "C" int32_t DVDLowRead_80166330(uint32_t buffer, uint32_t length, uint32_
 
     if (length == 0) {
         return finish(true);
+    }
+
+    GetDvdRoot();
+    if(g_disc || g_psarcIndex) {
+        std::string error;
+        const bool okay=ReadIsoToGuest(buffer,length,uint64_t(offset)*4,false,error);
+        if(!okay)ReportDvdReadError("<ISO partition>",offset,length,error.c_str());
+        return finish(okay);
     }
 
     if (offset == 0 && length >= 0x20) {
@@ -1085,25 +1405,32 @@ extern "C" int32_t DVDLowRead_80166330(uint32_t buffer, uint32_t length, uint32_
         return finish(false);
     }
 
-    std::vector<uint8_t> tempBuf;
     DvdReadContract::HostReadFailure failure;
-    if (!DvdReadContract::ReadExact(readInfo.entry->hostPath,
+    if (!ReadDiscToGuest(readInfo.entry->hostPath,
                                     readInfo.fileOffset,
                                     readInfo.readLength,
-                                    tempBuf,
+                                    buffer,
                                     failure)) {
         ReportDvdReadError(HostPathText(readInfo.entry->hostPath), readInfo.fileOffset,
                            readInfo.readLength, DvdReadContract::Describe(failure));
         return finish(false);
     }
 
-    CopyToGuestAsDma(buffer, tempBuf.data(), tempBuf.size());
     return finish(true);
 }
 PPC_NATIVE_OVERRIDE(80166330, DVDLowRead_80166330, int32_t, (uint32_t b, uint32_t l, uint32_t o, uint32_t c), (b, l, o, c));
 
 // UnencryptedRead has the same completion and failure contract as DVDLowRead.
 extern "C" int32_t DVDLowUnencryptedRead_80165708(uint32_t b, uint32_t l, uint32_t o, uint32_t c) {
+    GetDvdRoot();
+    if(g_disc || g_psarcIndex) {
+        std::string error;
+        const bool okay=ReadIsoToGuest(b,l,uint64_t(o)*4,true,error);
+        if(!okay)ReportDvdReadError("<raw ISO>",o,l,error.c_str());
+        const auto completion=DvdReadContract::CompletionFor(okay);
+        InvokeDvdLowCallback(c,completion.callbackResult);CompleteDvdCancelState();
+        return completion.returnValue;
+    }
     return DVDLowRead_80166330(b, l, o, c);
 }
 PPC_NATIVE_OVERRIDE(80165708, DVDLowUnencryptedRead_80165708, int32_t, (uint32_t b, uint32_t l, uint32_t o, uint32_t c), (b, l, o, c));
@@ -1117,4 +1444,3 @@ PPC_NATIVE_OVERRIDE(801643FC, DVDCheckDevice_801643FC, int32_t, (), ());
 
 extern "C" int32_t DVDLowClearCoverInterrupt_80166964(uint32_t cb) { return 1; }
 PPC_NATIVE_OVERRIDE(80166964, DVDLowClearCoverInterrupt_80166964, int32_t, (uint32_t cb), (cb));
-

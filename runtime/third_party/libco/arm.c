@@ -2,6 +2,9 @@
 #include "libco.h"
 #include "settings.h"
 #include "valgrind.h"
+#if defined(__vita__)
+#include <string.h>
+#endif
 
 #ifdef LIBCO_MPROTECT
   #include <unistd.h>
@@ -22,9 +25,18 @@ static void (*co_swap)(cothread_t, cothread_t) = 0;
   section(text)
 #endif
 static const unsigned long co_swap_function[1024] = {
+#if defined(__vita__)
+  /* ARM hard-float ABI: preserve d8-d15 as well as the integer context. */
+  0xed2d8b10,  /* vpush {d8-d15}              */
+  0xe8a16ff0,  /* stmia r1!, {r4-r11,sp,lr}    */
+  0xe8b06ff0,  /* ldmia r0!, {r4-r11,sp,lr}    */
+  0xecbd8b10,  /* vpop {d8-d15}               */
+  0xe12fff1e,  /* bx lr (ARM/Thumb entry)     */
+#else
   0xe8a16ff0,  /* stmia r1!, {r4-r11,sp,lr} */
   0xe8b0aff0,  /* ldmia r0!, {r4-r11,sp,pc} */
   0xe12fff1e,  /* bx lr                     */
+#endif
 };
 
 static void co_init(void) {
@@ -56,6 +68,11 @@ cothread_t co_derive(void* memory, unsigned int size, void (*entrypoint)(void)) 
     unsigned long *p;
     stack_top &= ~((unsigned long) 15);
     p = (unsigned long*)(stack_top);
+#if defined(__vita__)
+    /* The first restore pops the same VFP frame as a suspended context. */
+    p -= 16;
+    memset(p, 0, 64);
+#endif
     handle[8] = (unsigned long)p;
     handle[9] = (unsigned long)entrypoint;
   }

@@ -1,0 +1,4 @@
+[submodule "aurora-main"]
+	path = aurora-main
+	url = https://github.com/robin994/aurora-vita.git
+	branch = wiicompiled-integration-20261006

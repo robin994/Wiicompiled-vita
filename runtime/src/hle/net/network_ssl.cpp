@@ -577,6 +577,8 @@ static ssize_t SendSslSocket(NativeSocket socket, const uint8_t* data, size_t si
         return -1;
     }
     return send(socket, data, size, 0);
+#elif defined(__vita__)
+    return send(socket, data, size, 0);
 #else
     return send(socket, data, size, MSG_NOSIGNAL);
 #endif

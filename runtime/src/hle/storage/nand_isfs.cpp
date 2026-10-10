@@ -25,10 +25,10 @@ struct ShaHandle {
 
 static std::map<int32_t, ShaHandle> g_shaHandles;
 static int32_t g_nextShaFd = 0x10001;
-static std::mutex g_shaMutex;
+static NandMutex g_shaMutex;
 
 static int32_t AllocateShaFd() {
-    std::lock_guard<std::mutex> lock(g_shaMutex);
+    std::lock_guard<NandMutex> lock(g_shaMutex);
     const int32_t fd = g_nextShaFd++;
     g_shaHandles.try_emplace(fd);
     return fd;
@@ -43,7 +43,7 @@ static ShaHandle* GetShaHandle(int32_t fd) {
 }
 
 static void CloseShaFd(int32_t fd) {
-    std::lock_guard<std::mutex> lock(g_shaMutex);
+    std::lock_guard<NandMutex> lock(g_shaMutex);
     g_shaHandles.erase(fd);
 }
 
@@ -359,8 +359,10 @@ static int32_t HandleShaIoctlv(int32_t fd, uint32_t cmd, uint32_t numIn, uint32_
 }
 
 extern "C" int32_t NAND_IOS_Open_HLE(uint32_t pathPtr, uint32_t mode) {
+    RT_LOGF(RT_TAG_NAND, "NAND_IOS_Open_HLE enter path=0x%08x mode=%u\n", pathPtr, mode);
     const std::string pathStorage = ReadGuestCString(pathPtr);
     const char* path = pathPtr == 0 ? nullptr : pathStorage.c_str();
+    RT_LOGF(RT_TAG_NAND, "NAND_IOS_Open_HLE path=%s\n", path ? path : "<null>");
     
     if (!path) {
         LogNandError("IOS_Open", "null path");
@@ -390,7 +392,9 @@ extern "C" int32_t NAND_IOS_Open_HLE(uint32_t pathPtr, uint32_t mode) {
     }
     
     // It's a NAND file path
+    RT_LOGF(RT_TAG_NAND, "NAND_IOS_Open_HLE guest path=%s\n", path ? path : "<null>");
     const std::filesystem::path hostPath = TranslateNandPath(path);
+    RT_LOGF(RT_TAG_NAND, "NAND_IOS_Open_HLE translated=%s\n", HostPathText(hostPath).c_str());
 
     if (const auto result = NandCheckSystemSaveRead("IOS_Open", hostPath, mode, true))
         return *result;
@@ -557,6 +561,8 @@ extern "C" int32_t NAND_IOS_Ioctl_HLE(
     uint32_t inBufPtr, uint32_t inLen,
     uint32_t outBufPtr, uint32_t outLen)
 {
+    RT_LOGF(RT_TAG_NAND, "NAND_IOS_Ioctl_HLE fd=%u cmd=%u in=0x%08x/%u out=0x%08x/%u\n",
+            fd, cmd, inBufPtr, inLen, outBufPtr, outLen);
 
     if (Network_HLE_IsFd(fd)) {
         return Network_HLE_Ioctl(fd, cmd, inBufPtr, inLen, outBufPtr, outLen);
@@ -798,6 +804,7 @@ static bool TryDeferredNetworkIosSync(CpuContext* ctx, StartSync&& startSync) {
 }
 
 extern "C" void NAND_IOS_Ioctl_Entry_HLE(CpuContext* ctx) {
+    RT_LOGF(RT_TAG_NAND, "NAND_IOS_Ioctl_Entry_HLE\n");
     const uint32_t fd = ctx->gpr[3];
     const uint32_t cmd = ctx->gpr[4];
     const uint32_t inBufPtr = ctx->gpr[5];
@@ -1028,6 +1035,8 @@ extern "C" int32_t NAND_IOS_Ioctlv_HLE(
     uint32_t numOut,
     uint32_t vectorPtr)
 {
+    RT_LOGF(RT_TAG_NAND, "NAND_IOS_Ioctlv_HLE fd=%u cmd=%u in=%u out=%u vec=0x%08x\n",
+            fd, cmd, numIn, numOut, vectorPtr);
 
     if (Network_HLE_IsFd(fd)) {
         return Network_HLE_Ioctlv(fd, cmd, numIn, numOut, vectorPtr);
@@ -1128,6 +1137,7 @@ extern "C" int32_t NAND_IOS_Ioctlv_HLE(
 }
 
 extern "C" void NAND_IOS_Ioctlv_Entry_HLE(CpuContext* ctx) {
+    RT_LOGF(RT_TAG_NAND, "NAND_IOS_Ioctlv_Entry_HLE\n");
     const uint32_t fd = ctx->gpr[3];
     const uint32_t cmd = ctx->gpr[4];
     const uint32_t numIn = ctx->gpr[5];

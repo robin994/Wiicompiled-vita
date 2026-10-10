@@ -13,7 +13,11 @@ public:
     using DeferredReadCallback = bool (*)(void* user);
 
     static constexpr size_t kMem1Size = 24u * 1024u * 1024u;
+#if defined(MKW_TARGET_VITA)
+    static constexpr size_t kMem2Size = 64u * 1024u * 1024u;
+#else
     static constexpr size_t kMem2Size = 128u * 1024u * 1024u;
+#endif
     static constexpr uint32_t kMem1PhysicalBase = 0x00000000u;
     static constexpr uint32_t kMem1CachedBase = 0x80000000u;
     static constexpr uint32_t kMem1UncachedBase = 0xC0000000u;
@@ -104,6 +108,7 @@ public:
 
     static uint64_t RegisterDeferredRead(uint32_t addr, size_t length,
                                          DeferredReadCallback callback, void* user);
+    static void CancelDeferredRead(uint64_t token);
     static void ClearDeferredReads();
 
     // sizeBytes reports the storage actually allocated, which is not always the

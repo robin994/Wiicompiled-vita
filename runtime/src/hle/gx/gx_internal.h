@@ -6,6 +6,7 @@
 #include "ppc_runtime.h"
 #include "aurora_events.h"
 #include "gx_texture_binding_contract.h"
+#include "hle/gx/gx_lock.h"
 
 #include <algorithm>
 
@@ -386,8 +387,8 @@ extern bool g_alphaCompareValid;
 extern std::array<BoundTexInfo, 8> g_boundTexMaps;
 extern TexCopyState g_texCopyState;
 
-extern std::mutex g_texObjMutex;
-extern std::mutex g_tlutObjMutex;
+extern GxSync::Mutex g_texObjMutex;
+extern GxSync::Mutex g_tlutObjMutex;
 // Guest GXTexObj address -> decoded metadata + host object. std::unordered_map
 // rather than absl::flat_hash_map because the runtime target does not link
 // absl, and because callers (gx_texture.cpp) hold an iterator across an insert

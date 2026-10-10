@@ -25,9 +25,13 @@
 #include <cryptopp/oids.h>
 #include <cryptopp/osrng.h>
 #include <cryptopp/sha.h>
+#if defined(__vita__)
+#include <psp2/kernel/rng.h>
+#endif
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -68,6 +72,12 @@ struct Identity {
     EcSignature signature = kDefaultSignature;
     bool fromNand = false;
 };
+
+#if defined(MKW_TARGET_VITA)
+inline Identity g_vitaEsIdentity{};
+inline std::atomic<bool> g_vitaEsIdentityReady{false};
+inline std::atomic_flag g_vitaEsIdentityLock = ATOMIC_FLAG_INIT;
+#endif
 
 inline std::optional<Identity> LoadIdentityFromKeysBin(const std::filesystem::path& path) {
     std::ifstream file(path, std::ios::binary | std::ios::ate);
@@ -112,6 +122,23 @@ inline std::optional<Identity> LoadIdentityFromNand(const std::filesystem::path&
 }
 
 inline const Identity& CurrentIdentity() {
+#if defined(MKW_TARGET_VITA)
+    if (!g_vitaEsIdentityReady.load(std::memory_order_acquire)) {
+        while (g_vitaEsIdentityLock.test_and_set(std::memory_order_acquire)) {
+            std::atomic_signal_fence(std::memory_order_seq_cst);
+        }
+        if (!g_vitaEsIdentityReady.load(std::memory_order_relaxed)) {
+            if (auto loaded = LoadIdentityFromNand(RuntimeNandPath::DiscoverNandRootPath())) {
+                g_vitaEsIdentity = *loaded;
+            } else {
+                g_vitaEsIdentity = Identity{};
+            }
+            g_vitaEsIdentityReady.store(true, std::memory_order_release);
+        }
+        g_vitaEsIdentityLock.clear(std::memory_order_release);
+    }
+    return g_vitaEsIdentity;
+#else
     static const Identity identity = [] {
         if (auto loaded = LoadIdentityFromNand(RuntimeNandPath::DiscoverNandRootPath())) {
             return *loaded;
@@ -119,6 +146,7 @@ inline const Identity& CurrentIdentity() {
         return Identity{};
     }();
     return identity;
+#endif
 }
 
 inline std::array<uint8_t, 20> Sha1(const uint8_t* data, size_t size) {
@@ -150,7 +178,18 @@ inline EcSignature SignMessage(const uint8_t* key, const uint8_t* data, size_t s
         throw std::runtime_error("Crypto++ returned an unexpected sect233r1 signature size");
     }
 
+#if defined(__vita__)
+    class VitaRandom final : public CryptoPP::RandomNumberGenerator {
+    public:
+        void GenerateBlock(CryptoPP::byte* output, size_t length) override {
+            if (length > UINT32_MAX || sceKernelGetRandomNumber(output, static_cast<SceSize>(length)) < 0)
+                throw std::runtime_error("Vita random generator failed");
+        }
+    };
+    VitaRandom random;
+#else
     thread_local CryptoPP::AutoSeededRandomPool random;
+#endif
     EcSignature signature{};
     const size_t written = signer.SignMessage(random, data, size, signature.data());
     if (written != signature.size()) {

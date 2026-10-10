@@ -1,0 +1,86 @@
+=== THREAD "WICMKW001" <0x40010003> ===
+Stop reason: 0x30004 (Data abort exception)
+Status: 0x1 (Running)
+PC: 0x81ff6ed8 (wiicompiled-vita-game@1(RX) + 0xfb8ed8)
+Stack usage: 904 / 17612 bytes (peak)
+Fault address: DFAR: 0x816ffff0 (wiicompiled-vita-game@1(RX) + 0x6c1ff0)
+
+Stack Trace:
+>>> #0  wiicompiled-vita-game+0xfb8ed8
+        in wiicompiled-vita-game@1 [0x81ff6ed8]
+    #1  wiicompiled-vita-game+0x7d8397
+        in wiicompiled-vita-game@1 [0x81816397]
+    #2  wiicompiled-vita-game+0x1645621
+        in wiicompiled-vita-game@1 [0x82683621]
+    #3  wiicompiled-vita-game+0xfb8eb1
+        in wiicompiled-vita-game@1 [0x81ff6eb1]
+    #4  wiicompiled-vita-game+0x164774f
+        in wiicompiled-vita-game@1 [0x8268574f]
+    #5  wiicompiled-vita-game+0x17791f9
+        in wiicompiled-vita-game@1 [0x827b71f9]
+    #6  wiicompiled-vita-game+0x1648797
+        in wiicompiled-vita-game@1 [0x82686797]
+    #7  wiicompiled-vita-game+0x1648751
+        in wiicompiled-vita-game@1 [0x82686751]
+    #8  wiicompiled-vita-game+0x1648d69
+        in wiicompiled-vita-game@1 [0x82686d69]
+
+Registers:
+    R0   0x8320ee48 (wiicompiled-vita-game@2(RW) + 0xee48)
+    R1   0x8320ee48 (wiicompiled-vita-game@2(RW) + 0xee48)
+    R2   0x0
+    R3   0x7081
+    R4   0x8320ee48 (wiicompiled-vita-game@2(RW) + 0xee48)
+    R5   0x0
+    R6   0x80384c48
+    R7   0x81700000 (wiicompiled-vita-game@1(RX) + 0x6c2000)
+    R8   0x0
+    R9   0x0
+    R10  0x8038efa0
+    R11  0x0
+    R12  0x0
+    SP   0x83400c78
+    PC   0x81ff6ed8 (wiicompiled-vita-game@1(RX) + 0xfb8ed8)
+    LR   0x81816397 (wiicompiled-vita-game@1(RX) + 0x7d8397)
+
+Stack Memory:
+      0x83400c38:  0x83367f90  : 0x83367f90 (wiicompiled-vita-game@2(RW) + 0x167f90)
+      0x83400c3c:  0x00000000
+      0x83400c40:  0x00000000
+      0x83400c44:  0x82686d69  : 0x82686d69 (wiicompiled-vita-game@1(RX) + 0x1648d69)
+      0x83400c48:  0x832001a4  : 0x832001a4 (wiicompiled-vita-game@2(RW) + 0x1a4)
+      0x83400c4c:  0x83db1650
+      0x83400c50:  0x00000000
+      0x83400c54:  0x83734bb0
+      0x83400c58:  0x832001a4  : 0x832001a4 (wiicompiled-vita-game@2(RW) + 0x1a4)
+      0x83400c5c:  0x800211e4
+      0x83400c60:  0x00000000
+      0x83400c64:  0x83734bb0
+      0x83400c68:  0x81ff6eb1  : 0x81ff6eb1 (wiicompiled-vita-game@1(RX) + 0xfb8eb1)
+      0x83400c6c:  0x83db165c
+      0x83400c70:  0x832001a4  : 0x832001a4 (wiicompiled-vita-game@2(RW) + 0x1a4)
+      0x83400c74:  0x826834fd  : 0x826834fd (wiicompiled-vita-game@1(RX) + 0x16454fd)
+SP => 0x83400c78:  0x00000004
+      0x83400c7c:  0x800211e4
+      0x83400c80:  0x832001a4  : 0x832001a4 (wiicompiled-vita-game@2(RW) + 0x1a4)
+      0x83400c84:  0x82683621  : 0x82683621 (wiicompiled-vita-game@1(RX) + 0x1645621)
+      0x83400c88:  0x00004000
+      0x83400c8c:  0x00000000
+      0x83400c90:  0x00000000
+      0x83400c94:  0x8320ee48  : 0x8320ee48 (wiicompiled-vita-game@2(RW) + 0xee48)
+      0x83400c98:  0x00000000
+      0x83400c9c:  0x00000000
+      0x83400ca0:  0x83734bb0
+      0x83400ca4:  0x81ff6eb1  : 0x81ff6eb1 (wiicompiled-vita-game@1(RX) + 0xfb8eb1)
+      0x83400ca8:  0x00000001
+      0x83400cac:  0xdeadbeef
+      0x83400cb0:  0xdeadbeef
+      0x83400cb4:  0x81816397  : 0x81816397 (wiicompiled-vita-game@1(RX) + 0x7d8397)
+      0x83400cb8:  0x00000000
+      0x83400cbc:  0x8268574f  : 0x8268574f (wiicompiled-vita-game@1(RX) + 0x164774f)
+      0x83400cc0:  0x827b71f9  : 0x827b71f9 (wiicompiled-vita-game@1(RX) + 0x17791f9)
+      0x83400cc4:  0x00000000
+      0x83400cc8:  0x83366738  : 0x83366738 (wiicompiled-vita-game@2(RW) + 0x166738)
+      0x83400ccc:  0x00000000
+      0x83400cd0:  0x00000000
+      0x83400cd4:  0x82686797  : 0x82686797 (wiicompiled-vita-game@1(RX) + 0x1648797)

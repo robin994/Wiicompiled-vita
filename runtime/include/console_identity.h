@@ -4,6 +4,7 @@
 #include "nand_settings.h"
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <iomanip>
@@ -20,6 +21,12 @@ struct Identity {
     std::string gameRegion;
     std::array<uint8_t, 6> mac;
 };
+
+#if defined(MKW_TARGET_VITA)
+inline Identity g_vitaIdentity{};
+inline std::atomic<bool> g_vitaIdentityReady{false};
+inline std::atomic_flag g_vitaIdentityLock = ATOMIC_FLAG_INIT;
+#endif
 
 inline Identity FromSerial(std::string serial) {
     // Keep Nintendo's Wii OUI. The suffix is derived from the NAND serial
@@ -64,8 +71,26 @@ inline Identity LoadFromNand() {
 }
 
 inline const Identity& Current() {
+#if defined(MKW_TARGET_VITA)
+    if (!g_vitaIdentityReady.load(std::memory_order_acquire)) {
+        while (g_vitaIdentityLock.test_and_set(std::memory_order_acquire)) {
+            std::atomic_signal_fence(std::memory_order_seq_cst);
+        }
+        if (!g_vitaIdentityReady.load(std::memory_order_relaxed)) {
+            RT_LOGF(RT_TAG_NAND, "loading Vita console identity\n");
+            g_vitaIdentity = LoadFromNand();
+            g_vitaIdentityReady.store(true, std::memory_order_release);
+            RT_LOGF(RT_TAG_NAND, "Vita console identity ready serial=%s area=%s game=%s\n",
+                    g_vitaIdentity.serial.c_str(), g_vitaIdentity.area.c_str(),
+                    g_vitaIdentity.gameRegion.c_str());
+        }
+        g_vitaIdentityLock.clear(std::memory_order_release);
+    }
+    return g_vitaIdentity;
+#else
     static const Identity identity = LoadFromNand();
     return identity;
+#endif
 }
 
 inline std::string FormatMac(const std::array<uint8_t, 6>& mac) {

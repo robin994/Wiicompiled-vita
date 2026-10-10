@@ -6,6 +6,9 @@
 #include "ax_dsp.h"
 #include "music_attenuation.h"
 #include "runtime_log.h"
+#if defined(MKW_TARGET_VITA)
+#include "runtime_config.h"
+#endif
 
 #include <algorithm>
 #include <cstdint>
@@ -44,6 +47,7 @@ struct AIDmaState {
     bool loggedBackendFailure = false;
     bool loggedMissingCallback = false;
     bool loggedAccessFailure = false;
+    bool loggedQueueFull = false;
 };
 
 AIDmaState g_ai{};
@@ -68,9 +72,9 @@ uint32_t EncodeAIDmaLengthRegister(uint32_t length) {
     return length & 0x000fffe0u;
 }
 
-bool PushAudioBlock(uint32_t startAddr, uint32_t length) {
-    if (startAddr == 0 || length == 0) {
-        return false;
+AudioPushResult PushAudioBlock(uint32_t startAddr, uint32_t length) {
+    if (startAddr == 0 || length == 0 || (length & 3u) != 0) {
+        return AudioPushResult::InvalidBuffer;
     }
     const uint32_t bytes = length;
     const uint8_t* src = nullptr;
@@ -86,7 +90,7 @@ bool PushAudioBlock(uint32_t startAddr, uint32_t length) {
 
     const uint32_t sampleCount = bytes / kBytesPerSample;
     if (sampleCount == 0) {
-        return false;
+        return AudioPushResult::InvalidBuffer;
     }
     std::vector<int16_t> samples(sampleCount);
     try {
@@ -95,7 +99,7 @@ bool PushAudioBlock(uint32_t startAddr, uint32_t length) {
             samples[i] = static_cast<int16_t>(Memory::Read16(addr));
         }
     } catch (const Memory::AccessViolation&) {
-        return false;
+        return AudioPushResult::InvalidBuffer;
     }
     // Memory::Read16 has converted endianness, but the Wii AI frame order is
     // still right, left. Convert it to the host's left, right convention.
@@ -168,6 +172,7 @@ extern "C" void AIInit_801240b0(uint32_t callback_stack_switch)
             g_ai.callback = 0;
             g_ai.loggedMissingCallback = false;
             g_ai.loggedAccessFailure = false;
+            g_ai.loggedQueueFull = false;
         }
     }
     if (!alreadyInitialized) {
@@ -181,6 +186,12 @@ extern "C" void AIInit_801240b0(uint32_t callback_stack_switch)
     } else {
         RT_LOG(RT_TAG_AUDIO) << "AIInit_801240b0 called: Audio subsystem initialized (HLE)" << std::endl;
     }
+#if defined(MKW_TARGET_VITA)
+    if (!alreadyInitialized) {
+        std::fprintf(stderr,"[audio-regression] queue_full_policy=%s\n",
+            RuntimeConfigFile::AudioLegacyStopDmaOnQueueFull() ? "legacy_stop" : "continue");
+    }
+#endif
 }
 
 PPC_NATIVE_OVERRIDE_VOID(801240b0, AIInit_801240b0, (uint32_t callback_stack_switch), (callback_stack_switch));
@@ -431,8 +442,8 @@ void Audio_HLE_Tick(CpuContext* ctx, uint32_t deltaMicros)
                 ReportAudioProblem("Audio", "audio backend unavailable; dropping samples");
             }
         } else {
-            const bool pushed = PushAudioBlock(startAddr, length);
-            if (!pushed) {
+            const AudioPushResult pushed = PushAudioBlock(startAddr, length);
+            if (pushed == AudioPushResult::InvalidBuffer) {
                 std::lock_guard<std::mutex> lock(g_ai.mutex);
                 if (!g_ai.loggedAccessFailure) {
                     g_ai.loggedAccessFailure = true;
@@ -440,6 +451,34 @@ void Audio_HLE_Tick(CpuContext* ctx, uint32_t deltaMicros)
                 }
                 g_ai.enabled = false;
                 return;
+            } else if (pushed == AudioPushResult::QueueFull) {
+#if defined(MKW_TARGET_VITA)
+                if (RuntimeConfigFile::AudioLegacyStopDmaOnQueueFull()) {
+                    // A/B control: reproduce the pre-audio-fix contract exactly.
+                    // On queue saturation the old bool path disabled DMA and
+                    // returned before invoking the current block's callback.
+                    std::lock_guard<std::mutex> lock(g_ai.mutex);
+                    g_ai.enabled = false;
+                    if (!g_ai.loggedQueueFull) {
+                        g_ai.loggedQueueFull = true;
+                        ReportAudioProblem("Audio", "queue full; LEGACY stopping DMA for menu regression test");
+                    }
+                    return;
+                }
+#endif
+                // A saturated output FIFO only drops this block. The AI callback
+                // still advances AX, and the next block can recover naturally.
+                std::lock_guard<std::mutex> lock(g_ai.mutex);
+                if (!g_ai.loggedQueueFull) {
+                    g_ai.loggedQueueFull = true;
+                    ReportAudioProblem("Audio", "output queue full; dropping DMA block without stopping DMA");
+                }
+            } else if (pushed == AudioPushResult::BackendUnavailable) {
+                std::lock_guard<std::mutex> lock(g_ai.mutex);
+                if (!g_ai.loggedBackendFailure) {
+                    g_ai.loggedBackendFailure = true;
+                    ReportAudioProblem("Audio", "audio backend unavailable; dropping samples");
+                }
             }
         }
 

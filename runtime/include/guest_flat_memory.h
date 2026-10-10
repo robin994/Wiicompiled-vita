@@ -8,14 +8,22 @@
 #include <cstddef>
 #include <cstdint>
 #include <vector>
+#if defined(MKW_TARGET_VITA)
+#include "wiicompiled/guest_ram.hpp"
+#endif
 
 namespace GuestFlat {
+#if defined(MKW_TARGET_VITA)
+extern wiicompiled::RamMirrors g_vitaRamMirrors;
+#endif
 
 // Fixed base so the emitted access is `[reg + imm64-in-register]` with no load
 // of a global.
 inline constexpr uint64_t kGuestSpaceSize = 0x1'0000'0000ull;
 inline constexpr size_t kGuestPageSize = 0x1000;
-#if defined(__x86_64__)
+#if defined(MKW_TARGET_VITA)
+inline constexpr uintptr_t kFixedFlatGuestBase = 0;
+#elif defined(__x86_64__)
 // 16 TiB: clear of the Windows ASan shadow (32 TiB) and of the usual image/heap
 // placement.
 inline constexpr uintptr_t kFixedFlatGuestBase = 0x0000'1000'0000'0000ull;
@@ -73,13 +81,16 @@ bool IsActive();
 // fold this to a compile-time false: it appears in every flat access and must
 // not become a hot-path load. Only AArch64, where the page size is a kernel
 // configuration (4/16/64 KiB), has to probe it at runtime.
-#if defined(_WIN32) || defined(__x86_64__)
+#if defined(MKW_TARGET_VITA)
+#define MKW_GUEST_FLAT_FIXED_PAGE_SIZE 1
+inline constexpr bool RequiresCheckedAccess() noexcept { return true; }
+#elif defined(_WIN32) || defined(__x86_64__)
 #define MKW_GUEST_FLAT_FIXED_PAGE_SIZE 1
 #endif
 
-#if defined(MKW_GUEST_FLAT_FIXED_PAGE_SIZE)
+#if defined(MKW_GUEST_FLAT_FIXED_PAGE_SIZE) && !defined(MKW_TARGET_VITA)
 inline constexpr bool RequiresCheckedAccess() noexcept { return false; }
-#else
+#elif !defined(MKW_TARGET_VITA)
 extern bool g_requiresCheckedAccess;
 inline bool RequiresCheckedAccess() noexcept { return g_requiresCheckedAccess; }
 #endif

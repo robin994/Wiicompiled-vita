@@ -6,7 +6,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
-#include <mutex>
 
 #include "abi_bridge.h"
 #include "memory.h"
@@ -23,8 +22,8 @@ std::atomic<uint32_t> g_interrupt_mask{0};
 } // namespace OsHleInternal
 
 namespace {
-std::once_flag interrupt_init_log_once;
-std::once_flag exception_init_log_once;
+std::atomic_bool interrupt_init_logged{false};
+std::atomic_bool exception_init_logged{false};
 
 inline void UpdateCurrentContextInterruptFlag(bool enabled)
 {
@@ -85,11 +84,19 @@ extern "C" uint32_t OS____InterruptInit_801a661c(uint32_t r3, uint32_t r4, uint3
     (void)r7;
     (void)r8;
 
-    std::call_once(interrupt_init_log_once, [&]() {
+    if (!interrupt_init_logged.exchange(true, std::memory_order_relaxed)) {
+#if defined(MKW_TARGET_VITA)
+        std::fprintf(stderr,
+            "[os] OS____InterruptInit_801a661c called: r3=%u r4=%u r5=%u r6=%u r7=%u r8=%u\n",
+            r3, r4, r5, r6, r7, r8);
+        std::fprintf(stderr,
+            "[os] OSInterruptInit: skipped hardware MMIO setup; marking interrupts initialized\n");
+#else
         RT_LOG(RT_TAG_OS) << "OS____InterruptInit_801a661c called: r3=" << r3 << " r4=" << r4 << " r5=" << r5
                   << " r6=" << r6 << " r7=" << r7 << " r8=" << r8 << std::endl;
         RT_LOG(RT_TAG_OS) << "OSInterruptInit: skipped hardware MMIO setup; marking interrupts initialized" << std::endl;
-    });
+#endif
+    }
 
     // Keep interrupts disabled until RestoreInterrupts decides otherwise.
     g_interrupts_enabled.store(false);
@@ -126,11 +133,18 @@ extern "C" uint32_t OS__ExceptionInit_801a00e0(uint32_t r3, uint32_t r4, uint32_
     (void)r8;
     (void)r20;
 
-    std::call_once(exception_init_log_once, [&]() {
+    if (!exception_init_logged.exchange(true, std::memory_order_relaxed)) {
+#if defined(MKW_TARGET_VITA)
+        std::fprintf(stderr,
+            "[os] OS__ExceptionInit_801a00e0 called: r3=%u r4=%u r5=%u r6=%u r7=%u r8=%u r20=%u\n",
+            r3, r4, r5, r6, r7, r8, r20);
+        std::fprintf(stderr, "[os] OSExceptionInit: skipped exception vector setup\n");
+#else
         RT_LOG(RT_TAG_OS) << "OS__ExceptionInit_801a00e0 called: r3=" << r3 << " r4=" << r4 << " r5=" << r5
                   << " r6=" << r6 << " r7=" << r7 << " r8=" << r8 << " r20=" << r20 << std::endl;
         RT_LOG(RT_TAG_OS) << "OSExceptionInit: skipped exception vector setup" << std::endl;
-    });
+#endif
+    }
     return 0;
 }
 

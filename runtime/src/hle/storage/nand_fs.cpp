@@ -7,13 +7,60 @@
 #include "hle/storage/riivolution.h"
 #include "runtime_log.h"
 
+#include <atomic>
+#include <utility>
+
 // ============================================================================
 // Configuration
 // ============================================================================
 
 // Base path for the host Wii NAND directory (resolved at runtime).
 static std::filesystem::path g_dolphinWiiBase;
-static std::once_flag g_dolphinWiiBaseOnce;
+
+#if defined(MKW_TARGET_VITA)
+class NandOnceFlag {
+public:
+    template <typename Fn>
+    void Call(Fn&& fn) {
+        if (done_.load(std::memory_order_acquire)) {
+            return;
+        }
+        while (busy_.test_and_set(std::memory_order_acquire)) {
+            if (done_.load(std::memory_order_acquire)) {
+                return;
+            }
+            std::atomic_signal_fence(std::memory_order_seq_cst);
+        }
+        if (!done_.load(std::memory_order_relaxed)) {
+            try {
+                fn();
+                done_.store(true, std::memory_order_release);
+            } catch (...) {
+                busy_.clear(std::memory_order_release);
+                throw;
+            }
+        }
+        busy_.clear(std::memory_order_release);
+    }
+
+private:
+    std::atomic_bool done_{false};
+    std::atomic_flag busy_ = ATOMIC_FLAG_INIT;
+};
+#else
+using NandOnceFlag = std::once_flag;
+#endif
+
+template <typename Fn>
+static void NandCallOnce(NandOnceFlag& flag, Fn&& fn) {
+#if defined(MKW_TARGET_VITA)
+    flag.Call(std::forward<Fn>(fn));
+#else
+    std::call_once(flag, std::forward<Fn>(fn));
+#endif
+}
+
+static NandOnceFlag g_dolphinWiiBaseOnce;
 
 // ============================================================================
 // Logging
@@ -45,10 +92,10 @@ void LogNandWarning(const char* func, const char* fmt, ...) {
 
 std::map<int32_t, FileHandle> g_fileHandles;
 static int32_t g_nextFd = 100; // Start at 100 to avoid confusion with stdio fds
-std::mutex g_fdMutex;
+NandMutex g_fdMutex;
 
 int32_t AllocateFd(const std::filesystem::path& path, FILE* file, int32_t mode) {
-    std::lock_guard<std::mutex> lock(g_fdMutex);
+    std::lock_guard<NandMutex> lock(g_fdMutex);
     int32_t fd = g_nextFd++;
     g_fileHandles[fd] = {file, path, mode, 0};
     return fd;
@@ -63,7 +110,7 @@ FileHandle* GetHandle(int32_t fd) {
 }
 
 void CloseFd(int32_t fd) {
-    std::lock_guard<std::mutex> lock(g_fdMutex);
+    std::lock_guard<NandMutex> lock(g_fdMutex);
     auto it = g_fileHandles.find(fd);
     if (it != g_fileHandles.end()) {
         if (it->second.file) {
@@ -89,8 +136,11 @@ std::string CurrentNandDataDir() {
 }
 
 const std::filesystem::path& GetNandBasePath() {
-    std::call_once(g_dolphinWiiBaseOnce, []() {
+    RT_LOGF(RT_TAG_NAND, "GetNandBasePath enter\n");
+    NandCallOnce(g_dolphinWiiBaseOnce, []() {
+        RT_LOGF(RT_TAG_NAND, "GetNandBasePath initializing root\n");
         g_dolphinWiiBase = RuntimeNandPath::DiscoverNandRootPath();
+        RT_LOGF(RT_TAG_NAND, "GetNandBasePath root=%s\n", HostPathText(g_dolphinWiiBase).c_str());
     });
 
     return g_dolphinWiiBase;
@@ -193,7 +243,7 @@ struct RiivolutionSaveRedirect {
     std::filesystem::path hostDirectory;
 };
 
-static std::once_flag g_riivolutionSaveRedirectOnce;
+static NandOnceFlag g_riivolutionSaveRedirectOnce;
 static RiivolutionSaveRedirect g_riivolutionSaveRedirect;
 
 static const RiivolutionSaveRedirect& GetRiivolutionSaveRedirect() {
@@ -201,7 +251,7 @@ static const RiivolutionSaveRedirect& GetRiivolutionSaveRedirect() {
     // exactly like Dolphin resolves it for Riivolution launches. This keeps
     // the recomp's save in the same folder a Dolphin/WheelWizard launch of the
     // pack uses (e.g. .../Riivolution/WheelWizard/riivolution/save/RetroWFC/RMCP).
-    std::call_once(g_riivolutionSaveRedirectOnce, []() {
+    NandCallOnce(g_riivolutionSaveRedirectOnce, []() {
         const auto& redirect = RuntimeRiivolution::GetSaveRedirect();
         if (!redirect) {
             return;

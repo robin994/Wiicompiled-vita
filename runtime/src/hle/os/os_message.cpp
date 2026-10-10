@@ -9,6 +9,9 @@
 #include "ppc_runtime.h"
 #include "runtime_log.h"
 #include "os_internal.h"
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+#include "guest_stall_probe.h"
+#endif
 
 // ============================================================================
 // OSMessageQueue HLE
@@ -138,6 +141,10 @@ int32_t MsgQueueOp(CpuContext* cpu, const char* who, uint32_t queuePtr, bool blo
             return 0;
         }
 
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+        WicGuestStallProbe::messageWaits.fetch_add(1, std::memory_order_relaxed);
+        WicGuestStallProbe::lastMessageQueue.store(queuePtr, std::memory_order_relaxed);
+#endif
         cpu->gpr[3] = queuePtr + blockOffset;
         OSSleepThread_HLE_801aa9b8(cpu);
     }
@@ -146,6 +153,9 @@ int32_t MsgQueueOp(CpuContext* cpu, const char* who, uint32_t queuePtr, bool blo
 
 extern "C" int32_t OS__SendMessage_HLE_801a735c(CpuContext* ctx)
 {
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+    WicGuestStallProbe::messageSends.fetch_add(1, std::memory_order_relaxed);
+#endif
     CpuContext* cpu = ctx ? ctx : &GetPersistentCpuContext();
     const uint32_t queuePtr = cpu->gpr[3];
     const uint32_t msg = cpu->gpr[4];
@@ -169,6 +179,9 @@ REGISTER_NATIVE_FUNCTION(0x801A735C, OS__SendMessage_HLE_801a735c);
 
 extern "C" int32_t OS__ReceiveMessage_HLE_801a7424(CpuContext* ctx)
 {
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+    WicGuestStallProbe::messageReceives.fetch_add(1, std::memory_order_relaxed);
+#endif
     CpuContext* cpu = ctx ? ctx : &GetPersistentCpuContext();
     const uint32_t queuePtr = cpu->gpr[3];
     const uint32_t outMsgPtr = cpu->gpr[4];

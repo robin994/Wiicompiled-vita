@@ -195,7 +195,11 @@ void UpdateMkwDynamicAspectSurface(uint32_t surfaceWidth, uint32_t surfaceHeight
         VIUnlockAspectRatio();
         g_policyDirty = false;
     }
+#if defined(MKW_TARGET_VITA)
+    AuroraSetViewportPolicy(AURORA_VIEWPORT_STRETCH);
+#else
     AuroraSetViewportPolicy(g_forceAspect169 ? AURORA_VIEWPORT_16_9 : AURORA_VIEWPORT_STRETCH);
+#endif
     ApplyEggScreenRecords(g_forceAspect169 ? 16u : surfaceWidth,
                           g_forceAspect169 ? 9u : surfaceHeight);
 }

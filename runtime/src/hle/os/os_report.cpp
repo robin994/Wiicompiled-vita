@@ -12,6 +12,10 @@
 #include "hle/guest_printf.h"
 #include "ppc_runtime.h"
 #include "system_bridge.h"
+#if defined(MKW_TARGET_VITA)
+#include "native_stack_call.h"
+#include <cstdio>
+#endif
 
 // Thread-local cache used to store host-side copies of guest strings so we can
 // safely return const char* pointers that remain valid for the duration of a
@@ -191,8 +195,16 @@ static const char* GetGuestString(uint32_t guestAddr)
 
 // Keep the full CPU context: variadic integer arguments use r4-r10/stack while
 // variadic floating-point arguments use f1-f8.
-extern "C" void OS__Report_801a25d0(CpuContext* ctx)
+static void ReportOnHostStack(CpuContext* ctx)
 {
+#if defined(MKW_TARGET_VITA)
+    static thread_local unsigned reports = 0;
+    if (++reports <= 8) {
+        int stackMarker = 0;
+        std::fprintf(stderr, "[osreport-native] report=%u stack=%p fmt=0x%08x\n",
+                     reports, static_cast<void*>(&stackMarker), ctx ? ctx->gpr[3] : 0);
+    }
+#endif
     // Clear the thread-local cache of host-side string copies so that each
     // call of OS__Report has fresh buffers and returned const char* values
     // remain valid for the duration of this function.
@@ -200,6 +212,18 @@ extern "C" void OS__Report_801a25d0(CpuContext* ctx)
 
     const char* fmt_str = GetGuestString(ctx ? ctx->gpr[3] : 0);
     HLE_LogOSReport(ctx, fmt_str);
+}
+
+extern "C" void OS__Report_801a25d0(CpuContext* ctx)
+{
+#if defined(MKW_TARGET_VITA)
+    // Include formatting, cache cleanup, flush and local destruction in the
+    // native call. The CPU context and PPC varargs remain on the suspended
+    // caller, and the dispatcher resumes that same coroutine synchronously.
+    HostContext::CallOnNativeStack([ctx] { ReportOnHostStack(ctx); });
+#else
+    ReportOnHostStack(ctx);
+#endif
 }
 
 PPC_NATIVE_OVERRIDE_VOID(801A25D0, OS__Report_801a25d0, (CpuContext* ctx), (ctx));

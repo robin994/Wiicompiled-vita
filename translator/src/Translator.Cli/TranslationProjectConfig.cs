@@ -221,13 +221,13 @@ internal sealed class TranslationProjectConfig
 
     private static ProjectBinaryInput ResolveInput(string root, BinaryInputDto input, string field)
     {
-        var path = ResolvePath(root, Require(input.Path, $"{field}.path"));
+        var path = Translator.Core.IO.BinaryInput.Resolve(root, Require(input.Path, $"{field}.path"));
         return new ProjectBinaryInput(path, NormalizeHash(input.Sha256));
     }
 
     private static void ValidateInput(ProjectBinaryInput input, string label)
     {
-        if (!File.Exists(input.Path))
+        if (!Translator.Core.IO.BinaryInput.Exists(input.Path))
         {
             throw new FileNotFoundException($"Configured {label} input was not found.", input.Path);
         }

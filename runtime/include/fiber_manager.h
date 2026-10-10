@@ -30,6 +30,26 @@ struct CpuContext;
 
 namespace Fiber {
 
+#if defined(MKW_TARGET_VITA)
+class FiberMutex {
+public:
+    void lock() noexcept {
+        while (flag_.test_and_set(std::memory_order_acquire)) {
+            std::atomic_signal_fence(std::memory_order_seq_cst);
+        }
+    }
+
+    void unlock() noexcept {
+        flag_.clear(std::memory_order_release);
+    }
+
+private:
+    std::atomic_flag flag_ = ATOMIC_FLAG_INIT;
+};
+#else
+using FiberMutex = std::mutex;
+#endif
+
 // Thread states matching guest OS
 enum class ThreadState : uint32_t {
     READY = 1,
@@ -111,7 +131,7 @@ private:
     static void SwitchToScheduler();
 
     // Internal state
-    static std::mutex s_mutex;
+    static FiberMutex s_mutex;
     static std::unordered_map<uint32_t, GuestFiber> s_fibers;
     static std::vector<void*> s_fibersPendingDelete;
     // The scheduler's own host context. Its opaque handle is supplied by the

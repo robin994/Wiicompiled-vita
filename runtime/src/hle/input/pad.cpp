@@ -19,11 +19,16 @@ namespace {
 std::atomic<bool> g_rumbleEnabled{true};
 
 bool NativeButtonHeld(SDL_Gamepad* gamepad, uint32_t nativeButton) {
+#if defined(MKW_TARGET_VITA)
+    (void)gamepad; (void)nativeButton;
+    return false;
+#else
     if (gamepad == nullptr || nativeButton == PAD_NATIVE_BUTTON_INVALID ||
         nativeButton >= SDL_GAMEPAD_BUTTON_COUNT) {
         return false;
     }
     return SDL_GetGamepadButton(gamepad, static_cast<SDL_GamepadButton>(nativeButton));
+#endif
 }
 
 // A digital button bound to L or R has no analog travel of its own. On real

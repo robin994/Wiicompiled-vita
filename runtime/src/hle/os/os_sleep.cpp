@@ -18,14 +18,37 @@
 #include "timebase_contract.h"
 #include "runtime_log.h"
 #include "os_internal.h"
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+#include "guest_stall_probe.h"
+#endif
 
 namespace OsHleInternal {
-std::mutex gSleepTimerMutex;
+#if defined(MKW_TARGET_VITA)
+class SleepMutex {
+public:
+    void lock() noexcept {
+        while (flag_.test_and_set(std::memory_order_acquire)) {
+            std::atomic_signal_fence(std::memory_order_seq_cst);
+        }
+    }
+
+    void unlock() noexcept {
+        flag_.clear(std::memory_order_release);
+    }
+
+private:
+    std::atomic_flag flag_ = ATOMIC_FLAG_INIT;
+};
+#else
+using SleepMutex = std::mutex;
+#endif
+
+SleepMutex gSleepTimerMutex;
 std::vector<SleepTimerEntry> gSleepTimers;
 
 void CancelSleepTimer(uint32_t threadPtr)
 {
-    std::lock_guard<std::mutex> lock(gSleepTimerMutex);
+    std::lock_guard<SleepMutex> lock(gSleepTimerMutex);
     std::erase_if(gSleepTimers, [threadPtr](const SleepTimerEntry& entry) {
         return entry.threadPtr == threadPtr;
     });
@@ -33,7 +56,7 @@ void CancelSleepTimer(uint32_t threadPtr)
 
 bool SleepTimerIsPending(uint32_t threadPtr)
 {
-    std::lock_guard<std::mutex> lock(gSleepTimerMutex);
+    std::lock_guard<SleepMutex> lock(gSleepTimerMutex);
     for (const SleepTimerEntry& entry : gSleepTimers) {
         if (entry.threadPtr == threadPtr) {
             return true;
@@ -45,18 +68,18 @@ bool SleepTimerIsPending(uint32_t threadPtr)
 // Threads with an outstanding OSSleepTicks park (timer armed, wake not yet delivered). If one ends
 // up park-shaped with no pending timer, the reconciler in ProcessSleepTimers heals it; nothing
 // outside this set is ever force-started.
-std::mutex gOutstandingParkMutex;
+SleepMutex gOutstandingParkMutex;
 std::unordered_set<uint32_t> gOutstandingParks;
 
 void MarkParkOutstanding(uint32_t threadPtr)
 {
-    std::lock_guard<std::mutex> lock(gOutstandingParkMutex);
+    std::lock_guard<SleepMutex> lock(gOutstandingParkMutex);
     gOutstandingParks.insert(threadPtr);
 }
 
 void ClearOutstandingPark(uint32_t threadPtr)
 {
-    std::lock_guard<std::mutex> lock(gOutstandingParkMutex);
+    std::lock_guard<SleepMutex> lock(gOutstandingParkMutex);
     gOutstandingParks.erase(threadPtr);
 }
 
@@ -67,7 +90,7 @@ void ScheduleSleepTimer(uint32_t threadPtr, uint64_t ticks)
     const auto duration = TimeBaseContract::TicksToDuration(ticks);
     const auto deadline = Clock::now() + duration;
 
-    std::lock_guard<std::mutex> lock(gSleepTimerMutex);
+    std::lock_guard<SleepMutex> lock(gSleepTimerMutex);
     std::erase_if(gSleepTimers, [threadPtr](const SleepTimerEntry& entry) {
         return entry.threadPtr == threadPtr;
     });
@@ -94,7 +117,7 @@ bool ProcessSleepTimers(CpuContext* cpu)
         SleepTimerEntry timer{0, {}};
         bool found = false;
         {
-            std::lock_guard<std::mutex> lock(gSleepTimerMutex);
+            std::lock_guard<SleepMutex> lock(gSleepTimerMutex);
             for (auto it = gSleepTimers.begin(); it != gSleepTimers.end(); ++it) {
                 if (it->deadline <= now) {
                     timer = *it;
@@ -124,7 +147,7 @@ bool ProcessSleepTimers(CpuContext* cpu)
         const int32_t countAtFire =
             static_cast<int32_t>(Memory::Read32(threadPtr + kThreadSuspendOffset));
         if (stateAtFire == kThreadStateRunning) {
-            std::lock_guard<std::mutex> lock(gSleepTimerMutex);
+            std::lock_guard<SleepMutex> lock(gSleepTimerMutex);
             bool present = false;
             for (const SleepTimerEntry& entry : gSleepTimers) {
                 if (entry.threadPtr == threadPtr) {
@@ -170,12 +193,12 @@ bool ProcessSleepTimers(CpuContext* cpu)
                 (now + std::chrono::milliseconds(50)).time_since_epoch().count()),
             std::memory_order_relaxed);
     if (runStrandReconciler) {
-        static std::mutex strandMutex;
+        static SleepMutex strandMutex;
         static std::unordered_map<uint32_t, Clock::time_point> strandFirstSeen;
 
         std::vector<uint32_t> outstanding;
         {
-            std::lock_guard<std::mutex> lock(gOutstandingParkMutex);
+            std::lock_guard<SleepMutex> lock(gOutstandingParkMutex);
             outstanding.assign(gOutstandingParks.begin(), gOutstandingParks.end());
         }
         // Decide who to heal under the lock, but resume OUTSIDE it: the resume
@@ -183,7 +206,7 @@ bool ProcessSleepTimers(CpuContext* cpu)
         // across it is a guaranteed self-deadlock.
         std::vector<uint32_t> toHeal;
         {
-            std::lock_guard<std::mutex> strandLock(strandMutex);
+            std::lock_guard<SleepMutex> strandLock(strandMutex);
             // Drop debounce records for threads whose park was satisfied elsewhere.
             for (auto it = strandFirstSeen.begin(); it != strandFirstSeen.end();) {
                 if (std::find(outstanding.begin(), outstanding.end(), it->first) ==
@@ -394,6 +417,10 @@ extern "C" void OSSleepThread_HLE_801aa9b8(CpuContext* ctx)
 {
     CpuContext* cpu = ctx ? ctx : &GetPersistentCpuContext();
     const uint32_t queuePtr = cpu->gpr[3];
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+    WicGuestStallProbe::sleepCalls.fetch_add(1, std::memory_order_relaxed);
+    WicGuestStallProbe::lastWaitQueue.store(queuePtr, std::memory_order_relaxed);
+#endif
     
     if (queuePtr == 0) {
         RT_LOG(RT_TAG_OS) << "OSSleepThread: null queue pointer!" << std::endl;
@@ -404,6 +431,9 @@ extern "C" void OSSleepThread_HLE_801aa9b8(CpuContext* ctx)
     
     try {
         uint32_t currentThread = ::Memory::Read32(kOSRunningContextAddr);
+#if defined(MKW_TARGET_VITA) && defined(WIC_CPU_DIAGNOSTICS)
+        WicGuestStallProbe::lastSleeping.store(currentThread, std::memory_order_relaxed);
+#endif
         
         // If no current thread is set but we have a default thread, use that
         // This can happen during early boot before the scheduler has switched threads

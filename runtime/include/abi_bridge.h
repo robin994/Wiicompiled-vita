@@ -3,6 +3,7 @@
 #include "ppc_runtime.h"
 #include "system_bridge.h"
 #include "game_graphics_options.h"
+#include "game_test_options.h"
 #include "runtime_log.h"
 
 #include <array>
@@ -30,6 +31,11 @@ inline void ApplyRuntimeCallOptions(uint32_t target, CpuContext* ctx) {
         // ScnRenderer::createPath receives the post-processing path mask in r4.
         ctx->gpr[4] = RuntimeGameGraphicsOptions::FilterScnRendererPathMask(ctx->gpr[4]);
     }
+#if defined(MKW_TARGET_VITA)
+    if (target == 0x8063550Cu || target == 0x805302C4u || target == 0x80634FBCu) {
+        RuntimeGameTestOptions::Apply(target, ctx);
+    }
+#endif
 }
 
 // Persistent per-thread CPU context used across translated function calls.

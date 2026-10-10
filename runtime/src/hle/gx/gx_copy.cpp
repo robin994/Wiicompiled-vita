@@ -1,5 +1,6 @@
 // gx_copy.cpp - Framebuffer Copy Operations
 #include "gx_internal.h"
+#include "hle/gx/gx_lock.h"
 
 #include "settings_overlay.h"
 
@@ -9,6 +10,11 @@
 #include <map>
 #include <mutex>
 #include <vector>
+#if defined(MKW_TARGET_VITA)
+#include <aurora/gfx.h>
+#include "gfx/vita_memory_revision.hpp"
+#include <array>
+#endif
 
 namespace {
 // Copy destinations stay GPU-only until an explicit/lazy readback. Track the
@@ -16,15 +22,54 @@ namespace {
 // allocation can retire the stale GPU texture before it is considered by a
 // subsequent GXLoadTexObj. There is at most one live range per destination;
 // rewriting the destination replaces its previous extent.
-std::mutex g_efbCopyDestinationsMutex;
+GxSync::Mutex g_efbCopyDestinationsMutex;
 std::map<uint32_t, uint32_t> g_efbCopyDestinations;
 uint32_t g_largestEfbCopyDestination = 0;
+#if defined(MKW_TARGET_VITA)
+struct DeferredCopy {
+    void* host=nullptr;
+    uint32_t size=0,address=0;
+    std::array<uint64_t,3> tokens{};
+    bool materialized=false;
+};
+std::map<uint32_t,DeferredCopy> g_deferredCopies;
+bool MaterializeColorCopy(void* user) {
+    auto& copy=*static_cast<DeferredCopy*>(user);
+    // All three aliases refer to one GPU result. A later read through another
+    // alias must not replay that result over intervening CPU writes.
+    if(copy.materialized)return true;
+    if(!aurora_flush_efb_copy_to_ram(copy.host))return false;
+    copy.materialized=true;
+    for(auto token:copy.tokens)Memory::CancelDeferredRead(token);
+    copy.tokens={};
+    GxGuestWrite::NotifyWrite(copy.address,copy.size);
+    aurora::vita::gfx::note_memory_write(copy.host,copy.size);
+    return true;
+}
+void ForgetDeferredCopy(uint32_t canonical) {
+    const auto it=g_deferredCopies.find(canonical);
+    if(it==g_deferredCopies.end())return;
+    for(auto token:it->second.tokens)Memory::CancelDeferredRead(token);
+    g_deferredCopies.erase(it);
+}
+void DeferColorCopy(uint32_t address,uint32_t size) {
+    const uint32_t canonical=CanonicalizeGxMainRamAddress(address);
+    ForgetDeferredCopy(canonical);
+    auto& copy=g_deferredCopies[canonical];
+    copy.host=GuestToHostPtr(address,size);copy.size=size;copy.address=canonical;copy.materialized=false;
+    const std::array<uint32_t,3> aliases{canonical,canonical+0x80000000u,canonical+0xc0000000u};
+    for(size_t i=0;i<aliases.size();++i) {
+        if(Memory::Contains(aliases[i],size))
+            copy.tokens[i]=Memory::RegisterDeferredRead(aliases[i],size,&MaterializeColorCopy,&copy);
+    }
+}
+#endif
 
 void RememberEfbCopyDestination(uint32_t addr, uint32_t size) {
     if (size == 0) {
         return;
     }
-    std::lock_guard<std::mutex> guard(g_efbCopyDestinationsMutex);
+    std::lock_guard<GxSync::Mutex> guard(g_efbCopyDestinationsMutex);
     g_efbCopyDestinations[CanonicalizeGxMainRamAddress(addr)] = size;
     // A conservative monotonic maximum lets invalidation jump directly to
     // the only map interval that could overlap instead of walking every copy
@@ -43,7 +88,7 @@ void InvalidateEfbCopyDestinationsForRange(uint32_t addr, uint32_t size) {
     const uint64_t dirtyEnd = dirtyStart + size;
     std::vector<uint32_t> retired;
     {
-        std::lock_guard<std::mutex> guard(g_efbCopyDestinationsMutex);
+        std::lock_guard<GxSync::Mutex> guard(g_efbCopyDestinationsMutex);
         const uint64_t earliestCandidate =
             dirtyStart > g_largestEfbCopyDestination ? dirtyStart - g_largestEfbCopyDestination : 0;
         for (auto it = g_efbCopyDestinations.lower_bound(static_cast<uint32_t>(earliestCandidate));
@@ -62,6 +107,9 @@ void InvalidateEfbCopyDestinationsForRange(uint32_t addr, uint32_t size) {
     // Preserve FIFO ordering: the destroy command is emitted before any later
     // texture load that can consume the freshly flushed RAM bytes.
     for (const uint32_t copyAddr : retired) {
+#if defined(MKW_TARGET_VITA)
+        ForgetDeferredCopy(copyAddr);
+#endif
         GXDestroyCopyTex(GuestToHostPtr(copyAddr));
     }
 }
@@ -155,6 +203,17 @@ extern "C" void GX__CopyTex_8016fd74(uint32_t da, uint32_t c) {
     RememberEfbCopyDestination(
         da, GXGetTexBufferSize(g_texCopyState.dstWidth, g_texCopyState.dstHeight,
                                g_texCopyState.dstFormat, GX_FALSE, 0));
+#if defined(MKW_TARGET_VITA)
+    // GX color formats have no depth bit. Intercept all RAM aliases lazily so
+    // CPU reads see the tiled copy without forcing readback for GPU consumers.
+    if((g_texCopyState.dstFormat&0x10u)==0)
+        DeferColorCopy(da,GXGetTexBufferSize(g_texCopyState.dstWidth,g_texCopyState.dstHeight,
+                                           g_texCopyState.dstFormat,GX_FALSE,0));
+    else {
+        static bool reported=false;
+        if(!reported) { std::fprintf(stderr,"[gx] depth EFB copies require native implementation\n");reported=true; }
+    }
+#endif
     GXSetTexCopySrc(rawSrcLeft, rawSrcTop, rawSrcWidth, rawSrcHeight);
 }
 PPC_NATIVE_OVERRIDE_VOID(8016fd74, GX__CopyTex_8016fd74, (uint32_t da, uint32_t c), (da, c));

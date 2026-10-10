@@ -137,19 +137,19 @@ bool AudioBackend::QueueHasCapacityLocked(int incomingBytes) {
     return true;
 }
 
-bool AudioBackend::PushWiiAiSamplesBE16(const uint8_t* data, size_t bytes) {
-    if (!data || bytes == 0) {
-        return false;
+AudioPushResult AudioBackend::PushWiiAiSamplesBE16(const uint8_t* data, size_t bytes) {
+    if (!data || bytes == 0 || (bytes & 3u) != 0) {
+        return AudioPushResult::InvalidBuffer;
     }
 
     std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_initialized || !m_stream) {
-        return false;
+        return AudioPushResult::BackendUnavailable;
     }
 
     const size_t sampleCount = bytes / sizeof(int16_t);
     if (sampleCount == 0) {
-        return false;
+        return AudioPushResult::InvalidBuffer;
     }
 
     if (m_convertBuffer.size() < sampleCount) {
@@ -170,34 +170,34 @@ bool AudioBackend::PushWiiAiSamplesBE16(const uint8_t* data, size_t bytes) {
 
     const int lenBytes = static_cast<int>(frameCount * 2 * sizeof(int16_t));
     if (!QueueHasCapacityLocked(lenBytes)) {
-        return true;
+        return AudioPushResult::QueueFull;
     }
     if (!SDL_PutAudioStreamData(m_stream, m_convertBuffer.data(), lenBytes)) {
         RT_LOG(RT_TAG_AUDIO) << "SDL_PutAudioStreamData failed: " << SDL_GetError() << std::endl;
-        return false;
+        return AudioPushResult::BackendUnavailable;
     }
 
-    return true;
+    return AudioPushResult::Accepted;
 }
 
-bool AudioBackend::PushSamplesLE16(const int16_t* samples, size_t sampleCount) {
-    if (!samples || sampleCount == 0) {
-        return false;
+AudioPushResult AudioBackend::PushSamplesLE16(const int16_t* samples, size_t sampleCount) {
+    if (!samples || sampleCount == 0 || (sampleCount & 1u) != 0) {
+        return AudioPushResult::InvalidBuffer;
     }
 
     std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_initialized || !m_stream) {
-        return false;
+        return AudioPushResult::BackendUnavailable;
     }
 
     const int lenBytes = static_cast<int>(sampleCount * sizeof(int16_t));
     if (!QueueHasCapacityLocked(lenBytes)) {
-        return true;
+        return AudioPushResult::QueueFull;
     }
     if (!SDL_PutAudioStreamData(m_stream, samples, lenBytes)) {
         RT_LOG(RT_TAG_AUDIO) << "SDL_PutAudioStreamData failed: " << SDL_GetError() << std::endl;
-        return false;
+        return AudioPushResult::BackendUnavailable;
     }
 
-    return true;
+    return AudioPushResult::Accepted;
 }

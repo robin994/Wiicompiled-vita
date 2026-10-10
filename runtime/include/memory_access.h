@@ -140,6 +140,9 @@ MKW_MEMORY_FORCE_INLINE float PpcSingleBitsToFloat(uint32_t bits) {
 }
 
 MKW_MEMORY_FORCE_INLINE bool TryGetPointerFast(uint32_t address, size_t length, uint8_t*& pointer) {
+#if defined(MKW_TARGET_VITA)
+    if ((pointer=GuestFlat::g_vitaRamMirrors.pointer(address,length))!=nullptr) return true;
+#endif
     const uint32_t page = address >> kPageShift;
     if (length <= 8) {
         const uintptr_t encodedBias = g_fullPageBias[page];
@@ -222,6 +225,13 @@ MKW_MEMORY_FORCE_INLINE bool TryGetWritablePointerFast(
     return true;
 }
 
+#if defined(MKW_TARGET_VITA) && defined(WIC_FAST_RAM_RANGES) && WIC_FAST_RAM_RANGES
+// Resolve once per bulk block; keep the policy walk out of translated bodies
+// to avoid duplicating several megabytes of code on ARM32.
+MKW_MEMORY_NO_INLINE uint8_t* ResolveCheckedVitaRange(
+    uint32_t start, uint32_t length, bool needsRead, bool needsWrite);
+#endif
+
 // Flat form: guest_flat_memory.h's page protections already answer mapped/non-deferred/non-executable, so resolving is pure address arithmetic.
 // Two checks stay inline: a wrapped guest address can't survive 64-bit `host + rangeOffset`, and an MMIO write's value isn't recoverable from a
 // fault record, so a write touching that window must resolve null and fall back to Memory::Write*. Checking both range endpoints is a complete
@@ -232,11 +242,18 @@ MKW_MEMORY_FORCE_INLINE uint8_t* ResolveRangeHost(uint32_t base, int32_t minOffs
     const uint32_t guestStart = base + static_cast<uint32_t>(minOffset);
     if (length == 0 || length > kPageSize || guestStart > UINT32_MAX - (length - 1)) return nullptr;
     if (GuestFlat::RequiresCheckedAccess()) {
+#if defined(MKW_TARGET_VITA) && defined(WIC_FAST_RAM_RANGES) && WIC_FAST_RAM_RANGES
+        // Fold read ranges back to the original checked path at the call site;
+        // do not add a resolver call to every register restore.
+        if (needsRead) return nullptr;
+        return ResolveCheckedVitaRange(guestStart, length, needsRead, needsWrite);
+#else
         // A host page can cover multiple independently-special Wii pages.
         // Returning null keeps resolved accesses on the checked Memory::*
         // path, which materializes deferred reads and applies write policy.
         (void)needsWrite;
         return nullptr;
+#endif
     }
     if (needsWrite &&
         (FlatWriteNeedsPolicy(guestStart) || FlatWriteNeedsPolicy(guestStart + (length - 1))))
@@ -354,6 +371,13 @@ inline bool TryReadMappedScalar(uint32_t address, T& outValue) {
 
 template <typename T>
 MKW_MEMORY_FORCE_INLINE bool TryReadGuestScalar(uint32_t address, T& outValue) {
+#if defined(MKW_TARGET_VITA)
+    uint8_t* direct=GuestFlat::g_vitaRamMirrors.pointer(address,sizeof(T));
+    if(direct && !g_deferredReadCoveredPages[address>>kPageShift] &&
+       !g_deferredReadCoveredPages[(address+sizeof(T)-1)>>kPageShift]) {
+        T value=0;std::memcpy(&value,direct,sizeof(T));outValue=MaybeByteSwap(value);return true;
+    }
+#endif
     const uintptr_t encodedBias = g_fullReadablePageBias[address >> kPageShift];
     if (encodedBias == 0) [[unlikely]]
         return false;
@@ -377,6 +401,19 @@ MKW_MEMORY_FORCE_INLINE bool TryWriteGuestScalar(uint32_t address, T value) {
     // keeps those stores native while the exact 4 KiB executable guards stay authoritative.
     if (address > UINT32_MAX - static_cast<uint32_t>(sizeof(T) - 1u)) [[unlikely]]
         return false;
+#if defined(MKW_TARGET_VITA)
+    if (g_deferredReadCoveredPages[address >> kPageShift] ||
+        g_deferredReadCoveredPages[(address + sizeof(T) - 1) >> kPageShift]) [[unlikely]]
+        return false;
+    if(auto* direct=GuestFlat::g_vitaRamMirrors.pointer(address,sizeof(T))) {
+        const uint32_t first=address>>kWritableSubPageShift;
+        const uint32_t last=(address+sizeof(T)-1)>>kWritableSubPageShift;
+        if(!RecompMod::g_executableWriteGuardPages[first].load(std::memory_order_relaxed) &&
+           !RecompMod::g_executableWriteGuardPages[last].load(std::memory_order_relaxed)) {
+            const T swapped=MaybeByteSwap(value);std::memcpy(direct,&swapped,sizeof(T));return true;
+        }
+    }
+#endif
     const uint32_t coarsePage = address >> kPageShift;
     const uint32_t endAddress = address + static_cast<uint32_t>(sizeof(T) - 1u);
     if ((endAddress >> kPageShift) != coarsePage) [[unlikely]]
@@ -618,26 +655,92 @@ MKW_MEMORY_FORCE_INLINE void FlatWriteFloat64(uint32_t address, double value) {
 // instead of dispatched inline. Never use these for an address the translator hasn't proven.
 
 MKW_MEMORY_FORCE_INLINE void FlatWriteRam8(uint32_t address, uint8_t value) {
+#if defined(MKW_TARGET_VITA)
+    if (g_deferredReadCoveredPages[address >> kPageShift]) [[unlikely]] {
+        Memory::Write8(address,value);return;
+    }
+    if (uint8_t* direct = GuestFlat::g_vitaRamMirrors.pointer(address, sizeof(value))) {
+        std::memcpy(direct, &value, sizeof(value));
+        return;
+    }
+    Memory::Write8(address, value);
+#else
     FlatStore<uint8_t>(address, value);
+#endif
 }
 
 MKW_MEMORY_FORCE_INLINE void FlatWriteRam16(uint32_t address, uint16_t value) {
+#if defined(MKW_TARGET_VITA)
+    if (g_deferredReadCoveredPages[address >> kPageShift] ||
+        g_deferredReadCoveredPages[(address+sizeof(value)-1) >> kPageShift]) [[unlikely]] {
+        Memory::Write16(address,value);return;
+    }
+    if (uint8_t* direct = GuestFlat::g_vitaRamMirrors.pointer(address, sizeof(value))) {
+        const uint16_t swapped = MaybeByteSwap(value);
+        std::memcpy(direct, &swapped, sizeof(swapped));
+        return;
+    }
+    Memory::Write16(address, value);
+#else
     FlatStore<uint16_t>(address, value);
+#endif
 }
 
 MKW_MEMORY_FORCE_INLINE void FlatWriteRam32(uint32_t address, uint32_t value) {
+#if defined(MKW_TARGET_VITA)
+    if (g_deferredReadCoveredPages[address >> kPageShift] ||
+        g_deferredReadCoveredPages[(address+sizeof(value)-1) >> kPageShift]) [[unlikely]] {
+        Memory::Write32(address,value);return;
+    }
+    if (uint8_t* direct = GuestFlat::g_vitaRamMirrors.pointer(address, sizeof(value))) {
+        const uint32_t swapped = MaybeByteSwap(value);
+        std::memcpy(direct, &swapped, sizeof(swapped));
+        return;
+    }
+    Memory::Write32(address, value);
+#else
     FlatStore<uint32_t>(address, value);
+#endif
 }
 
 
 MKW_MEMORY_FORCE_INLINE void FlatWriteRamFloat32(uint32_t address, double value) {
+#if defined(MKW_TARGET_VITA)
+    if (g_deferredReadCoveredPages[address >> kPageShift] ||
+        g_deferredReadCoveredPages[(address+sizeof(float)-1) >> kPageShift]) [[unlikely]] {
+        Memory::WriteFloat32(address,value);return;
+    }
+    const uint32_t bits = ConvertPpcDoubleToSingleBits(value);
+    if (uint8_t* direct = GuestFlat::g_vitaRamMirrors.pointer(address, sizeof(bits))) {
+        const uint32_t swapped = MaybeByteSwap(bits);
+        std::memcpy(direct, &swapped, sizeof(swapped));
+        return;
+    }
+    Memory::WriteFloat32(address, value);
+#else
     FlatStore<uint32_t>(address, ConvertPpcDoubleToSingleBits(value));
+#endif
 }
 
 MKW_MEMORY_FORCE_INLINE void FlatWriteRamFloat64(uint32_t address, double value) {
+#if defined(MKW_TARGET_VITA)
+    if (g_deferredReadCoveredPages[address >> kPageShift] ||
+        g_deferredReadCoveredPages[(address+sizeof(value)-1) >> kPageShift]) [[unlikely]] {
+        Memory::WriteFloat64(address,value);return;
+    }
+    uint64_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    if (uint8_t* direct = GuestFlat::g_vitaRamMirrors.pointer(address, sizeof(bits))) {
+        const uint64_t swapped = MaybeByteSwap(bits);
+        std::memcpy(direct, &swapped, sizeof(swapped));
+        return;
+    }
+    Memory::WriteFloat64(address, value);
+#else
     uint64_t bits = 0;
     std::memcpy(&bits, &value, sizeof(bits));
     FlatStore<uint64_t>(address, bits);
+#endif
 }
 
 } // namespace MemoryInline

@@ -1,4 +1,8 @@
+#if defined(MKW_TARGET_VITA)
+#include "gfx/vita_memory_revision.hpp"
+#endif
 #include "gx_internal.h"
+#include "hle/gx/gx_lock.h"
 #include "runtime_log.h"
 
 #include <cstddef>
@@ -54,9 +58,9 @@ struct HleTlutObj {
     }
 };
 
-std::mutex g_texObjMutex;
+GxSync::Mutex g_texObjMutex;
 std::map<uint32_t, std::unique_ptr<HleTlutObj>> g_HostTlutObjMap;
-std::mutex g_tlutObjMutex;
+GxSync::Mutex g_tlutObjMutex;
 
 // The texobj table. One slot per guest GXTexObj address holds both the decoded
 // metadata and the Aurora object, so GXLoadTexObj resolves everything it needs
@@ -598,7 +602,7 @@ void MarkTexObjsDirtyForRange(uint32_t addr, uint32_t size) {
 
     const uint64_t dirtyStart = CanonicalizeGxMainRamAddress(addr);
     const uint64_t dirtyEnd = dirtyStart + size;
-    std::lock_guard<std::mutex> guard(g_texObjMutex);
+    std::lock_guard<GxSync::Mutex> guard(g_texObjMutex);
 
     EnsureTexObjIntervalsLocked();
     const auto lower = std::lower_bound(
@@ -642,6 +646,9 @@ extern "C" void GxNotifyGuestRamDmaWrite(uint32_t addr, uint32_t size) {
     if (size == 0) {
         return;
     }
+#if defined(MKW_TARGET_VITA)
+    if(const void* bytes=Memory::GetPointer(addr,size))aurora::vita::gfx::note_memory_write(bytes,size);
+#endif
     MarkTexObjsDirtyForRange(addr, size);
     MarkTlutObjsDirtyForRange(addr, size);
     GxNotifyDisplayListMemoryWrite(addr, size);
@@ -687,7 +694,7 @@ void MarkTlutObjsDirtyForRange(uint32_t addr, uint32_t size) {
 
     const uint64_t dirtyStart = CanonicalizeGxMainRamAddress(addr);
     const uint64_t dirtyEnd = dirtyStart + size;
-    std::lock_guard<std::mutex> guard(g_tlutObjMutex);
+    std::lock_guard<GxSync::Mutex> guard(g_tlutObjMutex);
     EnsureTlutObjBoundsLocked();
     // Most DCStoreRange calls flush small material/vertex buffers that live
     // nowhere near a palette, so reject them without walking the map.

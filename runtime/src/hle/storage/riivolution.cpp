@@ -17,6 +17,7 @@
 #include "runtime_product.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <fstream>
 #include <iostream>
@@ -33,7 +34,33 @@ struct RiivoState {
     std::optional<RuntimeRiivolution::SaveRedirect> saveRedirect;
 };
 
+#if defined(MKW_TARGET_VITA)
+class RiivoOnceFlag {
+public:
+    template <typename Fn>
+    void Call(Fn&& fn) {
+        if (done_.load(std::memory_order_acquire)) {
+            return;
+        }
+        while (busy_.test_and_set(std::memory_order_acquire)) {
+            std::atomic_signal_fence(std::memory_order_seq_cst);
+        }
+        if (!done_.load(std::memory_order_relaxed)) {
+            fn();
+            done_.store(true, std::memory_order_release);
+        }
+        busy_.clear(std::memory_order_release);
+    }
+
+private:
+    std::atomic<bool> done_{false};
+    std::atomic_flag busy_ = ATOMIC_FLAG_INIT;
+};
+
+RiivoOnceFlag g_riivoOnce;
+#else
 std::once_flag g_riivoOnce;
+#endif
 RiivoState g_riivoState;
 
 std::optional<std::string> RiivoReadFile(const fs::path& path) {
@@ -355,12 +382,20 @@ void RiivoInitialize() {
 namespace RuntimeRiivolution {
 
 const std::vector<Overlay>& Overlays() {
+#if defined(MKW_TARGET_VITA)
+    g_riivoOnce.Call(RiivoInitialize);
+#else
     std::call_once(g_riivoOnce, RiivoInitialize);
+#endif
     return g_riivoState.overlays;
 }
 
 const std::optional<SaveRedirect>& GetSaveRedirect() {
+#if defined(MKW_TARGET_VITA)
+    g_riivoOnce.Call(RiivoInitialize);
+#else
     std::call_once(g_riivoOnce, RiivoInitialize);
+#endif
     return g_riivoState.saveRedirect;
 }
 

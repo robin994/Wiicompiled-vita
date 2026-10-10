@@ -14,7 +14,7 @@ struct PendingNandCallback {
     uint32_t commandBlock = 0;
 };
 
-static std::mutex g_pendingNandCallbackMutex;
+static NandMutex g_pendingNandCallbackMutex;
 static std::deque<PendingNandCallback> g_pendingNandCallbacks;
 
 static void DispatchNandCallback(CpuContext* cpu, uint32_t callbackPtr, int32_t result, uint32_t commandBlock) {
@@ -52,7 +52,7 @@ static void InvokeNandCallback(uint32_t callbackPtr, int32_t result, uint32_t co
         return;
     }
 
-    std::lock_guard<std::mutex> lock(g_pendingNandCallbackMutex);
+    std::lock_guard<NandMutex> lock(g_pendingNandCallbackMutex);
     g_pendingNandCallbacks.push_back({callbackPtr, result, commandBlock});
 }
 
@@ -86,7 +86,7 @@ bool NandProcessPendingCallbacks(CpuContext* cpu, int maxToProcess) {
     while (processed < maxCallbacksThisPump) {
         PendingNandCallback cb{};
         {
-            std::lock_guard<std::mutex> lock(g_pendingNandCallbackMutex);
+            std::lock_guard<NandMutex> lock(g_pendingNandCallbackMutex);
             if (g_pendingNandCallbacks.empty()) {
                 break;
             }
@@ -314,7 +314,7 @@ bool DiscardStaleSafeTemp(const std::filesystem::path& tempPath) {
 // commit target of a shadow. Used to keep shadow writes from hiding data behind a second
 // handle on the same file.
 bool IsHostPathOpen(const std::filesystem::path& hostPath) {
-    std::lock_guard<std::mutex> lock(g_fdMutex);
+    std::lock_guard<NandMutex> lock(g_fdMutex);
     for (const auto& entry : g_fileHandles) {
         if (entry.second.path == hostPath || entry.second.safeCommitPath == hostPath) {
             return true;
@@ -334,7 +334,7 @@ int32_t CommitAndCloseFd(const char* who, int32_t fd, bool missingFdIsError) {
     int32_t mode = 0;
 
     {
-        std::lock_guard<std::mutex> lock(g_fdMutex);
+        std::lock_guard<NandMutex> lock(g_fdMutex);
         auto it = g_fileHandles.find(fd);
         if (it == g_fileHandles.end()) {
             if (missingFdIsError) {
@@ -469,7 +469,7 @@ extern "C" int32_t NANDSafeOpen_HLE(uint32_t pathPtr, uint32_t fileInfoPtr, uint
 
     const int32_t fd = AllocateFd(tempPath, file, static_cast<int32_t>(mode));
     {
-        std::lock_guard<std::mutex> lock(g_fdMutex);
+        std::lock_guard<NandMutex> lock(g_fdMutex);
         auto it = g_fileHandles.find(fd);
         if (it != g_fileHandles.end()) {
             it->second.safeCommitPath = hostPath;

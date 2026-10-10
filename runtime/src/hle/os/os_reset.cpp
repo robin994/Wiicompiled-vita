@@ -4,6 +4,7 @@
 #include "ppc_runtime.h"
 #include "runtime_log.h"
 #include "system_bridge.h"
+#include "host_wait.h"
 
 #include <cstdlib>
 #include <cstdio>
@@ -110,7 +111,7 @@ extern "C" void OS__Panic_801A2660_Cpu(CpuContext* ctx)
     MarkFatalErrorReported();
 
     // Give extra time for output to flush with PowerShell redirection
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    HostWait::SleepFor(std::chrono::milliseconds(200), HostWait::Site::FatalExit);
     
     std::exit(EXIT_FAILURE);
 }
