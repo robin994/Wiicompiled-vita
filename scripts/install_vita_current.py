@@ -147,7 +147,16 @@ def configure(data: bytes, *, menu: bool, quiet: bool, legacy_audio: bool,
               draw_batching: bool | None = None,
               capture_frame: int | None = None,
               probe_only: bool = False,
-              render_budget_probe: bool | None = None) -> bytes:
+              render_budget_probe: bool | None = None,
+              visual_only: bool = False,
+              gpu_lighting: bool | None = None,
+              native_materials: bool | None = None) -> bytes:
+    if visual_only:
+        if (gpu_lighting is None) == (native_materials is None):
+            raise ValueError("visual_only requires exactly one graphics control")
+        return write_toml_value(data, "vita",
+                                "gpu_lighting" if gpu_lighting is not None else "native_materials",
+                                gpu_lighting if gpu_lighting is not None else native_materials)
     if probe_only:
         if render_budget_probe is None:
             raise ValueError("probe_only requires an explicit render_budget_probe value")
@@ -165,6 +174,10 @@ def configure(data: bytes, *, menu: bool, quiet: bool, legacy_audio: bool,
             data = write_toml_value(data, "vita", "draw_batching", draw_batching)
         if render_budget_probe is not None:
             data = write_toml_value(data, "vita", "render_budget_probe", render_budget_probe)
+        if gpu_lighting is not None:
+            data = write_toml_value(data, "vita", "gpu_lighting", gpu_lighting)
+        if native_materials is not None:
+            data = write_toml_value(data, "vita", "native_materials", native_materials)
     return write_toml_value(data, "audio", "legacy_stop_dma_on_queue_full", legacy_audio)
 
 
@@ -238,6 +251,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="Change only [vita] draw_batching; SELF must already match")
     parser.add_argument("--probe-only", action="store_true",
                         help="Change only [vita] render_budget_probe; SELF must already match")
+    parser.add_argument("--visual-only", action="store_true",
+                        help="Change exactly one shader/lighting option; SELF must already match")
+    parser.add_argument("--gpu-lighting", choices=("keep", "gpu", "cpu"), default="keep",
+                        help="Compare native GXM lighting against conservative CPU fallback")
+    parser.add_argument("--native-materials", choices=("keep", "native", "reference"), default="keep",
+                        help="Compare native material shader generation against TEV reference")
     parser.add_argument("--budget-probe", choices=("keep", "on", "off"), default="keep",
                         help="Sparse native GX/GXM/EFB timing, independent of full diagnostics")
     parser.add_argument("--render-batching", choices=("keep", "on", "off"), default="keep",
@@ -251,6 +270,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--audio-policy", choices=("continue", "legacy"), default="continue")
     parser.add_argument("--diagnostics", choices=("quiet", "enabled"), default="quiet")
     args = parser.parse_args(argv)
+    changed_visual = (args.gpu_lighting != "keep") + (args.native_materials != "keep")
+    if args.visual_only and (changed_visual != 1 or args.batch_only or args.probe_only or
+                             args.audio_only or args.render_batching != "keep" or
+                             args.budget_probe != "keep"):
+        parser.error("--visual-only requires exactly one --gpu-lighting/--native-materials control")
+    if not args.visual_only and (args.batch_only or args.probe_only or args.audio_only) and changed_visual:
+        parser.error("Config-only modes preserve all unrelated shader/lighting controls")
     if args.batch_only and (args.audio_only or args.render_batching == "keep"):
         parser.error("--batch-only requires --render-batching on/off, not --audio-only")
     if args.probe_only and (args.audio_only or args.batch_only or
@@ -265,7 +291,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.capture_frame is not None and (
             args.capture_frame < 1 or args.capture_frame > 100000 or
             args.diagnostics != "enabled" or args.batch_only or args.audio_only or
-            args.probe_only):
+            args.probe_only or args.visual_only):
         parser.error("--capture-frame requires --diagnostics enabled, frame 1..100000")
 
     build = args.build_dir.resolve()
@@ -285,11 +311,15 @@ def main(argv: list[str] | None = None) -> int:
     record: dict = {"utc": stamp, "host": args.host, "port": args.port,
                     "self_sha256": new_sha, "git_commit": delivery["head"],
                     "aurora_commit": delivery["aurora_pin"],
-                    "mode": "time-trial" if args.time_trial else "menu",
+                    "mode": "preserved" if (
+                        args.audio_only or args.batch_only or args.probe_only or
+                        args.visual_only) else ("time-trial" if args.time_trial else "menu"),
                     "diagnostics": args.diagnostics,
                     "audio_policy": args.audio_policy,
                     "audio_only": args.audio_only, "batch_only": args.batch_only,
                     "probe_only": args.probe_only, "budget_probe": args.budget_probe,
+                    "visual_only": args.visual_only,
+                    "gpu_lighting": args.gpu_lighting, "native_materials": args.native_materials,
                     "render_batching": args.render_batching,
                     "capture_frame": args.capture_frame, "dry_run": args.dry_run,
                     "launched": False}
@@ -298,7 +328,7 @@ def main(argv: list[str] | None = None) -> int:
         ftp.login()
         ftp.set_pasv(True)
         prior_self = read_remote(ftp, APP_ROOT + "/eboot.bin")
-        if (args.batch_only or args.probe_only) and prior_self != new_self:
+        if (args.batch_only or args.probe_only or args.visual_only) and prior_self != new_self:
             raise RuntimeError("Config-only mode requires the current SELF to be installed first")
         prior_config = read_remote(ftp, CONFIG_PATH)
         original_files = {APP_ROOT + "/eboot.bin": prior_self, CONFIG_PATH: prior_config}
@@ -317,10 +347,15 @@ def main(argv: list[str] | None = None) -> int:
                                 audio_only=args.audio_only,
                                 batching_only=args.batch_only,
                                 probe_only=args.probe_only,
+                                visual_only=args.visual_only,
                                 draw_batching=None if args.render_batching == "keep"
                                     else args.render_batching == "on",
                                 render_budget_probe=None if args.budget_probe == "keep"
                                     else args.budget_probe == "on",
+                                gpu_lighting=None if args.gpu_lighting == "keep"
+                                    else args.gpu_lighting == "gpu",
+                                native_materials=None if args.native_materials == "keep"
+                                    else args.native_materials == "native",
                                 capture_frame=args.capture_frame)
         (output / "Config.next.toml").write_bytes(next_config)
         changes: list[tuple[str, bytes]] = []

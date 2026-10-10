@@ -112,6 +112,32 @@ class InstallCurrentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "requires"):
             configure(on, menu=True, quiet=False, legacy_audio=True, probe_only=True)
 
+    def test_visual_shader_ab_changes_exactly_one_flag(self):
+        baseline = configure(self.ORIGINAL, menu=False, quiet=True,
+                             legacy_audio=False, draw_batching=True,
+                             render_budget_probe=True,
+                             gpu_lighting=True, native_materials=True)
+        cpu = configure(baseline, menu=True, quiet=False, legacy_audio=True,
+                        visual_only=True, gpu_lighting=False)
+        self.assertEqual(cpu.replace(b"gpu_lighting = false", b"gpu_lighting = true"),
+                         baseline)
+        self.assertIn(b"native_materials = true", cpu)
+        self.assertIn(b"draw_batching = true", cpu)
+        self.assertIn(b"render_budget_probe = true", cpu)
+        reference = configure(cpu, menu=True, quiet=False, legacy_audio=True,
+                              visual_only=True, native_materials=False)
+        self.assertIn(b"native_materials = false", reference)
+        self.assertIn(b"gpu_lighting = false", reference)
+        restored = configure(reference, menu=True, quiet=False, legacy_audio=True,
+                             visual_only=True, gpu_lighting=True)
+        self.assertIn(b"gpu_lighting = true", restored)
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            configure(baseline, menu=True, quiet=True, legacy_audio=False,
+                      visual_only=True, gpu_lighting=True, native_materials=False)
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            configure(baseline, menu=True, quiet=True, legacy_audio=False,
+                      visual_only=True)
+
     def test_capture_frame_integer_and_existing_config_preserved(self):
         data = configure(self.ORIGINAL, menu=False, quiet=False,
                          legacy_audio=False, draw_batching=True,

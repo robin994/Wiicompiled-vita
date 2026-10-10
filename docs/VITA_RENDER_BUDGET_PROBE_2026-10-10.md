@@ -78,3 +78,14 @@ Eseguire identico Time Trial con batching ON/OFF; gli FPS quiet sono confrontabi
 ## Test
 
 Gli unit test coprono parser `render_budget_probe`, applicazione al `BackendConfig`, idempotenza A/B installer in FTP simulato, analizzatore e le regole di clipping/memoria/submission gia presenti. Host e sintassi ARM vengono verificati separatamente; `arm-vita-eabi-g++ -fsyntax-only` **non produce eboot** e non e un test FPS.
+
+## Rettifica dopo il test hardware
+
+La sonda dell'implementazione Aurora `1cf5bca` e stata provata sulla console
+il 10/10: **misurava effettivamente i merge** (oltre 5.000 draw/frame) ma
+**non** i tempi in microsecondi, perche `diagnostic_now_us`,
+`telemetry_now_us` e `now_us` si disattivano con `diagnostics=false`.
+Gli zeri di quei log **non sono tempi validi**. La correzione dei clock,
+il profiling delle cause dei `sceGxmFinish` e l'A/B visivo dei materiali sono
+documentati in
+[VITA_1FPS_DARK_WHITE_FOLLOWUP_2026-10-10.md](VITA_1FPS_DARK_WHITE_FOLLOWUP_2026-10-10.md).

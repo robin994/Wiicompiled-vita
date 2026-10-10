@@ -57,7 +57,13 @@ def describe(sample: dict) -> str:
         f"efb_clear_ms={ms('efb_clear_us')} "
         f"queue_ms={ms('display_queue_us')} "
         f"white_draws={sample.get('white_fallback_draws', '?')} "
-        f"gpu_finishes={sample.get('native_finish', '?')}"
+        f"gpu_finishes={sample.get('native_finish', '?')} "
+        f"finish_destroy={sample.get('finish_destroy', '?')} "
+        f"finish_destroy_ms={ms('finish_destroy_us')} "
+        f"finish_buffer={sample.get('finish_buffer', '?')} "
+        f"finish_texture={sample.get('finish_texture', '?')} "
+        f"finish_readback={sample.get('finish_readback', '?')} "
+        f"finish_target={sample.get('finish_target', '?')}"
     )
 
 
@@ -74,6 +80,11 @@ def main(argv=None):
         samples = [r for r in samples if r.get("stage") == args.stage]
     print(f"Budget samples: {len(samples)}; GXM and EFB phases may overlap.")
     print("Samples include probe overhead. Compare normal FPS with render_budget_probe OFF.")
+    if (samples and all(row.get("worker_frame_us", 0) == 0 for row in samples) and
+            all(row.get("efb_capture_us", 0) == 0 for row in samples)):
+        print("WARNING: probe timings are all zero. The older Aurora clock "
+              "was gated by diagnostics.enabled=false; update Aurora before "
+              "attributing costs. Draw counts/merges are still valid.")
     for sample in samples[-args.last:]:
         print(describe(sample))
     if not samples:

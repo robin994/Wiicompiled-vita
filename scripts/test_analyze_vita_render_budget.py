@@ -13,7 +13,8 @@ class BudgetTests(unittest.TestCase):
         lines = (
             "[race-progress] frame=25 stage=0\n"
             "[wic-render-budget] frame=32 worker_frame_us=1000000 native_draws=310 sampled=1 "
-            "draw_us=250000 display_queue_us=35 native_finish=2\n"
+            "draw_us=250000 display_queue_us=35 native_finish=2 "
+            "finish_destroy=2 finish_destroy_us=430000\n"
             "[wic-draw-health] completed_frame=32 submitted=480 requested=495 merged=170 "
             "efb_copies=12 efb_flush_us=450000 efb_capture_us=14000 "
             "white_fallback_draws=0\n"
@@ -27,6 +28,7 @@ class BudgetTests(unittest.TestCase):
         self.assertEqual(rows[0]["merged"], 170)
         self.assertIn("efb_flush_ms=450.0", describe(rows[0]))
         self.assertIn("gpu_finishes=2", describe(rows[0]))
+        self.assertIn("finish_destroy_ms=430.0", describe(rows[0]))
         self.assertEqual(rows[0]["native_draws"], 310)
 
     def test_absent_or_incomplete_frames_not_misattributed(self):
