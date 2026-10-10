@@ -133,6 +133,10 @@ python3 scripts/analyze_vita_frame_budget.py \
 
 ## Stato modifica e pubblicazione
 
+Il runbook operativo del prossimo test P0, con comandi build/deploy VitaShell,
+backup, policy audio A/B, acquisizioni SHA-256 e successivo Time Trial quiet,
+e [VITA_P0_NEXT_BUILD_2026-10-10.md](VITA_P0_NEXT_BUILD_2026-10-10.md).
+
 Lo strumento e i test sono sorgenti host, non generano VPK e non richiedono
 caricare contenuti Nintendo. Le due catture e i report JSON restano sotto
 `build/`, esclusi dal versionamento. Non sono state eseguite build Vita
