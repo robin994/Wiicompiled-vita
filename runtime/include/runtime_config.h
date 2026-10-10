@@ -561,6 +561,7 @@ inline RuntimeUserConfig ParseConfigDocument(const toml::value& document) {
     renderUint("geometry_min_vertices",render.geometryMinVertices,3,65535);
     renderBool("prepared_display_lists",render.preparedDisplayLists);
     renderBool("draw_batching",render.drawBatching);
+    renderBool("render_budget_probe",render.renderBudgetProbe);
     renderBool("immediate_draw_view",render.immediateDrawView);
     renderBool("fragment_prepare_cache",render.fragmentPrepareCache);
     renderBool("fixed_uniform_pool",render.fixedUniformPool);

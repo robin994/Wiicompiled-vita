@@ -14,6 +14,9 @@ struct VitaRenderOptions {
     uint32_t geometryMinVertices = 48;
     bool preparedDisplayLists = false;
     bool drawBatching = false;
+    // One sampled frame out of 32: native GXM/FIFO/EFB timing without
+    // enabling continuous draw tracing or guest-call diagnostics.
+    bool renderBudgetProbe = false;
     bool immediateDrawView = false;
     bool fragmentPrepareCache = false;
     bool fixedUniformPool = false;

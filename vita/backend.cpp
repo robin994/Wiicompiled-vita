@@ -70,10 +70,10 @@ bool initialize(bool diagnosticsEnabled,const VitaRenderOptions& options) {
             std::fprintf(stderr,"[render-prewarm] phase=%s completed=%u total=%u\n",
                 phase,unsigned(completed),unsigned(total));
     };
-    std::fprintf(stderr,"[native-render-config] shader_preload=%u shader_limit=%u pipeline_limit=%u prepared_dl=%u draw_batching=%u immediate_view=%u fragment_cache=%u uniform_pool=%u geometry_preflight=%u min_vertices=%u gpu_lighting=%u native_materials=%u helpers=%u renderer_lanes=%u distinct_dispatch=%u direct_submit=%u direct_stream=%u\n",
+    std::fprintf(stderr,"[native-render-config] shader_preload=%u shader_limit=%u pipeline_limit=%u prepared_dl=%u draw_batching=%u budget_probe=%u immediate_view=%u fragment_cache=%u uniform_pool=%u geometry_preflight=%u min_vertices=%u gpu_lighting=%u native_materials=%u helpers=%u renderer_lanes=%u distinct_dispatch=%u direct_submit=%u direct_stream=%u\n",
         unsigned(config.gxm_preload_program_cache),unsigned(config.gxm_program_cache_preload_limit),
         unsigned(config.pipeline_prewarm_limit),unsigned(config.prepared_display_lists),
-        unsigned(config.gxm_local_draw_batching),unsigned(config.gxm_immediate_draw_view),
+        unsigned(config.gxm_local_draw_batching),unsigned(config.gxm_render_budget_probe),unsigned(config.gxm_immediate_draw_view),
         unsigned(config.gxm_fragment_prepare_cache),unsigned(config.gxm_fixed_uniform_pool),
         unsigned(config.gxm_geometry_preflight),unsigned(config.static_geometry_min_vertices),
         unsigned(config.gxm_lit_fixed_vertex_gpu),unsigned(options.nativeMaterials),

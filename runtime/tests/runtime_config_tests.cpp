@@ -15,21 +15,21 @@ bool Require(bool value, const char* message) {
 
 int main() {
     {
-        std::istringstream input("[vita]\nshader_binary_preload = false\npipeline_prewarm_limit = 512\nworker_threads = 0\nrenderer_lanes = 1\ngeometry_min_vertices = 3\nprepared_display_lists = true\ndraw_batching = true\nimmediate_draw_view = true\ngpu_lighting = false\ngeometry_cache = false\nnative_materials = false\nnative_asset_cache_mb = 8\n");
+        std::istringstream input("[vita]\nshader_binary_preload = false\npipeline_prewarm_limit = 512\nworker_threads = 0\nrenderer_lanes = 1\ngeometry_min_vertices = 3\nprepared_display_lists = true\ndraw_batching = true\nrender_budget_probe = true\nimmediate_draw_view = true\ngpu_lighting = false\ngeometry_cache = false\nnative_materials = false\nnative_asset_cache_mb = 8\n");
         const auto render=RuntimeConfigFile::ParseConfig(input).vitaRender;
         if(!Require(!render.shaderBinaryPreload && render.pipelinePrewarmLimit==512 &&
                     render.workerThreads==0 && render.rendererLanes==1 && render.geometryMinVertices==3 &&
-                    render.preparedDisplayLists && render.drawBatching && render.immediateDrawView &&
+                    render.preparedDisplayLists && render.drawBatching && render.renderBudgetProbe && render.immediateDrawView &&
                     render.gpuLighting==std::optional<bool>{false} && render.geometryCache==std::optional<bool>{false} &&
                     !render.nativeMaterials && render.nativeAssetCacheMb==8,
                     "Vita renderer/cache overrides were not loaded"))return 1;
     }
     {
-        std::istringstream input("[vita]\nshader_binary_preload = \"yes\"\npipeline_prewarm_limit = 513\nworker_threads = 3\nrenderer_lanes = -1\ngeometry_min_vertices = 2\nprepared_display_lists = 1\ngeometry_cache = \"true\"\nshader_preload_limit = 1025\nnative_asset_cache_mb = 33\n");
+        std::istringstream input("[vita]\nshader_binary_preload = \"yes\"\npipeline_prewarm_limit = 513\nworker_threads = 3\nrenderer_lanes = -1\ngeometry_min_vertices = 2\nprepared_display_lists = 1\nrender_budget_probe = 1\ngeometry_cache = \"true\"\nshader_preload_limit = 1025\nnative_asset_cache_mb = 33\n");
         const auto render=RuntimeConfigFile::ParseConfig(input).vitaRender;
         if(!Require(render.shaderBinaryPreload && render.pipelinePrewarmLimit==192 &&
                     render.workerThreads==2 && render.rendererLanes==0 && render.geometryMinVertices==48 &&
-                    !render.preparedDisplayLists && !render.geometryCache &&
+                    !render.preparedDisplayLists && !render.renderBudgetProbe && !render.geometryCache &&
                     render.shaderPreloadLimit==1024 && render.nativeAssetCacheMb==2,
                     "invalid Vita renderer options must retain bounded defaults"))return 1;
     }

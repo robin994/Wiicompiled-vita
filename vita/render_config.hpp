@@ -10,6 +10,7 @@ inline void apply_render_options(aurora::vita::BackendConfig& config,
     config.pipeline_prewarm_limit=options.pipelinePrewarmLimit;
     config.prepared_display_lists=options.preparedDisplayLists;
     config.gxm_local_draw_batching=options.drawBatching;
+    config.gxm_render_budget_probe=options.renderBudgetProbe;
     config.gxm_immediate_draw_view=options.immediateDrawView;
     config.gxm_fragment_prepare_cache=options.fragmentPrepareCache;
     config.gxm_fixed_uniform_pool=options.fixedUniformPool;

@@ -145,7 +145,13 @@ def write_toml_value(data: bytes, section: str, key: str, value: bool | int) -> 
 def configure(data: bytes, *, menu: bool, quiet: bool, legacy_audio: bool,
               audio_only: bool = False, batching_only: bool = False,
               draw_batching: bool | None = None,
-              capture_frame: int | None = None) -> bytes:
+              capture_frame: int | None = None,
+              probe_only: bool = False,
+              render_budget_probe: bool | None = None) -> bytes:
+    if probe_only:
+        if render_budget_probe is None:
+            raise ValueError("probe_only requires an explicit render_budget_probe value")
+        return write_toml_value(data, "vita", "render_budget_probe", render_budget_probe)
     if batching_only:
         if draw_batching is None:
             raise ValueError("batching_only requires an explicit draw_batching value")
@@ -157,6 +163,8 @@ def configure(data: bytes, *, menu: bool, quiet: bool, legacy_audio: bool,
             data = write_toml_value(data, "diagnostics", "capture_frame", capture_frame)
         if draw_batching is not None:
             data = write_toml_value(data, "vita", "draw_batching", draw_batching)
+        if render_budget_probe is not None:
+            data = write_toml_value(data, "vita", "render_budget_probe", render_budget_probe)
     return write_toml_value(data, "audio", "legacy_stop_dma_on_queue_full", legacy_audio)
 
 
@@ -228,6 +236,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="Change only the queue-full audio policy; keep menu/diagnostics intact")
     parser.add_argument("--batch-only", action="store_true",
                         help="Change only [vita] draw_batching; SELF must already match")
+    parser.add_argument("--probe-only", action="store_true",
+                        help="Change only [vita] render_budget_probe; SELF must already match")
+    parser.add_argument("--budget-probe", choices=("keep", "on", "off"), default="keep",
+                        help="Sparse native GX/GXM/EFB timing, independent of full diagnostics")
     parser.add_argument("--render-batching", choices=("keep", "on", "off"), default="keep",
                         help="Default keep; opt-in experimental GXM pending-draw batching")
     parser.add_argument("--capture-frame", type=int, default=None,
@@ -241,11 +253,19 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.batch_only and (args.audio_only or args.render_batching == "keep"):
         parser.error("--batch-only requires --render-batching on/off, not --audio-only")
+    if args.probe_only and (args.audio_only or args.batch_only or
+                            args.budget_probe == "keep" or args.render_batching != "keep"):
+        parser.error("--probe-only requires --budget-probe on/off and no other partial mode")
+    if args.batch_only and args.budget_probe != "keep":
+        parser.error("--batch-only preserves all other rendering options")
     if args.audio_only and args.render_batching != "keep":
         parser.error("--audio-only preserves rendering; omit --render-batching")
+    if args.audio_only and args.budget_probe != "keep":
+        parser.error("--audio-only preserves rendering; omit --budget-probe")
     if args.capture_frame is not None and (
             args.capture_frame < 1 or args.capture_frame > 100000 or
-            args.diagnostics != "enabled" or args.batch_only or args.audio_only):
+            args.diagnostics != "enabled" or args.batch_only or args.audio_only or
+            args.probe_only):
         parser.error("--capture-frame requires --diagnostics enabled, frame 1..100000")
 
     build = args.build_dir.resolve()
@@ -269,6 +289,7 @@ def main(argv: list[str] | None = None) -> int:
                     "diagnostics": args.diagnostics,
                     "audio_policy": args.audio_policy,
                     "audio_only": args.audio_only, "batch_only": args.batch_only,
+                    "probe_only": args.probe_only, "budget_probe": args.budget_probe,
                     "render_batching": args.render_batching,
                     "capture_frame": args.capture_frame, "dry_run": args.dry_run,
                     "launched": False}
@@ -277,8 +298,8 @@ def main(argv: list[str] | None = None) -> int:
         ftp.login()
         ftp.set_pasv(True)
         prior_self = read_remote(ftp, APP_ROOT + "/eboot.bin")
-        if args.batch_only and prior_self != new_self:
-            raise RuntimeError("--batch-only requires the current SELF to be installed first")
+        if (args.batch_only or args.probe_only) and prior_self != new_self:
+            raise RuntimeError("Config-only mode requires the current SELF to be installed first")
         prior_config = read_remote(ftp, CONFIG_PATH)
         original_files = {APP_ROOT + "/eboot.bin": prior_self, CONFIG_PATH: prior_config}
         (output / "prior-eboot.bin").write_bytes(prior_self)
@@ -295,8 +316,11 @@ def main(argv: list[str] | None = None) -> int:
                                 legacy_audio=args.audio_policy == "legacy",
                                 audio_only=args.audio_only,
                                 batching_only=args.batch_only,
+                                probe_only=args.probe_only,
                                 draw_batching=None if args.render_batching == "keep"
                                     else args.render_batching == "on",
+                                render_budget_probe=None if args.budget_probe == "keep"
+                                    else args.budget_probe == "on",
                                 capture_frame=args.capture_frame)
         (output / "Config.next.toml").write_bytes(next_config)
         changes: list[tuple[str, bytes]] = []

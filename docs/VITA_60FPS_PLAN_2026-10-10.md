@@ -110,6 +110,15 @@ python3 scripts/analyze_vita_frame_budget.py \
   protezione per gli altri consumer Aurora e diagnosi white fallback/HUD:
   [VITA_GXM_PENDING_BATCH_2026-10-10.md](VITA_GXM_PENDING_BATCH_2026-10-10.md).
   Non attribuire un guadagno alla compattazione prima dell'A/B su hardware.
+- **Risultato hardware 10/10:** la build Aurora `a4f93c3` era realmente
+  installata e `draw_batching=1`, ma l'utente non osserva alcun miglioramento:
+  **non ripetere questo esperimento alla cieca**. In quiet i messaggi
+  `[wic-draw-health]` erano soppressi. La nuova sonda campionata e il runbook
+  sono in
+  [VITA_RENDER_BUDGET_PROBE_2026-10-10.md](VITA_RENDER_BUDGET_PROBE_2026-10-10.md);
+  separare GXM draw, copie EFB, preparazione GX e backpressure prima di
+  scegliere un'altra ottimizzazione. I 6.260 draw/frame sono di una scena
+  precedente, non un conteggio della nuova build.
 
 **P3: GPU fixed vertex e material preparation.**
 - Asset statici e shading precompilabili nel PSARC; animazioni e skinning

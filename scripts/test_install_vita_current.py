@@ -96,6 +96,22 @@ class InstallCurrentTests(unittest.TestCase):
             configure(baseline, menu=True, quiet=True, legacy_audio=False,
                       batching_only=True)
 
+    def test_budget_probe_only_keeps_game_audio_and_batch_profile(self):
+        baseline = configure(self.ORIGINAL, menu=False, quiet=True,
+                             legacy_audio=False, draw_batching=True)
+        on = configure(baseline, menu=True, quiet=False, legacy_audio=True,
+                       probe_only=True, render_budget_probe=True)
+        self.assertIn(b"render_budget_probe = true", on)
+        self.assertIn(b"draw_batching = true", on)
+        self.assertIn(b"time_trial = true # old run", on)
+        self.assertIn(b"legacy_stop_dma_on_queue_full = false", on)
+        off = configure(on, menu=True, quiet=False, legacy_audio=True,
+                        probe_only=True, render_budget_probe=False)
+        self.assertEqual(configure(off, menu=True, quiet=False, legacy_audio=True,
+                                   probe_only=True, render_budget_probe=True), on)
+        with self.assertRaisesRegex(ValueError, "requires"):
+            configure(on, menu=True, quiet=False, legacy_audio=True, probe_only=True)
+
     def test_capture_frame_integer_and_existing_config_preserved(self):
         data = configure(self.ORIGINAL, menu=False, quiet=False,
                          legacy_audio=False, draw_batching=True,
