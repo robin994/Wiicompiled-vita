@@ -38,6 +38,7 @@ def file_digest(path: Path) -> str:
 
 
 def verify_build(folder: Path, *, async_required: bool = True) -> tuple[dict[str, bytes], dict]:
+    from record_vita_delivery import source_digest
     from vita_sfo import verify_package_sfo
 
     delivery_path = folder / "DELIVERY.json"
@@ -63,6 +64,13 @@ def verify_build(folder: Path, *, async_required: bool = True) -> tuple[dict[str
     if delivery.get("head") != subprocess.check_output(
             ["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip():
         raise ValueError("DELIVERY.json was generated against a different WiiCompiled commit")
+    # Both Git pins may match even though M04/M06 or generated translation files
+    # changed since the SELF was built. Prevent no-op A/B tests on stale code.
+    source_hash,source_count=source_digest(ROOT)
+    if (not delivery.get("source_and_generated_sha256") or
+            delivery["source_and_generated_sha256"]!=source_hash or
+            delivery.get("source_files_hashed")!=source_count):
+        raise ValueError("Local source/generated files differ from DELIVERY.json; rebuild Vita before installing")
 
     expected_files = {Path(item["path"]).resolve(): item["sha256"]
                       for item in artifacts["files"]}
@@ -150,7 +158,36 @@ def configure(data: bytes, *, menu: bool, quiet: bool, legacy_audio: bool,
               render_budget_probe: bool | None = None,
               visual_only: bool = False,
               gpu_lighting: bool | None = None,
-              native_materials: bool | None = None) -> bytes:
+              native_materials: bool | None = None,
+              precomputed_only: bool = False,
+              precomputed_geometry: bool | None = None,
+              efb_only: bool = False,
+              async_efb_copies: bool | None = None,
+              deferred_efb_targets: bool | None = None,
+              recipe_only: bool = False,
+              prepared_display_lists: bool | None = None,
+              lyt_only: bool = False,
+              native_lyt_packets: bool | None = None) -> bytes:
+    if lyt_only:
+        if native_lyt_packets is None:
+            raise ValueError("lyt_only requires an explicit native_lyt_packets value")
+        return write_toml_value(data, "vita", "native_lyt_packets", native_lyt_packets)
+    if recipe_only:
+        if prepared_display_lists is None:
+            raise ValueError("recipe_only requires an explicit prepared_display_lists value")
+        return write_toml_value(data, "vita", "prepared_display_lists", prepared_display_lists)
+    if efb_only:
+        if (async_efb_copies is None) == (deferred_efb_targets is None):
+            raise ValueError("efb_only requires exactly one EFB option")
+        return write_toml_value(data, "vita",
+                                "async_efb_copies" if async_efb_copies is not None
+                                else "deferred_efb_targets",
+                                async_efb_copies if async_efb_copies is not None
+                                else deferred_efb_targets)
+    if precomputed_only:
+        if precomputed_geometry is None:
+            raise ValueError("precomputed_only requires an explicit precomputed_geometry value")
+        return write_toml_value(data, "vita", "precomputed_geometry", precomputed_geometry)
     if visual_only:
         if (gpu_lighting is None) == (native_materials is None):
             raise ValueError("visual_only requires exactly one graphics control")
@@ -178,6 +215,16 @@ def configure(data: bytes, *, menu: bool, quiet: bool, legacy_audio: bool,
             data = write_toml_value(data, "vita", "gpu_lighting", gpu_lighting)
         if native_materials is not None:
             data = write_toml_value(data, "vita", "native_materials", native_materials)
+        if precomputed_geometry is not None:
+            data = write_toml_value(data, "vita", "precomputed_geometry", precomputed_geometry)
+        if prepared_display_lists is not None:
+            data = write_toml_value(data, "vita", "prepared_display_lists", prepared_display_lists)
+        if native_lyt_packets is not None:
+            data = write_toml_value(data, "vita", "native_lyt_packets", native_lyt_packets)
+        if async_efb_copies is not None:
+            data = write_toml_value(data, "vita", "async_efb_copies", async_efb_copies)
+        if deferred_efb_targets is not None:
+            data = write_toml_value(data, "vita", "deferred_efb_targets", deferred_efb_targets)
     return write_toml_value(data, "audio", "legacy_stop_dma_on_queue_full", legacy_audio)
 
 
@@ -253,6 +300,24 @@ def main(argv: list[str] | None = None) -> int:
                         help="Change only [vita] render_budget_probe; SELF must already match")
     parser.add_argument("--visual-only", action="store_true",
                         help="Change exactly one shader/lighting option; SELF must already match")
+    parser.add_argument("--precomputed-only", action="store_true",
+                        help="Change only [vita] precomputed_geometry; SELF must already match")
+    parser.add_argument("--recipe-only", action="store_true",
+                        help="Change only [vita] prepared_display_lists; SELF must already match")
+    parser.add_argument("--lyt-only", action="store_true",
+                        help="Change only [vita] native_lyt_packets; SELF must already match")
+    parser.add_argument("--prepared-display-lists", choices=("keep", "on", "off"), default="keep",
+                        help="A/B test immutable multi-draw native NW4r shape-list recipes")
+    parser.add_argument("--native-lyt-packets", choices=("keep", "on", "off"), default="keep",
+                        help="A/B test native NW4r UI quads on the async GX consumer")
+    parser.add_argument("--efb-only", action="store_true",
+                        help="Change exactly one EFB experiment; SELF must already match")
+    parser.add_argument("--async-efb-copies", choices=("keep", "on", "off"), default="keep",
+                        help="Avoid the redundant GXDrawDone before queued EFB texture copies")
+    parser.add_argument("--deferred-efb-targets", choices=("keep", "on", "off"), default="keep",
+                        help="Retire/reuse EFB render targets only after GPU scene completion")
+    parser.add_argument("--precomputed-geometry", choices=("keep", "on", "off"), default="keep",
+                        help="Compare immutable precomputed GXM geometry using the same SELF")
     parser.add_argument("--gpu-lighting", choices=("keep", "gpu", "cpu"), default="keep",
                         help="Compare native GXM lighting against conservative CPU fallback")
     parser.add_argument("--native-materials", choices=("keep", "native", "reference"), default="keep",
@@ -270,7 +335,61 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--audio-policy", choices=("continue", "legacy"), default="continue")
     parser.add_argument("--diagnostics", choices=("quiet", "enabled"), default="quiet")
     args = parser.parse_args(argv)
+    if args.lyt_only and (
+            args.native_lyt_packets == "keep" or args.recipe_only or args.audio_only or
+            args.batch_only or args.probe_only or args.visual_only or args.precomputed_only or
+            args.efb_only or args.menu or args.time_trial or args.render_batching != "keep" or
+            args.budget_probe != "keep" or args.async_efb_copies != "keep" or
+            args.deferred_efb_targets != "keep" or args.precomputed_geometry != "keep" or
+            args.prepared_display_lists != "keep" or args.gpu_lighting != "keep" or
+            args.native_materials != "keep" or args.capture_frame is not None or
+            args.diagnostics != "quiet" or args.audio_policy != "continue"):
+        parser.error("--lyt-only requires --native-lyt-packets on/off and no unrelated settings")
+    if args.native_lyt_packets != "keep" and (
+            args.audio_only or args.batch_only or args.probe_only or args.visual_only or
+            args.precomputed_only or args.efb_only or args.recipe_only):
+        parser.error("Other partial modes preserve native_lyt_packets")
+    if args.recipe_only and (
+            args.lyt_only or args.prepared_display_lists == "keep" or args.audio_only or args.batch_only or
+            args.probe_only or args.visual_only or args.precomputed_only or args.efb_only or
+            args.menu or args.time_trial or args.render_batching != "keep" or
+            args.budget_probe != "keep" or args.async_efb_copies != "keep" or
+            args.deferred_efb_targets != "keep" or args.precomputed_geometry != "keep" or
+            args.gpu_lighting != "keep" or args.native_materials != "keep" or
+            args.capture_frame is not None or args.diagnostics != "quiet" or
+            args.audio_policy != "continue"):
+        parser.error("--recipe-only requires --prepared-display-lists on/off and no unrelated settings")
+    if args.prepared_display_lists != "keep" and (
+            args.audio_only or args.batch_only or args.probe_only or
+            args.visual_only or args.precomputed_only or args.efb_only):
+        parser.error("Other partial modes preserve prepared_display_lists")
+    changed_efb = (args.async_efb_copies != "keep") + (args.deferred_efb_targets != "keep")
+    config_only = (args.audio_only or args.batch_only or args.probe_only or
+                   args.visual_only or args.precomputed_only or args.efb_only or
+                   args.recipe_only or args.lyt_only)
+    if args.efb_only and (
+            changed_efb != 1 or args.precomputed_geometry != "keep" or
+            args.render_batching != "keep" or args.budget_probe != "keep" or
+            args.gpu_lighting != "keep" or args.native_materials != "keep" or
+            args.capture_frame is not None or args.menu or args.time_trial or
+            args.diagnostics != "quiet" or args.audio_policy != "continue" or
+            args.audio_only or args.batch_only or args.probe_only or
+            args.visual_only or args.precomputed_only):
+        parser.error("--efb-only requires exactly one --async-efb-copies/--deferred-efb-targets control")
+    if changed_efb and config_only and not args.efb_only:
+        parser.error("Other config-only modes preserve EFB experiment options")
     changed_visual = (args.gpu_lighting != "keep") + (args.native_materials != "keep")
+    if args.precomputed_only and (
+            args.precomputed_geometry == "keep" or args.audio_only or args.batch_only or
+            args.probe_only or args.visual_only or args.efb_only or changed_visual or
+            args.render_batching != "keep" or args.budget_probe != "keep" or
+            args.capture_frame is not None or args.menu or args.time_trial or
+            args.diagnostics != "quiet" or args.audio_policy != "continue"):
+        parser.error("--precomputed-only requires --precomputed-geometry on/off and no other controls")
+    if args.precomputed_geometry != "keep" and (
+            args.audio_only or args.batch_only or args.probe_only or
+            args.visual_only or args.efb_only):
+        parser.error("Other config-only modes preserve precomputed_geometry")
     if args.visual_only and (changed_visual != 1 or args.batch_only or args.probe_only or
                              args.audio_only or args.render_batching != "keep" or
                              args.budget_probe != "keep"):
@@ -291,7 +410,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.capture_frame is not None and (
             args.capture_frame < 1 or args.capture_frame > 100000 or
             args.diagnostics != "enabled" or args.batch_only or args.audio_only or
-            args.probe_only or args.visual_only):
+            args.probe_only or args.visual_only or args.efb_only):
         parser.error("--capture-frame requires --diagnostics enabled, frame 1..100000")
 
     build = args.build_dir.resolve()
@@ -313,12 +432,20 @@ def main(argv: list[str] | None = None) -> int:
                     "aurora_commit": delivery["aurora_pin"],
                     "mode": "preserved" if (
                         args.audio_only or args.batch_only or args.probe_only or
-                        args.visual_only) else ("time-trial" if args.time_trial else "menu"),
+                        args.visual_only or args.precomputed_only or args.efb_only or
+                        args.recipe_only or args.lyt_only) else ("time-trial" if args.time_trial else "menu"),
                     "diagnostics": args.diagnostics,
                     "audio_policy": args.audio_policy,
                     "audio_only": args.audio_only, "batch_only": args.batch_only,
                     "probe_only": args.probe_only, "budget_probe": args.budget_probe,
                     "visual_only": args.visual_only,
+                    "precomputed_only": args.precomputed_only,
+                    "precomputed_geometry": args.precomputed_geometry,
+                    "recipe_only": args.recipe_only,
+                    "prepared_display_lists": args.prepared_display_lists,
+                    "lyt_only": args.lyt_only,"native_lyt_packets": args.native_lyt_packets,
+                    "efb_only": args.efb_only,"async_efb_copies": args.async_efb_copies,
+                    "deferred_efb_targets": args.deferred_efb_targets,
                     "gpu_lighting": args.gpu_lighting, "native_materials": args.native_materials,
                     "render_batching": args.render_batching,
                     "capture_frame": args.capture_frame, "dry_run": args.dry_run,
@@ -328,7 +455,9 @@ def main(argv: list[str] | None = None) -> int:
         ftp.login()
         ftp.set_pasv(True)
         prior_self = read_remote(ftp, APP_ROOT + "/eboot.bin")
-        if (args.batch_only or args.probe_only or args.visual_only) and prior_self != new_self:
+        if (args.batch_only or args.probe_only or args.visual_only or
+                args.precomputed_only or args.efb_only or args.recipe_only or
+                args.lyt_only) and prior_self != new_self:
             raise RuntimeError("Config-only mode requires the current SELF to be installed first")
         prior_config = read_remote(ftp, CONFIG_PATH)
         original_files = {APP_ROOT + "/eboot.bin": prior_self, CONFIG_PATH: prior_config}
@@ -356,6 +485,20 @@ def main(argv: list[str] | None = None) -> int:
                                     else args.gpu_lighting == "gpu",
                                 native_materials=None if args.native_materials == "keep"
                                     else args.native_materials == "native",
+                                precomputed_only=args.precomputed_only,
+                                precomputed_geometry=None if args.precomputed_geometry == "keep"
+                                    else args.precomputed_geometry == "on",
+                                recipe_only=args.recipe_only,
+                                prepared_display_lists=None if args.prepared_display_lists == "keep"
+                                    else args.prepared_display_lists == "on",
+                                lyt_only=args.lyt_only,
+                                native_lyt_packets=None if args.native_lyt_packets == "keep"
+                                    else args.native_lyt_packets == "on",
+                                efb_only=args.efb_only,
+                                async_efb_copies=None if args.async_efb_copies == "keep"
+                                    else args.async_efb_copies == "on",
+                                deferred_efb_targets=None if args.deferred_efb_targets == "keep"
+                                    else args.deferred_efb_targets == "on",
                                 capture_frame=args.capture_frame)
         (output / "Config.next.toml").write_bytes(next_config)
         changes: list[tuple[str, bytes]] = []

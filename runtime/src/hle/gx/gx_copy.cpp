@@ -3,20 +3,26 @@
 #include "hle/gx/gx_lock.h"
 
 #include "settings_overlay.h"
+#include "gx_copy_async_policy.hpp"
 
 #include <dolphin/gx/GXAurora.h>
 
 #include <algorithm>
+#include <atomic>
 #include <map>
 #include <mutex>
 #include <vector>
 #if defined(MKW_TARGET_VITA)
+#include "gx/fifo.hpp"
 #include <aurora/gfx.h>
 #include "gfx/vita_memory_revision.hpp"
 #include <array>
 #endif
 
 namespace {
+#if defined(MKW_TARGET_VITA)
+std::atomic_bool g_asyncEfbCopies{false};
+#endif
 // Copy destinations stay GPU-only until an explicit/lazy readback. Track the
 // guest ranges that own those results so a later data-cache flush over a reused
 // allocation can retire the stale GPU texture before it is considered by a
@@ -78,6 +84,12 @@ void RememberEfbCopyDestination(uint32_t addr, uint32_t size) {
 }
 
 } // namespace
+
+#if defined(MKW_TARGET_VITA)
+extern "C" void WicSetAsyncEfbCopies(bool enabled) noexcept {
+    g_asyncEfbCopies.store(enabled,std::memory_order_release);
+}
+#endif
 
 void InvalidateEfbCopyDestinationsForRange(uint32_t addr, uint32_t size) {
     if (size == 0) {
@@ -185,7 +197,16 @@ PPC_NATIVE_OVERRIDE_VOID(8016fc38, GX__CopyDisp_8016fc38, (uint32_t da, uint32_t
 extern "C" void GX__CopyTex_8016fd74(uint32_t da, uint32_t c) {
     EnsureAuroraFrameActive();
     // Match GX FIFO ordering: texture copies observe all prior draws.
+#if defined(MKW_TARGET_VITA)
+    // Aurora queues the copy callback after the FIFO. Only keep the producer
+    // wait when a draw-done callback is active, or the worker is unavailable.
+    if (wiicompiled::gx::copy_tex_must_wait(
+            g_asyncEfbCopies.load(std::memory_order_acquire),
+            aurora::gx::fifo::worker_running(),GXVitaHasDrawDoneCallback()!=GX_FALSE))
+        GXDrawDone();
+#else
     GXDrawDone();
+#endif
     const uint16_t rawSrcLeft = g_texCopyState.srcLeft;
     const uint16_t rawSrcTop = g_texCopyState.srcTop;
     const uint16_t rawSrcWidth = g_texCopyState.srcWidth;

@@ -4,6 +4,7 @@
 #include "runtime_log.h"
 
 #include <aurora/gfx.h>
+#include <dolphin/gx/GXAurora.h>
 
 #include <array>
 #include <cstdio>
@@ -23,6 +24,15 @@ struct GuestRamAlias {
 };
 
 std::array<GuestRamAlias, 2> g_aliases{};
+
+const void* ResolveBPTextureAddress(uint32_t physical,uint32_t bytes) noexcept {
+    if(!bytes)return nullptr;
+    for(const auto& alias:g_aliases) {
+        if(const void* data=PhysicalRangeToHost(alias.hostBase,alias.size,alias.guestBase,physical,bytes))
+            return data;
+    }
+    return nullptr;
+}
 
 bool HostToGuest(const void* hostPtr, size_t size, uint32_t& outAddr) noexcept {
     for (const auto& alias : g_aliases) {
@@ -78,6 +88,11 @@ void InstallAuroraHooks() {
         return;
     }
     aurora_set_guest_write_hooks(&GuestWriteGenerationHook, &GuestWriteNotifyHook);
+#if defined(MKW_TARGET_VITA)
+    // Alias-only resolution avoids deferred-read callbacks or GX re-entry from
+    // the consumer. EFB-backed addresses remain identified by their host alias.
+    GXSetBPTextureAddressResolver(&ResolveBPTextureAddress);
+#endif
 }
 
 } // namespace GxGuestWrite

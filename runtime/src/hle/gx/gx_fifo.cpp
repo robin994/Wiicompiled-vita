@@ -439,6 +439,7 @@ void HleFifoWrite(u32 val, uint32_t sizeBytes) {
         if (cmd == GX_LOAD_BP_REG_CMD) {
             if (g_hleGxState.fifoByteCount < 5) break;
             const uint32_t bpWord = ReadBE32(data + 1);
+            InvalidateNativeTextureBindings(GxTextureBindingContract::BindingMaskForBpRegister(uint8_t(bpWord>>24)));
             GXApplyBPReg(static_cast<uint8_t>(bpWord >> 24), bpWord & 0x00FFFFFFu);
             if (!consumeBytes(5, sink)) break;
             continue;
@@ -699,6 +700,7 @@ static uint32_t ApplyFifoPacketsDirect(const uint8_t* data, uint32_t sizeBytes) 
         if (cmd == GX_LOAD_BP_REG_CMD) {
             if (avail < 5u) break;
             const uint32_t bpWord = ReadBE32(packet + 1);
+            InvalidateNativeTextureBindings(GxTextureBindingContract::BindingMaskForBpRegister(uint8_t(bpWord>>24)));
             GXApplyBPReg(static_cast<uint8_t>(bpWord >> 24), bpWord & 0x00FFFFFFu);
             offset += 5u;
             continue;

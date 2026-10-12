@@ -63,6 +63,10 @@ bool initialize(bool diagnosticsEnabled,const VitaRenderOptions& options) {
     config.cpu_worker_threads=2;
     config.cpu_distinct_core_dispatch=WIC_DISTINCT_CPU_CORES != 0;
     apply_render_options(config,options);
+    const uint32_t unsupported=sanitize_render_features(config);
+    std::fprintf(stderr,"[render-capabilities] precomputed_geometry=1 deferred_gxp_writes=1 efb_snap=1 native_lyt=0 native_primitives=0 deferred_efb_targets=0 rejected_requests=0x%x\n",unsupported);
+    std::fprintf(stderr,"[precomputed-geometry-config] enabled=%u records=512 backing_limit=262144 shader_state=context\n",
+        unsigned(config.gxm_precomputed_geometry));
     config.resident_geometry_cdram=config.static_geometry_budget!=0;
     config.cpu_distinct_core_dispatch=WIC_DISTINCT_CPU_CORES != 0 || options.distinctCpuDispatch;
     config.startup_progress=[](const char* phase,size_t completed,size_t total,void*) {
@@ -70,23 +74,29 @@ bool initialize(bool diagnosticsEnabled,const VitaRenderOptions& options) {
             std::fprintf(stderr,"[render-prewarm] phase=%s completed=%u total=%u\n",
                 phase,unsigned(completed),unsigned(total));
     };
-    std::fprintf(stderr,"[native-render-config] shader_preload=%u shader_limit=%u pipeline_limit=%u prepared_dl=%u draw_batching=%u budget_probe=%u immediate_view=%u fragment_cache=%u uniform_pool=%u geometry_preflight=%u min_vertices=%u gpu_lighting=%u native_materials=%u helpers=%u renderer_lanes=%u distinct_dispatch=%u direct_submit=%u direct_stream=%u\n",
+    std::fprintf(stderr,"[native-render-config] shader_preload=%u shader_limit=%u pipeline_limit=%u prepared_dl=%u native_lyt=%u draw_batching=%u native_primitives_min=%u budget_probe=%u immediate_view=%u fragment_cache=%u uniform_pool=%u geometry_preflight=%u min_vertices=%u gpu_lighting=%u native_materials=%u helpers=%u renderer_lanes=%u distinct_dispatch=%u direct_submit=%u direct_stream=%u deferred_gxp_writes=%u\n",
         unsigned(config.gxm_preload_program_cache),unsigned(config.gxm_program_cache_preload_limit),
         unsigned(config.pipeline_prewarm_limit),unsigned(config.prepared_display_lists),
-        unsigned(config.gxm_local_draw_batching),unsigned(config.gxm_render_budget_probe),unsigned(config.gxm_immediate_draw_view),
+        unsigned(config.native_lyt_packets),
+        unsigned(config.gxm_local_draw_batching),unsigned(config.gxm_native_primitive_min_vertices),
+        unsigned(config.gxm_render_budget_probe),unsigned(config.gxm_immediate_draw_view),
         unsigned(config.gxm_fragment_prepare_cache),unsigned(config.gxm_fixed_uniform_pool),
         unsigned(config.gxm_geometry_preflight),unsigned(config.static_geometry_min_vertices),
         unsigned(config.gxm_lit_fixed_vertex_gpu),unsigned(options.nativeMaterials),
         unsigned(config.cpu_worker_threads),unsigned(config.cpu_renderer_execution_lanes),
-        unsigned(config.cpu_distinct_core_dispatch),unsigned(WIC_NATIVE_DIRECT_SUBMIT),unsigned(WIC_NATIVE_DIRECT_STREAM));
+        unsigned(config.cpu_distinct_core_dispatch),unsigned(WIC_NATIVE_DIRECT_SUBMIT),unsigned(WIC_NATIVE_DIRECT_STREAM),
+        unsigned(config.gxm_defer_program_cache_writes));
 #if WIC_PRECOMPILED_ASSETS
     config.native_asset_reader=WicReadNativeAsset;
 #endif
     // Diagnostic candidate: count fallback textures and retain a bounded draw
     // trace without changing TEV, scissor, scene ordering or copy semantics.
-    config.performance_attribution=true;
+    // Full attribution and per-texture decode tracing are useful for a
+    // one-shot diagnostic capture, but generate unnecessary CPU and file
+    // traffic during ordinary races on the PS Vita.
+    config.performance_attribution=diagnosticsEnabled;
     config.diagnostics_enabled=diagnosticsEnabled;
-    config.texture_decode_diagnostics=true;
+    config.texture_decode_diagnostics=diagnosticsEnabled;
     config.coverage_log_path="ux0:data/wiicompiled-vita/aurora/diagnostics/wic-coverage.log";
     config.trace_log_path="ux0:data/wiicompiled-vita/aurora/diagnostics/wic-draw-trace.log";
     config.trace_capacity=256;

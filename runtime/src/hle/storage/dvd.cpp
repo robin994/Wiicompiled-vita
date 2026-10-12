@@ -415,9 +415,15 @@ extern "C" void DvdLogIsoStats() {
 #if defined(MKW_TARGET_VITA)
     if(g_psarcIndex) {
         const auto stats=wiicompiled::vita::psarc::Statistics();
-        std::fprintf(stderr,"[psarc] reads=%llu bytes=%llu native_io_us=%llu failures=%llu stored_blocks=1\n",
+        std::fprintf(stderr,"[psarc] reads=%llu bytes=%llu native_io_us=%llu failures=%llu stored_blocks=1 physical_reads=%llu physical_bytes=%llu small_reads=%llu cache_hits=%llu cache_fills=%llu io_failures=%llu\n",
             static_cast<unsigned long long>(stats.reads),static_cast<unsigned long long>(stats.bytes),
-            static_cast<unsigned long long>(stats.ioMicros),static_cast<unsigned long long>(stats.failures));
+            static_cast<unsigned long long>(stats.ioMicros),static_cast<unsigned long long>(stats.failures),
+            static_cast<unsigned long long>(stats.physicalReads),
+            static_cast<unsigned long long>(stats.physicalBytes),
+            static_cast<unsigned long long>(stats.smallReads),
+            static_cast<unsigned long long>(stats.cacheHits),
+            static_cast<unsigned long long>(stats.cacheFills),
+            static_cast<unsigned long long>(stats.physicalFailures));
         return;
     }
 #endif

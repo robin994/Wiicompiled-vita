@@ -343,6 +343,7 @@ bool ValidateTlutData(uint32_t objAddr, const TlutObjMeta& meta);
 TexObjMeta& GetTexObjMeta(uint32_t addr);
 TexObjMeta ExtractTexObjMetaFromGuest(uint32_t addr);
 bool TryGetOrExtractTexObjMeta(uint32_t addr, TexObjMeta& outMeta);
+void InvalidateNativeTextureBindings(uint8_t mask);
 TlutObjMeta& GetTlutObjMeta(uint32_t addr);
 GXTexObj* GetHostTexObj(uint32_t addr);
 GXTexObj* TryGetHostTexObj(uint32_t addr);

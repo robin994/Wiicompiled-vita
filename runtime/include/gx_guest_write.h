@@ -39,6 +39,17 @@ inline uint32_t CanonicalizeGxMainRamAddress(uint32_t addr) noexcept {
 
 namespace GxGuestWrite {
 
+// Physical BP addresses must resolve without invoking guest reads or re-entering
+// the GX consumer. Reject the whole encoded span if it crosses a RAM bank.
+inline const void* PhysicalRangeToHost(const void* hostBase,uint64_t bankSize,
+                                      uint32_t guestBase,uint32_t physical,uint32_t bytes) noexcept {
+    const uint32_t base=guestBase&0x3fffffffu;
+    if(!hostBase||!bytes||physical<base)return nullptr;
+    const uint64_t offset=uint64_t(physical)-base;
+    if(offset>bankSize||bytes>bankSize-offset)return nullptr;
+    return static_cast<const uint8_t*>(hostBase)+offset;
+}
+
 // Granularity matches the GX resource caches' occupancy maps: 64 KiB, so a
 // cacheable display list or texture spans only a handful of counters. A false
 // bump only costs one re-digest, which is exactly the untracked behaviour.

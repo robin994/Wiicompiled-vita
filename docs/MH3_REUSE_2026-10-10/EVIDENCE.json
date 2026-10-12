@@ -1,0 +1,737 @@
+{
+  "aurora_source_comparison": [
+    {
+      "embedded_sha256": "fb0d4fac0fb34a27c02c12159fb3cf2486650d903da27f8d26c0f186b7a7a499",
+      "identical": false,
+      "path": "platforms/vita/gxm/gxm_renderer.cpp",
+      "standalone_sha256": "a619b7086149e0b74eefe894279da3ed265fa0b995559f11917a138f3eddcbbb"
+    },
+    {
+      "embedded_sha256": "777be284d26d8a2cc02dd31f60e3720631b9dd213892a87da4337be75a544b03",
+      "identical": false,
+      "path": "platforms/vita/gx/aurora_vita_draw_sink.cpp",
+      "standalone_sha256": "397731f8a93d12e485113302c5db2e230c878072ab58ff99d07aa336c55f837e"
+    },
+    {
+      "embedded_sha256": "cd5f054497711207d52b5afdb92f677d72bb39af97b372e9b0ae0d934aa9e4ea",
+      "identical": false,
+      "path": "platforms/vita/gxm/gxm_shader_gen.cpp",
+      "standalone_sha256": "1e9fe9538c5f326ea257abd6c42ac65fc02686ad8443a43ec0220fce6ee2d5c2"
+    },
+    {
+      "embedded_sha256": "566ca351d7dbf1f8c3610667b6fcf2360f1fcef6e569ac918dcd8259e75ae682",
+      "identical": true,
+      "path": "platforms/vita/gfx/vita_texture_decode.cpp",
+      "standalone_sha256": "566ca351d7dbf1f8c3610667b6fcf2360f1fcef6e569ac918dcd8259e75ae682"
+    },
+    {
+      "embedded_sha256": "1276111cfd0069c9cf2dd806392e1ce46b8c40d64dcf78457c84103538a90e30",
+      "identical": true,
+      "path": "platforms/vita/gfx/vita_fixed_snapshots.hpp",
+      "standalone_sha256": "1276111cfd0069c9cf2dd806392e1ce46b8c40d64dcf78457c84103538a90e30"
+    },
+    {
+      "embedded_sha256": "b6b5ca5ad1b1ea7577eee171369b76e4cba91e572e36fccb7f6320d12b7652f1",
+      "identical": true,
+      "path": "platforms/vita/gfx/vita_command_stream.hpp",
+      "standalone_sha256": "b6b5ca5ad1b1ea7577eee171369b76e4cba91e572e36fccb7f6320d12b7652f1"
+    }
+  ],
+  "checkouts": [
+    {
+      "branch": "codex/restart-iso-gxm-20261005",
+      "head": "90eb1ddc93d545a2b4509600de43904d13400196",
+      "initial_status": [
+        "?? 2026-10-08-210330.png"
+      ],
+      "name": "WiiCompiled",
+      "path": "/Users/robin994/Documents/Code/PSVita/wiicompiled-vita",
+      "task_edits": "Tracked edits plus new docs, inventory and tests; no commit or push"
+    },
+    {
+      "branch": "wiicompiled-integration-20261006",
+      "final_status": [],
+      "head": "7a69a51bf392c62e37aca5926f0dbd27cb0c128b",
+      "initial_status": [],
+      "name": "Aurora embedded",
+      "path": "/Users/robin994/Documents/Code/PSVita/wiicompiled-vita/aurora-main",
+      "task_edits": false
+    },
+    {
+      "branch": "vita-experiment",
+      "final_status": [],
+      "head": "262e8e1e55ee238decd1d0220db7937c92526edf",
+      "initial_status": [],
+      "name": "Aurora standalone",
+      "path": "/Users/robin994/Documents/Code/PSVita/aurora-vita",
+      "task_edits": false
+    },
+    {
+      "name": "aurora-vita-max-prehardware",
+      "path": "/Users/robin994/Documents/Code/PSVita/aurora-vita-max-prehardware",
+      "role": "Historical filesystem snapshot without its own .git; not edited"
+    }
+  ],
+  "date": "2026-10-10",
+  "format": "wic-mh3-reuse-audit",
+  "historical_hardware": {
+    "aurora_revision": "1cf5bca",
+    "finish_per_observed_frame": 2,
+    "fps_range": [
+      1.04,
+      1.33
+    ],
+    "installed_self_sha256": "f81f6ae6ce5f3aba2eeecaa3935ed37c1377eeecc694581b7d4e6c320f35a8ce",
+    "merged_draws_range": [
+      5367,
+      5748
+    ],
+    "native_draws_range": [
+      424,
+      808
+    ],
+    "not_controlled_ab": true,
+    "not_current_head": true,
+    "not_new_measurement": true,
+    "race_frames_at_frame_334": 0,
+    "requested_draws_range": [
+      6154,
+      6299
+    ],
+    "source": "docs/VITA_1FPS_DARK_WHITE_FOLLOWUP_2026-10-10.md",
+    "stage_at_frame_334": 0,
+    "white_fallback_draws": 0
+  },
+  "implemented": {
+    "dispatch_fastpath": {
+      "changed": [
+        "TLS memo hits precede repeated publication acquire",
+        "Whole scalar verdict reads relaxed when enabled"
+      ],
+      "default": "OFF",
+      "option": "WIC_IMMUTABLE_DISPATCH_FASTPATH",
+      "unchanged": [
+        "First-use and cache-miss acquire",
+        "Registry release publication",
+        "Shared pointer cache acquire",
+        "Native/Base/Mod winner selection",
+        "GPR/FPR guards",
+        "Translator and generated guest code"
+      ]
+    },
+    "gx_caller_inventory": {
+      "input_sha256": {
+        "gx_sources": {
+          "runtime/src/hle/gx/gx_copy.cpp": "ca628f9dc0fbb5850327fd0a650f061a36a8e3675753fe1f7e28db74f34bcdfe",
+          "runtime/src/hle/gx/gx_dl.cpp": "84668ae472668adf1f7b1e8549f0398f5f945e6e90d62a503815056b98e4ebe4",
+          "runtime/src/hle/gx/gx_egg.cpp": "29314cb2adc9407301156728cf8b73a1db03cbc79df666f966b2c0f25b0e3ab0",
+          "runtime/src/hle/gx/gx_fatal_stubs.cpp": "395051d9d2ddb2dfc715848286c62a283f8db94117bddffb9da96ee8294d164e",
+          "runtime/src/hle/gx/gx_fifo.cpp": "49d414850ab951bd888b17ea00bfd2ffbb4e9d4b8c145ea248aa7d34673887a1",
+          "runtime/src/hle/gx/gx_frame.cpp": "cd2f9c80ba7bf9b570e7022776c56ad977cf9f922d665501736b99bbd5114dba",
+          "runtime/src/hle/gx/gx_guest_write_hooks.cpp": "30d9bde3236ad0e7b845207c5321385323f0ef410fc0c2eae0bd37a6f757736f",
+          "runtime/src/hle/gx/gx_indirect.cpp": "3339a8917b28b01df48ceba6d0909eabef2094b37b10fc3465a4259fc035df76",
+          "runtime/src/hle/gx/gx_init.cpp": "1b564e577ee99580e8e3abcae518a64b9305ab548ee8ce9e5f1a2080ad6e7e1a",
+          "runtime/src/hle/gx/gx_lighting.cpp": "b87c0a6ecbb0c354bb34295ee3a53d9621566e39dc265abaf1e054ad14d812bc",
+          "runtime/src/hle/gx/gx_objects.cpp": "d9fd4ddd415a0707fb9895b6d10ab4921544d9cc8567ad7d7d7cf551d8639015",
+          "runtime/src/hle/gx/gx_pixel.cpp": "6ca14d27c7b968b89bc519babd95cfaf12f66b3b9009164aa60f051a586c46f6",
+          "runtime/src/hle/gx/gx_stubs.cpp": "b54e83bc78ed324e886d7715f7782cfa0a15ab2db2d84d8e835796ba376b60c1",
+          "runtime/src/hle/gx/gx_tev.cpp": "ccdd9b6a0af58d6a7ba51698f4af53c1ec2f8864e5868628135f512f54215a36",
+          "runtime/src/hle/gx/gx_texture.cpp": "c6392e50d048f3cd77070244676ff3cd43d99aa3c1556f5017693f59b1dd40c3",
+          "runtime/src/hle/gx/gx_transform.cpp": "1083eccd051ded8b591740adc2bd2b7edfcdfb05e9312a2cf8c016c9c2d26e16",
+          "runtime/src/hle/gx/gx_utils.cpp": "f889ada4b27e5656c9fffffb6acc171fd65bd90abf7b5bb0302efd26e2f51236",
+          "runtime/src/hle/gx/gx_vertex.cpp": "def52489656f102aaf8f147d355ef0c1c3652ba16a01bcd4aaa740f017a0aad0"
+        },
+        "symbol_map": "4266f57c54781c5075d53fbfcf9f6e39744555ab42a4a5a8c8e9fafd080dd271",
+        "translation_metadata": "5cfe26a24373199ee35a4da61fc1f2c82f8db05b4c3b197b8d8e9585479ec530"
+      },
+      "limitations": [
+        "not dynamic call counts or a performance ranking",
+        "indirect calls, native callers and inline FIFO writes are not counted",
+        "declarations include all preprocessor branches; they do not establish linked winners",
+        "family labels are symbol hints requiring source/disassembly confirmation",
+        "metadata identity does not establish installed SELF identity"
+      ],
+      "summary": {
+        "family_hints": {
+          "efb_display": 3,
+          "effects": 31,
+          "gx_sdk": 173,
+          "models_g3d": 21,
+          "ui_text": 17,
+          "unclassified": 225,
+          "video": 3
+        },
+        "gx_declared_targets": 341,
+        "gx_targets_with_translated_callers": 155,
+        "static_edges": 1993,
+        "translated_functions": 29637,
+        "translated_gx_callers": 473
+      }
+    }
+  },
+  "local_source_sha256": [
+    {
+      "bytes": 14173,
+      "path": "CMakeLists.txt",
+      "sha256": "df49690c9512dd924397c66bd3b074b38711abbe5d7b75cb316fd40840dbfc78"
+    },
+    {
+      "bytes": 16298,
+      "path": "README.md",
+      "sha256": "fe11202cbf9478d923bb854e989b75760f9a449b08ff5b799b6571530bfdb207"
+    },
+    {
+      "bytes": 33939,
+      "path": "runtime/include/abi_bridge.h",
+      "sha256": "7a525229d7fcc5c406a6040768f7329c4e0345e0763e55b8d41f2ccbb918d931"
+    },
+    {
+      "bytes": 18253,
+      "path": "runtime/src/abi_bridge.cpp",
+      "sha256": "298d7327119cec2a77b8ffcb2b39e51b2c171d9a51c92789cd57de3874f81538"
+    },
+    {
+      "bytes": 4819,
+      "path": "runtime/tests/immutable_dispatch_tests.cpp",
+      "sha256": "4ed91244549ad2e19e55c34b598fc9cfbd8f3854c3292d7f26ece6dbe324f754"
+    },
+    {
+      "bytes": 7032,
+      "path": "scripts/inventory_mkw_gx_callers.py",
+      "sha256": "2b2f59b29ca1b8e01568ed9dd3205b8ff027ac4186bf62aa4d4e5e88045f9e34"
+    },
+    {
+      "bytes": 2872,
+      "path": "scripts/test_inventory_mkw_gx_callers.py",
+      "sha256": "ea7521a4d4d0f02f5684a6d63464b0a73cfffb127134e25981dfdfad9c6a85dd"
+    },
+    {
+      "bytes": 5107,
+      "path": "vita/CMakeLists.txt",
+      "sha256": "347dee4903d6b36ebf3310e429f4298086ab1b15d8defaf3707d7b52b8511f43"
+    },
+    {
+      "bytes": 10781,
+      "path": "vita/game.cmake",
+      "sha256": "c135d390a0b7144c4d9beb4c8a35cc5c2fe8d4c01346f8fd29e11bbbf78bf3cf"
+    },
+    {
+      "bytes": 7909,
+      "path": "vita/game_main.cpp",
+      "sha256": "dfbf070c4b6a232d003d35123e70b42ddf2799175f417d907b647df37ea26465"
+    },
+    {
+      "bytes": 6983,
+      "path": "docs/VITA_1FPS_DARK_WHITE_FOLLOWUP_2026-10-10.md",
+      "sha256": "35b09719415bbf47b8914a6c635b5d6baa4d7af1c701ad0ca1fe07a4154722e2"
+    },
+    {
+      "bytes": 6094,
+      "path": "docs/VITA_P0_NEXT_BUILD_2026-10-10.md",
+      "sha256": "b57eaa79924414560435cea5fde0f43b8e834810299cde811de831b90d575264"
+    },
+    {
+      "bytes": 9060,
+      "path": "docs/VITA_60FPS_PLAN_2026-10-10.md",
+      "sha256": "693c42329e20da1c06279e46feb17c343275ea44492161cc94d3fd6517ea42da"
+    },
+    {
+      "bytes": 19579,
+      "path": "docs/VITA_NATIVE_RENDER_PERFORMANCE_2026-10-09.md",
+      "sha256": "e1c0dae56de0d3cef4c894347a85e0b06db5e121d085a1a04354a1771d383ead"
+    }
+  ],
+  "original_request": "ORIGINAL_REQUEST.md",
+  "preserved": {
+    "assets_unchanged": true,
+    "device_untouched": true,
+    "screenshot": {
+      "bytes": 579026,
+      "path": "2026-10-08-210330.png",
+      "sha256": "8e211c96e234c56d9cf5605344aee3bbfdf5e8b9c656495cc1b684a064f81e89"
+    },
+    "source_no_mh3_implementation_copied": true
+  },
+  "remote_source": {
+    "chapter_sha256": [
+      {
+        "bytes": 5527,
+        "path": "docs/optimizations/assets/compressed-textures.md",
+        "sha256": "ed3734d00bdfd28103d5ea18147e3e4f3c1640d52d560a1885c23cb700125b10"
+      },
+      {
+        "bytes": 5345,
+        "path": "docs/optimizations/assets/disc-access.md",
+        "sha256": "752c245ae0be3322f8c0770fba742e7fce260a2c191be74a243a2b7b0f32d362"
+      },
+      {
+        "bytes": 3683,
+        "path": "docs/optimizations/assets/hardware-movie-decoding.md",
+        "sha256": "0f08d9f739c3a7edaa967ec2ca93120518e2e672ffc80ac2c4cb39dd7e9d86cb"
+      },
+      {
+        "bytes": 5987,
+        "path": "docs/optimizations/assets/load-time-asset-conversion.md",
+        "sha256": "aa02f47e8f450e0aec69a7ff42ffb34068b6f2310bf0a08e256167517a4aa26b"
+      },
+      {
+        "bytes": 3509,
+        "path": "docs/optimizations/cpu/compact-native-data.md",
+        "sha256": "60900264c50f5bfcbbddbe79b01c4a7629027de05f724437727bc3f44737899b"
+      },
+      {
+        "bytes": 5300,
+        "path": "docs/optimizations/cpu/flat-guest-memory.md",
+        "sha256": "77b3d954b0bafe0cb85b03be01f6c13aedc0978eaa0aae765ec9c05921f36d60"
+      },
+      {
+        "bytes": 2941,
+        "path": "docs/optimizations/cpu/memory-barriers.md",
+        "sha256": "dcfba72e9cc88ed90a41316a11ec34242e55500b0f2b853a03308e95204a4f38"
+      },
+      {
+        "bytes": 7168,
+        "path": "docs/optimizations/cpu/native-function-ports.md",
+        "sha256": "1f36ff1ff04164579bbf6e13702001be9bc6a5aab7678452230afb031dc1e011"
+      },
+      {
+        "bytes": 4300,
+        "path": "docs/optimizations/cpu/pgo-and-thinlto.md",
+        "sha256": "3bf0cfea71e6a7f44569cf9c3018233061fa9efeb177e219fd73786081ce10c5"
+      },
+      {
+        "bytes": 3154,
+        "path": "docs/optimizations/platforms/linux-gles-and-arm32.md",
+        "sha256": "5440f9f531e993ebb79649b69e3ac4266dd9b7a2650f133aecd3f69da331b47a"
+      },
+      {
+        "bytes": 3520,
+        "path": "docs/optimizations/platforms/vita-cdram-budget.md",
+        "sha256": "510dbb3cca03723b14100087333479ff1fcb4be2e466fc4ba20c49cf27b7edbc"
+      },
+      {
+        "bytes": 6186,
+        "path": "docs/optimizations/platforms/vita-platform-layer.md",
+        "sha256": "3d5a583292f84223063c09474983f33ab6a84d4a1eb80fe6248258d633de4730"
+      },
+      {
+        "bytes": 2702,
+        "path": "docs/optimizations/platforms/vita-tls-lookups.md",
+        "sha256": "cc868a09974f89757faa992be802e538866211f8bb0d357aeaf2923758aaeea5"
+      },
+      {
+        "bytes": 4979,
+        "path": "docs/optimizations/platforms/web-build.md",
+        "sha256": "c45cdcbfdf0b633569eadc36ab965d5a73495b6a30338f08063705b2ec0c0f7a"
+      },
+      {
+        "bytes": 4879,
+        "path": "docs/optimizations/recompilation/cortex-a9-floating-point.md",
+        "sha256": "62db0ef540865ffa7a145168f96ecb10ded37c1921e64c8861766665561ce57f"
+      },
+      {
+        "bytes": 2795,
+        "path": "docs/optimizations/recompilation/flag-elision.md",
+        "sha256": "1c7d1a61b93462067fe7bba39150238bbdc3f37aa7c5f5291d5b422352b09140"
+      },
+      {
+        "bytes": 3288,
+        "path": "docs/optimizations/recompilation/function-discovery.md",
+        "sha256": "d2d8dd43865938d4ff568f55b5a5002e527f9674de2cdd03ab769f3b842be40c"
+      },
+      {
+        "bytes": 3944,
+        "path": "docs/optimizations/recompilation/static-rso-overlays.md",
+        "sha256": "e52aa25dedbd19ec32e09c7758927f5a6971738fac6b086be2d07dc9e7708fc9"
+      },
+      {
+        "bytes": 5375,
+        "path": "docs/optimizations/recompilation/translator-call-boundary.md",
+        "sha256": "7113223d7b143b05352f18b3e3c955d97aa99d9277c7a586513db07cb4424b24"
+      },
+      {
+        "bytes": 3853,
+        "path": "docs/optimizations/rendering/compiled-dispatch-materials.md",
+        "sha256": "30f4f9f4c824bb730d904cab02549206461cb790309bd5fbae23d7c03a024ad6"
+      },
+      {
+        "bytes": 3295,
+        "path": "docs/optimizations/rendering/culling.md",
+        "sha256": "e19923dbe5cabec409721f35f3cac6a3fa7f49d430c08a5f41ff91c73a6416b6"
+      },
+      {
+        "bytes": 4521,
+        "path": "docs/optimizations/rendering/deferred-model-preparation.md",
+        "sha256": "884fa7816679b8b54b99ce7c7b8e6763a1ddc5df747f572282c106e7de3a44ea"
+      },
+      {
+        "bytes": 5112,
+        "path": "docs/optimizations/rendering/fixed-shading-models.md",
+        "sha256": "fec121b29b389f4b722d24b24c590986519d005aa33973d04953827af8a5fe46"
+      },
+      {
+        "bytes": 4988,
+        "path": "docs/optimizations/rendering/gpu-skinning.md",
+        "sha256": "16f104ea805e851d75ee627b03bf2ad0161db78827f7ff93941e6fd4acd4db1f"
+      },
+      {
+        "bytes": 5301,
+        "path": "docs/optimizations/rendering/gx-replacement.md",
+        "sha256": "54091377cad2ce10e7fc86eb5fd604f7a50aa1a93ad5c68d66fe6763c85171e4"
+      },
+      {
+        "bytes": 2826,
+        "path": "docs/optimizations/rendering/hud-and-text.md",
+        "sha256": "01a9abe5cfc2ac9d4e6de735828edd5dfce8cddf8a1b8b3d33337e772a5ee1e2"
+      },
+      {
+        "bytes": 28612,
+        "path": "docs/optimizations/rendering/libgxm-for-wii-ports.md",
+        "sha256": "34217c45d4fb3fa1e268ccdc73cd2af83096eb3ee831af7647fa18a1e0657b2d"
+      },
+      {
+        "bytes": 3638,
+        "path": "docs/optimizations/rendering/material-uniform-blocks.md",
+        "sha256": "4f6dd94255ba71ad60507ed95913baa698aa401d16c34f88ae70724bd34716fc"
+      },
+      {
+        "bytes": 4790,
+        "path": "docs/optimizations/rendering/offline-shader-bank.md",
+        "sha256": "d74aa6124c787f8bd865bac54de470369eb8b3ea0c796e0f5acd0f66c0c9f98d"
+      },
+      {
+        "bytes": 5504,
+        "path": "docs/optimizations/rendering/particle-batching.md",
+        "sha256": "73d51e034d6c1e54fac1593076fcf7c69eee727a0ecd10599f3d5e57ec6fb4ae"
+      },
+      {
+        "bytes": 3008,
+        "path": "docs/optimizations/rendering/precomputed-draws.md",
+        "sha256": "74ef018ff9486197dd551ca6647d26231e90e4b10bb87850bf15874799b82f52"
+      },
+      {
+        "bytes": 5627,
+        "path": "docs/optimizations/rendering/presentation.md",
+        "sha256": "e2271972b7c5f8ee089dd925305095bbf0417f15724962447f3953630d6ed196"
+      },
+      {
+        "bytes": 3922,
+        "path": "docs/optimizations/rendering/scene-feedback.md",
+        "sha256": "c20b5ccec3c867caacab8dc071420540cd265a0401ba4a443689840084506e1e"
+      },
+      {
+        "bytes": 5518,
+        "path": "docs/optimizations/rendering/shader-specializations.md",
+        "sha256": "e8a181cedf38ebe3c064a96f47eb484dd6b658af92d2c23ba24992683a9f168f"
+      },
+      {
+        "bytes": 2455,
+        "path": "docs/optimizations/rendering/widescreen.md",
+        "sha256": "d21cb8f41d97ce738422ae56da021f2774f7705fe0c2c97b8aaca67616a48c7a"
+      },
+      {
+        "bytes": 5345,
+        "path": "docs/optimizations/simulation/variable-step.md",
+        "sha256": "2d25d0628df227bfc871ca13d361a13df898d9b240e26be82ea4509c049e0aba"
+      },
+      {
+        "bytes": 4031,
+        "path": "docs/optimizations/system/controller-input.md",
+        "sha256": "c3080fbe9a4064c3f5f45213c0ab057ae62bbd127b9be43dac0ea75427cd040a"
+      },
+      {
+        "bytes": 5249,
+        "path": "docs/optimizations/system/native-audio.md",
+        "sha256": "65a4c008a8c24b87e059b0dfe84bf5f6681949f1104d6dd654ba78899afa48bf"
+      },
+      {
+        "bytes": 2733,
+        "path": "docs/optimizations/system/saves-nand.md",
+        "sha256": "1e126ff158d954d42e52e99004833c887d9d589b9563a32b42afa9545c431c49"
+      },
+      {
+        "bytes": 4774,
+        "path": "docs/optimizations/system/system-layer.md",
+        "sha256": "f3ff7514f7d8f7e4625ffa340725f7deaea64394752bbfea07f52243ca45e59f"
+      },
+      {
+        "bytes": 2910,
+        "path": "docs/optimizations/threading/core-layout.md",
+        "sha256": "1cddf732076c893db131d817280e631edc5fd0fb15927bb4f02a9a43d1b7fc9d"
+      },
+      {
+        "bytes": 4291,
+        "path": "docs/optimizations/threading/guest-worker.md",
+        "sha256": "f2ec44b076fd8f43eb9d154dff5fd799aaa012340ed5cc5746bd3de2559dfa99"
+      },
+      {
+        "bytes": 7765,
+        "path": "docs/optimizations/threading/pipelined-draw.md",
+        "sha256": "a5fa32ee9fe4d12360bdfc82a861fd4e6f97f4f923cc0d54c121410faf05bf51"
+      },
+      {
+        "bytes": 6886,
+        "path": "docs/optimizations/threading/render-thread.md",
+        "sha256": "1c0e69d76927182c2fbdc18a55643ac7a1f863d9d009970142af61cb6298fed0"
+      },
+      {
+        "bytes": 3876,
+        "path": "docs/optimizations/threading/state-versions.md",
+        "sha256": "7da513566778615c8bfa967a54114b5763987e330519d523c7c4ec753144c3c4"
+      }
+    ],
+    "clone_depth": 1,
+    "commit": "04092f4e9fe3906212eb27281c66ee72236a91b6",
+    "commit_date": "2026-10-10T17:20:07+02:00",
+    "index": {
+      "bytes": 9671,
+      "path": "docs/optimizations/README.md",
+      "sha256": "9a378a4b76c24e20043c07fed8a726da5ccee135346f97b79ae4a59b8e790c19"
+    },
+    "optimization_chapters": 45,
+    "reported_benchmarks": "Author-reported MH3-specific measurements; not reproduced for MKW or this task",
+    "selected_source_sha256": [
+      {
+        "bytes": 5892,
+        "path": "README.md",
+        "sha256": "d07eda3b958ad1c1783bf4180f53d50e18dd6503f6667ac8a0ea5721b70bb5a5"
+      },
+      {
+        "bytes": 35128,
+        "path": "LICENSE",
+        "sha256": "3743f7a4ab5132f7dbeb88e68097657ab8374e74b46b6402efbe80ccfb1b6488"
+      },
+      {
+        "bytes": 35128,
+        "path": "toolchain/LICENSE",
+        "sha256": "3743f7a4ab5132f7dbeb88e68097657ab8374e74b46b6402efbe80ccfb1b6488"
+      },
+      {
+        "bytes": 1072,
+        "path": "aurora-main/LICENSE",
+        "sha256": "40c03cee04cda570d1029b85b6c2ee7ba78431ab1a754b9d912091d73b8ecb18"
+      },
+      {
+        "bytes": 1955,
+        "path": "docs/aurora-dependency.md",
+        "sha256": "85f96f9a534d4e2605c0e891e3859a68cad5bdf32cc83f7aa1fa04056cfc19ce"
+      },
+      {
+        "bytes": 10564,
+        "path": "runtime/src/native_frame_packet.h",
+        "sha256": "1fae37f8aa372ea7983859718dd20dd53dd9fa54b3a846844f876d2f45028825"
+      },
+      {
+        "bytes": 72240,
+        "path": "runtime/src/native_frame_packet.cpp",
+        "sha256": "95937604d02c001da84f228635cb351832a4455c4d17d3ce448f258064e52f03"
+      },
+      {
+        "bytes": 7633,
+        "path": "runtime/src/model_render_prep.h",
+        "sha256": "dadd0687a283d79837651c810ca76daed5ea57e5be8a297a5ca74fced4320d53"
+      },
+      {
+        "bytes": 44242,
+        "path": "runtime/src/model_render_prep.cpp",
+        "sha256": "5396da156b7574810770ccd2471a091e6fe729ec506fb269ce04eb5ad2b7fc09"
+      },
+      {
+        "bytes": 40251,
+        "path": "runtime/include/abi_bridge.h",
+        "sha256": "a8c447e183ca534f8f831a28ed7e5209e0c236fdcf71ae00bb8ea0a184441a47"
+      },
+      {
+        "bytes": 17753,
+        "path": "runtime/src/abi_bridge.cpp",
+        "sha256": "05cb9a08face6256da7f7490bf9b26b13fc2d511f8d66c29378236cc331c4bc5"
+      },
+      {
+        "bytes": 1910,
+        "path": "runtime/vita/fast_tls.c",
+        "sha256": "e30c7719b619887a3b3081142846d249173030704b5a291e660b169bc4be06ec"
+      },
+      {
+        "bytes": 57116,
+        "path": "runtime/native/mh3_shade.c",
+        "sha256": "3a695d2b728800067837b301d0b28e6165394e2940a550fa258bf91e656bd7ea"
+      },
+      {
+        "bytes": 3376,
+        "path": "aurora-main/include/aurora/native_geometry.h",
+        "sha256": "a2b59f5b4798a04c5d2fa828adf84a386374766f9870ca46d7e77f7b8ea6d6ee"
+      },
+      {
+        "bytes": 2137,
+        "path": "aurora-main/lib/gxm/shader_cache_pack.hpp",
+        "sha256": "e2cedc577305f5d0311e9c1b44119a1869dbef61c2c4fb75ccd041112ed22e1a"
+      },
+      {
+        "bytes": 31232,
+        "path": "aurora-main/lib/gxm/device.cpp",
+        "sha256": "748af68ae7dec7c2ace7c4ecca6e0cceda2fc430c7248c4087c4240fb13000e8"
+      },
+      {
+        "bytes": 85153,
+        "path": "aurora-main/lib/gxm/renderer.cpp",
+        "sha256": "f379d12f9a1aacfb04127b15b3452a4e66163c0ddf92c54b855f6b55abc37be4"
+      }
+    ],
+    "snapshot_ignored_by_parent": true,
+    "snapshot_path": "/Users/robin994/Documents/Code/PSVita/wiicompiled-vita/build/mh3-reuse-20261010/source",
+    "submodules_initialized": false,
+    "url": "https://github.com/Grarak/mh3-wii.git"
+  },
+  "report_artifacts": [
+    {
+      "bytes": 271162,
+      "path": "GX_CALLERS.json",
+      "sha256": "a4348f4e5b61eac3ccb4b3e1e4c9247374afd97d2a83fc46704dec82c9e4b1d5"
+    },
+    {
+      "bytes": 428,
+      "path": "ORIGINAL_REQUEST.md",
+      "sha256": "d02124bbd5fb8099b61307091536c343c5cfdf089675b9c1384d4066d0fb83ee"
+    },
+    {
+      "bytes": 1706,
+      "path": "README.md",
+      "sha256": "ff0d6aa2cefca65ea600ed4c51e8a3961b1b53e1d1130cbd26e6dfb5ac65a73e"
+    },
+    {
+      "bytes": 22321,
+      "path": "REPORT.md",
+      "sha256": "a27a6b2f46bde979c5b548c505fa3389c416ed8dea127af92094bc951d070b14"
+    },
+    {
+      "bytes": 16662,
+      "path": "TASKS.md",
+      "sha256": "3eb931621cb37b5879f8cda5a7c21c5bad28b41bc40bde37b3c31b4771505b37"
+    },
+    {
+      "bytes": 18313,
+      "path": "TECHNIQUES.md",
+      "sha256": "4a3baa286de0a8a55713d32156a0222f301b0ca77db2f2f278489facf0f0f331"
+    },
+    {
+      "bytes": 4792,
+      "path": "VALIDATION.md",
+      "sha256": "247a5b20a1439257a9ec3288af9455516731dda8689bbd4ccd101c8bf81db7ce"
+    }
+  ],
+  "validation": {
+    "aurora_ctest": {
+      "build_directory": "build/aurora-host",
+      "exit_code": 0,
+      "passed": 24,
+      "total": 24
+    },
+    "ctest_configuration": {
+      "dispatch_timeout_seconds": 15,
+      "sha256": "0101b9f731d1a74f933576afef7923998ca8fd174c62d32f1ef3aeb0b5ace79a",
+      "test_count": 29
+    },
+    "dispatch_contract": {
+      "iterations_per_reader": 2000,
+      "passed": 4,
+      "readers": 6,
+      "registry": "Production runtime/src/abi_bridge.cpp",
+      "total": 4,
+      "variants": [
+        "OFF/dynamic",
+        "OFF/generated",
+        "ON/dynamic",
+        "ON/generated"
+      ]
+    },
+    "dispatch_executable_sha256": [
+      {
+        "bytes": 102824,
+        "path": "build/host/immutable-dispatch-tests-0",
+        "sha256": "77437e82dce1c145ba35c093d4c04e3aa087e245d89345e6eac0d9d1ce7a2227"
+      },
+      {
+        "bytes": 102824,
+        "path": "build/host/immutable-dispatch-tests-1",
+        "sha256": "33c0c99ceae08cdab33dc9ac7c11cbabcff5af05ad6e79a1fac8bad38d51f344"
+      },
+      {
+        "bytes": 363376,
+        "path": "build/mh3-reuse-20261010/dispatch-sanitize-0",
+        "sha256": "784dc9c3651c616ce09d7a535db57905a64e2a188fd043bf4c563f908926a603"
+      },
+      {
+        "bytes": 363376,
+        "path": "build/mh3-reuse-20261010/dispatch-sanitize-1",
+        "sha256": "9d3e28481ff946bfae5571805a7a3c748327b8301eac73e3cee7c4394c3ac015"
+      }
+    ],
+    "dispatch_executables_are_host_only": true,
+    "git_diff_check": "PASS",
+    "host_arch": "arm64",
+    "inventory_reproducible_byte_identical": true,
+    "inventory_unittest": {
+      "passed": 5,
+      "total": 5
+    },
+    "limits": [
+      "Host tests do not establish ARM32 code generation or memory-model behavior",
+      "No fresh Vita ELF/SELF/VPK build, installation, config edit or hardware run",
+      "No visual, audio, input or FPS improvement claimed for the new experiment",
+      "No translator .NET suite; translator unchanged"
+    ],
+    "logs": {
+      "aurora-build": {
+        "bytes": 1275,
+        "path": "build/mh3-reuse-aurora-build.log",
+        "sha256": "9c86e013c290339603e004204c2babfdb38f95cbe57ee5a19ae6ed4559602777"
+      },
+      "aurora-tests": {
+        "bytes": 2783,
+        "path": "build/mh3-reuse-aurora-tests.log",
+        "sha256": "10f738beece347af0a4d172f41be96bc909a1114c4517a4a97823ebd1830b01f"
+      },
+      "host-build": {
+        "bytes": 4630,
+        "path": "build/mh3-reuse-host-build.log",
+        "sha256": "0b008a799d5c71737e4c4db307ccbb31f89438068c1b90e991175b4cc210f749"
+      },
+      "host-configure": {
+        "bytes": 703,
+        "path": "build/mh3-reuse-host-configure.log",
+        "sha256": "d45e602af3478a3a087c47b58f6105b10a685658a18d86295a8b5142f42e1fc2"
+      },
+      "host-tests": {
+        "bytes": 3686,
+        "path": "build/mh3-reuse-host-tests.log",
+        "sha256": "059274b244486f81b098059a79d9689d6fae0f7840ebf7a654eb157e9eaa5ae6"
+      },
+      "sanitizers": {
+        "bytes": 872,
+        "path": "build/mh3-reuse-sanitizers.log",
+        "sha256": "d1e4f14fdac00990abfe4988b6ea53c86d1f33b50e1205d6e79e3063ced05aaf"
+      }
+    },
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "python": "3.11.3",
+    "report_relative_links_resolve": true,
+    "report_technique_links_match_45_chapters": true,
+    "sanitizer": {
+      "instrumentation": [
+        "AddressSanitizer",
+        "UndefinedBehaviorSanitizer"
+      ],
+      "passed": 4,
+      "thread_sanitizer": false,
+      "total": 4
+    },
+    "wiicompiled_ctest": {
+      "aurora_nested_suite": false,
+      "build_directory": "build/host",
+      "exit_code": 0,
+      "passed": 29,
+      "total": 29
+    }
+  },
+  "version": 1
+}

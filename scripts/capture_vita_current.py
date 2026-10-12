@@ -41,6 +41,36 @@ def verify_frame_ppm(session: bytes, frame: int, screenshot: bytes) -> bytes:
     return screenshot
 
 
+def verify_session_identity(session: bytes, self_hash: str, config: bytes,
+                            *, allow_legacy: bool = False) -> dict:
+    lines = [line for line in session.splitlines()
+             if line.startswith(b"[boot-identity] ")]
+    if not lines:
+        if allow_legacy:
+            return {"state": "legacy_unverified", "matches_installed_files": False}
+        raise ValueError("Latest boot has no artifact/config identity; cannot associate it"
+                         " with the installed files. Use --allow-legacy-identity only"
+                         " to archive historical evidence without verified attribution")
+    if len(lines) != 1:
+        raise ValueError("Latest session contains multiple boot identities")
+    fields = dict(re.findall(rb"(\w+)=(\S+)", lines[0]))
+    boot_self = fields.get(b"self_sha256", b"").decode("ascii", errors="replace")
+    boot_config = fields.get(b"config_sha256", b"").decode("ascii", errors="replace")
+    if not re.fullmatch(r"[0-9a-f]{64}", boot_self):
+        raise ValueError("Boot SELF identity is unavailable or malformed")
+    if fields.get(b"config_loaded") != b"1" or not re.fullmatch(r"[0-9a-f]{64}", boot_config):
+        raise ValueError("Boot did not confirm the loaded configuration identity")
+    if boot_self != self_hash:
+        raise ValueError("Latest boot SELF does not match the installed SELF; refusing"
+                         " to attribute a prior session to the new executable")
+    if boot_config != digest(config):
+        raise ValueError("Latest boot configuration does not match Config.toml on the"
+                         " device; the captured session used different settings")
+    return {"state": "verified", "matches_installed_files": True,
+            "self_sha256": boot_self, "config_sha256": boot_config,
+            "boot_line": lines[0].decode("ascii", errors="replace")}
+
+
 def stream_sha256(ftp, path: str) -> tuple[str, int]:
     value = hashlib.sha256()
     size = 0
@@ -73,6 +103,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tail-mb", type=int, default=8)
     parser.add_argument("--frame-ppm", type=int,
                         help="Fetch a verified screenshot from the latest boot only")
+    parser.add_argument("--allow-legacy-identity", action="store_true",
+                        help="Archive a boot without identity markers as unverified historical evidence")
     parser.add_argument("--output-root", type=Path,
                         default=ROOT / "build/vita-psarc/device-runs")
     args = parser.parse_args(argv)
@@ -96,6 +128,8 @@ def main(argv: list[str] | None = None) -> int:
         remote_log = remote_metadata(ftp, "ux0:/data/wiicompiled-vita/runtime.log")
         tail, log_size, offset = fetch_log_tail(ftp, tail_mb=args.tail_mb)
         session = latest_boot(tail)
+        identity = verify_session_identity(session, self_hash, config,
+                                           allow_legacy=args.allow_legacy_identity)
         screenshot = None
         if args.frame_ppm is not None:
             expected = f"[frame-capture] frame={args.frame_ppm} saved=1".encode()
@@ -117,6 +151,7 @@ def main(argv: list[str] | None = None) -> int:
         "rest_offset": offset, "captured_latest_session_bytes": len(session),
         "boot_line": session.split(b"\n", 1)[0].decode("utf-8", errors="replace"),
         "capture_only": True,
+        "session_identity": identity,
     }
     if screenshot is not None:
         record["screenshot"] = {"frame": args.frame_ppm,

@@ -1,6 +1,7 @@
 ﻿// gx_texture.cpp - Texture Object and TLUT Functions
 #include "gx_internal.h"
 #include "runtime_log.h"
+#include "gx/fifo.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -606,10 +607,13 @@ extern "C" void GX__LoadTexObj_80170f2c(uint32_t oa, uint32_t tid) {
         newBound.objAddr = oa;
         newBound.dataAddr = CanonicalizeGxMainRamAddress(meta.dataAddr);
         const BoundTexInfo& oldBound = g_boundTexMaps[tid];
+        const bool recording=aurora::gx::fifo::in_display_list();
         const bool canSkipHostLoad = GxTextureBindingContract::CanSkipHostLoad(
-            oldBound, newBound, needsInit, tlutChanged, textureDataUploaded);
+            oldBound, newBound, needsInit, tlutChanged, textureDataUploaded, recording);
 
-        g_boundTexMaps[tid] = newBound;
+        // A recorded bind is not a live bind. It must be emitted into the list
+        // without publishing a shadow that would suppress a later live load.
+        if(!recording)g_boundTexMaps[tid] = newBound;
         GetTexObjMeta(oa) = meta;
         if (!canSkipHostLoad) {
             GXLoadTexObj(obj, (GXTexMapID)tid);

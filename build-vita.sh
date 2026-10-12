@@ -11,11 +11,17 @@ host() {
         options+=(-DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3)
     fi
     cmake -S . -B build/host -DWIC_AURORA_TESTS=OFF "${options[@]}"
-    cmake --build build/host --parallel "$jobs"
+    if (($#)); then
+        cmake --build build/host --parallel "$jobs" --target "$@"
+    else
+        cmake --build build/host --parallel "$jobs"
+    fi
     export WIC_DISC_TOOL="$PWD/build/host/wiicompiled-disc"
 }
 prepare() {
-    host
+    # Generation must bootstrap without the generated game headers. Build only
+    # the ISO reader needed by the translator, rather than every runtime test.
+    host wiicompiled-disc
     "$WIC_DISC_TOOL" inspect mariokart.iso
     dotnet build translator/Translator.sln -c Release
     local cli=translator/src/Translator.Cli/bin/Release/net8.0/Translator.Cli.dll

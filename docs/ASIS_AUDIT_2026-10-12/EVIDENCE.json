@@ -1,0 +1,584 @@
+{
+  "schema": "wiicompiled-aurora-asis-audit-v1",
+  "report_date_local": "2026-10-12",
+  "timezone": "Europe/Rome",
+  "evidence_assembled_utc": "2026-10-12T07:06:13.899991+00:00",
+  "scope": "Read-only software/device audit, host builds/tests, documentation. No runtime fixes, Vita package build, or device writes by this audit.",
+  "concurrent_source_changes_observed": true,
+  "repositories": {
+    "wiicompiled": {
+      "path": "/Users/robin994/Documents/Code/PSVita/wiicompiled-vita",
+      "head": "90eb1ddc93d545a2b4509600de43904d13400196",
+      "branch": "codex/restart-iso-gxm-20261005",
+      "status": "M CMakeLists.txt\n m aurora-main\n M runtime/include/abi_bridge.h\n M runtime/include/runtime_config.h\n M runtime/include/vita_render_options.h\n M runtime/src/hle/gx/gx_copy.cpp\n M runtime/src/hle/gx/gx_dl.cpp\n M runtime/src/hle/storage/dvd.cpp\n M runtime/tests/runtime_config_tests.cpp\n M scripts/install_vita_current.py\n M scripts/record_vita_delivery.py\n M scripts/test_install_vita_current.py\n M scripts/test_mkw_native_assets.py\n M vita/CMakeLists.txt\n M vita/backend.cpp\n M vita/game.cmake\n M vita/game_aurora.cpp\n M vita/game_main.cpp\n M vita/native_assets.cpp\n M vita/native_assets.hpp\n M vita/psarc_backend.cpp\n M vita/psarc_backend.hpp\n M vita/render_config.hpp\n M vita/tests/native_assets_test.cpp\n M vita/tests/render_config_test.cpp\n?? docs/ASIS_AUDIT_2026-10-12/\n?? docs/AURORA_SOURCE_RECOVERY_2026-10-11.patch\n?? docs/MH3_DEVELOPMENT_M06_2026-10-10.md\n?? docs/MH3_IMPLEMENTATION_M02_M05_M09_2026-10-10.md\n?? docs/MH3_M06_EVIDENCE_2026-10-10.json\n?? docs/MH3_REUSE_2026-10-10/\n?? docs/MKW3DS_PAL_MARIO_TEV_AUDIT_2026-10-11.md\n?? docs/VITA3K_GX_THREAD_TRACE_2026-10-11.md\n?? docs/VITA3K_M02_3_TRACE_2026-10-10.md\n?? docs/VITA3K_PAL_MARIO_PROVENANCE_BOOT_2026-10-11.md\n?? docs/VITA3K_RENDER_CORRECTNESS_2026-10-11.md\n?? docs/VITA_GXM_NATIVE_PRIMITIVES_2026-10-11.md\n?? docs/VITA_GXM_SCENES_TARGET5_2026-10-11.md\n?? docs/VITA_M04_ASYNC_EFB_2026-10-10.md\n?? docs/VITA_SCENE_PREWARM_2026-10-11.md\n?? docs/VITA_SOURCE_RECOVERY_2026-10-11.md\n?? docs/VITA_STORAGE_IO_OPTIMIZATION_2026-10-11.md\n?? docs/VITA_STORAGE_IO_STAGE2_2026-10-11.md\n?? runtime/include/gx_copy_async_policy.hpp\n?? runtime/tests/immutable_dispatch_tests.cpp\n?? scripts/audit_mkw_brres_materials.py\n?? scripts/inventory_mkw_gx_callers.py\n?? scripts/test_audit_mkw_brres_materials.py\n?? scripts/test_inventory_mkw_gx_callers.py\n?? scripts/test_record_vita_delivery.py\n?? vita/native_prewarm_plan.hpp\n?? vita/native_scene_prewarm.hpp\n?? vita/psarc_read_cache.hpp\n?? vita/tests/native_prewarm_plan_test.cpp\n?? vita/tests/psarc_read_cache_test.cpp",
+      "audit_runtime_edits": false
+    },
+    "embedded_aurora": {
+      "path": "/Users/robin994/Documents/Code/PSVita/wiicompiled-vita/aurora-main",
+      "head": "7a69a51bf392c62e37aca5926f0dbd27cb0c128b",
+      "branch": "wiicompiled-integration-20261006",
+      "status": "M include/aurora_vita_view_draw_capture.h\n M platforms/vita/aurora_vita_backend.cpp\n M platforms/vita/aurora_vita_backend.hpp\n M platforms/vita/gfx/vita_efb_copy.hpp\n M platforms/vita/gfx/vita_view_draw_capture.hpp\n M platforms/vita/gx/aurora_vita_draw_sink.cpp\n M platforms/vita/gx/aurora_vita_draw_sink.hpp\n M platforms/vita/gxm/gxm_renderer.cpp\n M tests/vita_efb_empty_source_test.cpp\n M tests/vita_view_draw_capture_test.cpp\n?? platforms/vita/gfx/vita_texture_provenance.hpp",
+      "audit_runtime_edits": false
+    },
+    "standalone_aurora": {
+      "path": "/Users/robin994/Documents/Code/PSVita/aurora-vita",
+      "head": "262e8e1e55ee238decd1d0220db7937c92526edf",
+      "branch": "vita-experiment",
+      "status": "M cmake/aurora_vita.cmake\n M platforms/vita/aurora_vita_backend.cpp\n M platforms/vita/aurora_vita_backend.hpp\n M platforms/vita/gfx/vita_gfx_types.hpp\n M platforms/vita/gfx/vita_renderer.hpp\n M platforms/vita/gxm/gxm_facade.cpp\n M platforms/vita/gxm/gxm_renderer.cpp\n M platforms/vita/gxm/gxm_renderer.hpp\n?? platforms/vita/gxm/gxm_precomputed_geometry.hpp\n?? tests/vita_precomputed_geometry_test.cpp",
+      "audit_runtime_edits": false
+    }
+  },
+  "device_capture": {
+    "label": "asis-audit-20261011",
+    "created_utc": "2026-10-11T21:36:15.215035+00:00",
+    "device": "192.168.1.79:1337",
+    "title_id": "WICMKW001",
+    "installed_self_sha256": "7e35227b1190bb6cbc1298c12dc3b6386fd492ab104379650fb3d3160c18559c",
+    "installed_self_bytes": 25212726,
+    "config_sha256": "2f683047cd5a10666585b483af872fae10c68b1c2bb196cd504402fddf7e8e83",
+    "psarc": {
+      "size": 3219564087,
+      "mtime": "213 20261007231324"
+    },
+    "remote_runtime_log": {
+      "size": 91871516,
+      "mtime": "213 20261011102952"
+    },
+    "remote_log_bytes": 91871516,
+    "rest_offset": 83482908,
+    "captured_latest_session_bytes": 72553,
+    "boot_line": "[boot] build=psarc-resident-assets-async-native-render-20261009 upstream=279ce832 aurora=7a69a51bf392c62e37aca5926f0dbd27cb0c128b-dirty fast_math=0 fast_ram_ranges=1 input=gamecube attribute2=12 native_call_profile=1 native_thp=0 hardware_avc=1 precompiled_assets=1 gx_async=1",
+    "capture_only": true
+  },
+  "device_session_qualification": "Downloaded the latest preserved boot; did not launch a new run. Remote log mtime is 20261011102952. Current config differs from boot-applied values. Boot does not embed an exact SELF/config hash.",
+  "boot_markers": {
+    "[boot] build=": "[boot] build=psarc-resident-assets-async-native-render-20261009 upstream=279ce832 aurora=7a69a51bf392c62e37aca5926f0dbd27cb0c128b-dirty fast_math=0 fast_ram_ranges=1 input=gamecube attribute2=12 native_call_profile=1 native_thp=0 hardware_avc=1 precompiled_assets=1 gx_async=1",
+    "[native-render-config]": "[native-render-config] shader_preload=1 shader_limit=1024 pipeline_limit=192 prepared_dl=1 native_lyt=0 draw_batching=1 native_primitives_min=0 budget_probe=0 immediate_view=0 fragment_cache=0 uniform_pool=0 geometry_preflight=0 min_vertices=65535 gpu_lighting=1 native_materials=1 helpers=2 renderer_lanes=0 distinct_dispatch=0 direct_submit=0 direct_stream=0",
+    "[wic-efb-async]": "[wic-efb-async] copy=0 retire=0",
+    "[test-time-trial] enabled=": "[test-time-trial] enabled=1 character=0 kart=1 course=8",
+    "[gx-worker]": "[gx-worker] requested=1 running=1"
+  },
+  "config_mismatch": {
+    "geometry_min_vertices_boot": 65535,
+    "geometry_min_vertices_current_toml": 48,
+    "efb_copy_snap_1to1_current_toml": true,
+    "efb_snap_applied_in_logged_run": "unproven"
+  },
+  "strict_active_race": {
+    "selection": "stage=2 unpaused; all counted frame intervals after first stage2 progress marker at 632",
+    "windows": 45,
+    "frames": 651,
+    "first_frame": 633,
+    "last_frame": 1283,
+    "wall_us": 471278793,
+    "fps": 1.381347961481475,
+    "mean_ms": 723.9305576036866,
+    "window_p95_ms": 891.1878333333334,
+    "required_speedup": 43.43583345622119,
+    "required_time_reduction_pct": 97.69775339753087,
+    "producer_delta_last64": {
+      "frame": 64,
+      "multi_compiled": 0,
+      "multi_replayed": 4928,
+      "multi_draws": 17408,
+      "template_lookups": 6528,
+      "template_hits": 4672,
+      "template_inserts": 0,
+      "template_evictions": 0,
+      "prepared_hits": 832,
+      "prepared_misses": 10816,
+      "prepared_rejected": 1920,
+      "ram_candidates": 11648,
+      "ram_pinned": 11648,
+      "ram_fallback": 51008,
+      "ram_untracked": 0,
+      "ram_filtered": 51008,
+      "lyt_queued": 0,
+      "lyt_native": 0,
+      "lyt_fallback": 0
+    },
+    "producer_per_frame_last64": {
+      "multi_compiled": 0.0,
+      "multi_replayed": 77.0,
+      "multi_draws": 272.0,
+      "template_lookups": 102.0,
+      "template_hits": 73.0,
+      "template_inserts": 0.0,
+      "template_evictions": 0.0,
+      "prepared_hits": 13.0,
+      "prepared_misses": 169.0,
+      "prepared_rejected": 30.0,
+      "ram_candidates": 182.0,
+      "ram_pinned": 182.0,
+      "ram_fallback": 797.0,
+      "ram_untracked": 0.0,
+      "ram_filtered": 797.0,
+      "lyt_queued": 0.0,
+      "lyt_native": 0.0,
+      "lyt_fallback": 0.0
+    }
+  },
+  "performance_caveats": [
+    "Cadence measures completed frame rate, not rendered pixel correctness.",
+    "Window p95 is not individual-frame p95.",
+    "No current-run CPU/GPU exclusive attribution.",
+    "Clock settings requested by source are not hardware clock readback.",
+    "PSARC size/mtime were checked, not full PSARC SHA256."
+  ],
+  "local_artifacts": {
+    "delivery_created": "2026-10-11T15:08:03.944274+00:00",
+    "game-eboot.bin": "8c8e4e93c7ed76495c4bbee7fc69f939857623225296b8ed141d0813c69af200",
+    "wiicompiled-vita-game.vpk": "2ed5020c6d123b051e508db5a39f2b75cf3189466c373bc33e101690ba8914f2",
+    "packaged_eboot_sha256": "8c8e4e93c7ed76495c4bbee7fc69f939857623225296b8ed141d0813c69af200",
+    "delivery_matches_local": true
+  },
+  "local_sfo": {
+    "TITLE_ID": "WICMKW001",
+    "ATTRIBUTE": 32768,
+    "ATTRIBUTE2": 12
+  },
+  "source_build_gaps": {
+    "generated_directory_present": false,
+    "local_vita_data_directory_present": false,
+    "manifest_source_count": 31130,
+    "during_audit_source_digest": {
+      "sha256": "cce130e9cb9732e4cf59257c91bb719d16c61a77a2322b19432e7958217621cf",
+      "files": 1291
+    },
+    "initial_missing_api_fields": "superseded by concurrent additions; checked build now passes",
+    "feature_symbol_references": {
+      "native_lyt_packets": [
+        "aurora-main/platforms/vita/aurora_vita_backend.hpp:207:  bool native_lyt_packets=false;"
+      ],
+      "gxm_native_primitive_min_vertices": [
+        "aurora-main/platforms/vita/aurora_vita_backend.hpp:208:  uint32_t gxm_native_primitive_min_vertices=0;"
+      ],
+      "gxm_defer_program_cache_writes": [
+        "aurora-main/platforms/vita/aurora_vita_backend.hpp:209:  bool gxm_defer_program_cache_writes=true;"
+      ],
+      "gxm_precomputed_geometry": [
+        "aurora-main/platforms/vita/aurora_vita_backend.hpp:210:  bool gxm_precomputed_geometry=false;"
+      ],
+      "gxm_deferred_efb_targets": [
+        "aurora-main/platforms/vita/aurora_vita_backend.hpp:211:  bool gxm_deferred_efb_targets=false;"
+      ],
+      "gxm_efb_copy_snap_1to1": [
+        "aurora-main/platforms/vita/aurora_vita_backend.hpp:212:  bool gxm_efb_copy_snap_1to1=false;",
+        "aurora-main/platforms/vita/aurora_vita_backend.cpp:733:  dc.efbCopySnap1to1=c.gxm_efb_copy_snap_1to1;"
+      ]
+    },
+    "embedded_precomputed_geometry_implementation_present": false,
+    "standalone_precomputed_geometry_implementation_present": true
+  },
+  "checks": {
+    "wiicompiled_host_full_build": {
+      "result": "FAIL",
+      "cause": "generated/RuntimeConfig.h missing"
+    },
+    "render_config_initial_build": {
+      "result": "FAIL",
+      "cause": "six BackendConfig fields missing; later restored externally"
+    },
+    "render_config_after_concurrent_changes": {
+      "build": "PASS",
+      "executable_exit_code": 0,
+      "feature_consumption_proven": false
+    },
+    "runtime_config_after_rebuild": {
+      "result": "PASS",
+      "tests": 1
+    },
+    "aurora_embedded_host_suite": {
+      "result": "PASS",
+      "passed": 24,
+      "registered": 24,
+      "renderer_selection": "VITAGL",
+      "scope": "host snapshot tested before later concurrent source edits"
+    },
+    "material_auditor": {
+      "passed": 8,
+      "skipped": 1,
+      "skip_reason": "user-owned PAL PSARC missing at expected path"
+    },
+    "vita_backend_syntax_correct_target": {
+      "result": "PASS",
+      "object_or_self_produced": false
+    },
+    "local_installer_check": {
+      "result": "FAIL",
+      "cause": "source/generated digest differs from DELIVERY.json"
+    },
+    "local_packaged_self_and_sfo": {
+      "result": "PASS",
+      "matches_device_self": false
+    },
+    "new_device_visual_input_or_performance_run": {
+      "result": "NOT PERFORMED"
+    }
+  },
+  "emulator_readback": {
+    "path": "build/vita3k-trace/draw-isolation-20261011/synchronized_retry/frame-300.ppm",
+    "header": [
+      "P6",
+      "960",
+      "544",
+      "255"
+    ],
+    "pixel_bytes": 1566720,
+    "minimum": 0,
+    "maximum": 0,
+    "nonzero": 0
+  },
+  "source_file_hashes": {
+    "vita/CMakeLists.txt": "347dee4903d6b36ebf3310e429f4298086ab1b15d8defaf3707d7b52b8511f43",
+    "vita/render_config.hpp": "bf83de35a1c9d9d44da8e27b65c253aa8b5da511c8b4340f52e863ccda239874",
+    "vita/backend.cpp": "bb607c6636c21d7d520486541b2f8ebc687c816671679ba9dcb5f8f60a44cb9c",
+    "vita/game_aurora.cpp": "260b1c1ef0c403faed8e8c41eb0b4d483e734a0c511d31a6d6e502de18298288",
+    "vita/game_diagnostics.cpp": "fea54a21c5adbbe94a0dee9e72740b44a0dfe57fe990143b6693bbd9d9e89640",
+    "vita/game_main.cpp": "c3b7914129c8458225e3d746b5f51fed0e0e17caf34d40ebf90653285520eaef",
+    "runtime/src/hle/gx/gx_copy.cpp": "5806bd61281c23b8fcb2771b3839e0f3ceb7a8e7d535d57a0528e7272b223e2e",
+    "runtime/src/abi_bridge.cpp": "298d7327119cec2a77b8ffcb2b39e51b2c171d9a51c92789cd57de3874f81538",
+    "aurora-main/platforms/vita/aurora_vita_backend.hpp": "6a3f0c73fc2fed51a91511a04b46acb597d7cdb7a441b4b5be8ff1cf7c0ce355",
+    "aurora-main/platforms/vita/aurora_vita_backend.cpp": "447d165045c1b7691e8765ae1a6a8bb97c2f4af1ccec4e5522fbeb3e8576958b",
+    "aurora-main/platforms/vita/gx/aurora_vita_draw_sink.cpp": "11b04c5d254d7448b23537380a1da2d4a005dbba327fae8bbf995789d01f865a",
+    "aurora-main/platforms/vita/gxm/gxm_renderer.cpp": "07d1c8f297ecbe5629711dafdcab9cda028af929c60ecb6c3c7461016575735f",
+    "aurora-main/platforms/vita/gxm/gxm_facade.cpp": "d32a3a4e9a8b8a3074ef41731c84cb38c707a187240a2e554565d36ee795d987",
+    "aurora-main/platforms/vita/gfx/vita_cpu_workers.cpp": "9859a37ffc2293db50cfe29bc4069754d7a3525dcea7849c7ae70dd565baf2ee",
+    "aurora-main/lib/gx/command_processor.cpp": "5ce9211c0c0c2d47d33bf0faf5ae833b013051668399b97428af0ac4356cfa6b",
+    "aurora-main/lib/gx/fifo.cpp": "7662ce567d50db57ae15ab87b4c371c70eecc29624e380b1bd833d5bd86ac09f",
+    "aurora-main/cmake/aurora_vita.cmake": "b2b5bf0397be99e51edc2f24457ecdae48de26315609445171f33a8cce14a6de",
+    "aurora-main/tests/vita_frontend_translation_test.cpp": "834c72fdc1340acc5800c180d4cbf42ab4cd7e27dc84555155e28f668c813641"
+  },
+  "evidence_files": {
+    "device_capture": {
+      "path": "build/vita-psarc/device-runs/asis-audit-20261011-20261011T213533Z/CAPTURE.json",
+      "sha256": "a96efa7669ab097d47bcd8395c519be33eb4643d0f3137f870ba3fb23c2bdf2e",
+      "bytes": 951
+    },
+    "device_config": {
+      "path": "build/vita-psarc/device-runs/asis-audit-20261011-20261011T213533Z/Config.toml",
+      "sha256": "2f683047cd5a10666585b483af872fae10c68b1c2bb196cd504402fddf7e8e83",
+      "bytes": 1083
+    },
+    "device_latest_session": {
+      "path": "build/vita-psarc/device-runs/asis-audit-20261011-20261011T213533Z/runtime-session.log",
+      "sha256": "e9c412cb664e1edda1661db2c21e9bddddd8be7e09d58fd2f120f5816b36c2ab",
+      "bytes": 72553
+    },
+    "verified_install": {
+      "path": "build/vita-psarc/device-installs/eboot-only-20261011T095142Z/INSTALL.json",
+      "sha256": "b1f2e0791a3649dff83e535b4a8b94b50d65f7155a0bf88ed78fa64758702ee8",
+      "bytes": 967
+    },
+    "local_delivery": {
+      "path": "build/vita-psarc/DELIVERY.json",
+      "sha256": "9a689a9d9ad9abbfba810bb71fb317bb47d4c167afa5b88ad489aab515e1821d",
+      "bytes": 5832
+    },
+    "source_inventory_initial": {
+      "path": "build/asis-audit-20261011/initial-source-inventory.json",
+      "sha256": "69d914e17c0552e1663e2e39ce5fb2c836412635b5efea593e65d3d95264048d",
+      "bytes": 15441
+    },
+    "source_drift": {
+      "path": "build/asis-audit-20261011/source-drift-during-audit.json",
+      "sha256": "d680feb2a328eb0fa51b30a45a20f0be54a2f85e708ba3729dd6258931715486",
+      "bytes": 3620
+    },
+    "source_digest_during_audit": {
+      "path": "build/asis-audit-20261011/current-source-digest.json",
+      "sha256": "107966be8a58901371407c1028d3abfe6345dcbc67acb1d8944583c1085ed189",
+      "bytes": 100
+    },
+    "full_host_build_blocker": {
+      "path": "build/asis-audit-20261011/host-generated-build.log",
+      "sha256": "24e2c8ed4a406b1eb8d42b44b99501a7bc835c8974f27f7a65ce514ff23dde1c",
+      "bytes": 632
+    },
+    "config_build_initial_failure": {
+      "path": "build/asis-audit-20261011/host-render-config-build-initial.log",
+      "sha256": "b309da96c20a4510a40fa73a6265df8b57e8f796eb12e51b701144dd5286e0ad",
+      "bytes": 6838
+    },
+    "config_build_after_external_changes": {
+      "path": "build/asis-audit-20261011/host-config-build-final.log",
+      "sha256": "3e8931c0c39b0b9c7bfae1920795833762e074506d7264eb2efe430807928882",
+      "bytes": 3486
+    },
+    "config_execution_after_external_changes": {
+      "path": "build/asis-audit-20261011/render-config-execution.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "runtime_config_test": {
+      "path": "build/asis-audit-20261011/host-config-tests-final.log",
+      "sha256": "34bae6877641ec398b86e85a21ce75d2860f8285faa6ed0c0baee559d2789986",
+      "bytes": 250
+    },
+    "aurora_host_suite": {
+      "path": "build/asis-audit-20261011/aurora-host-tests.log",
+      "sha256": "9aa077ad76665c03692a74805401c23a64718aa4e568e1c0d54e7de3a29a8d84",
+      "bytes": 2783
+    },
+    "material_auditor_tests": {
+      "path": "build/asis-audit-20261011/material-auditor-tests.log",
+      "sha256": "e8f5278d6fd5eb565f2308f5bebbf6630b266e321bd05603c9a744e02cf7929a",
+      "bytes": 1271
+    },
+    "backend_syntax_correct_target": {
+      "path": "build/asis-audit-20261011/vita-backend-syntax-correct-target.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "installer_source_mismatch": {
+      "path": "build/asis-audit-20261011/install-check-local.log",
+      "sha256": "c8cee7af4554b9fa6671368537a1f1389bcb1ed476a261a8d55313366d2da41d",
+      "bytes": 748
+    },
+    "strict_active_race_calculation": {
+      "path": "build/asis-audit-20261011/strict-stage2-and-producers.json",
+      "sha256": "9bfbf93be6ccc01d5540e878f89ef81884b5de0f537564b419c812b13f07310f",
+      "bytes": 1457
+    },
+    "historical_hardware_summary": {
+      "path": "build/asis-audit-20261011/hardware-captures-summary.json",
+      "sha256": "cc1834272d5bc8b90d64bf005772dbc7e23920e2946d72e31af559b4dcbdc503",
+      "bytes": 6665
+    },
+    "historical_postloading_summary": {
+      "path": "build/asis-audit-20261011/hardware-postloading-summary.json",
+      "sha256": "671ad671fadcb196fb2d5af981bc81afa6f4a399990a5160334fa6c7cef1422b",
+      "bytes": 2360
+    },
+    "emulator_readback_check": {
+      "path": "build/asis-audit-20261011/readback-check.json",
+      "sha256": "541f76b6da57ccb971f5fed394d92633d451481579086b0e86bf9d5b3249553c",
+      "bytes": 227
+    },
+    "emulator_window_image": {
+      "path": "build/vita3k-trace/live-20261011/vita3k-game-frame-current.png",
+      "sha256": "bcfd4a9f34c168932b87e3d738ac9f75e82a40afba60b52ccdcdfcf106631fb7",
+      "bytes": 529858
+    },
+    "emulator_synchronized_log": {
+      "path": "build/vita3k-trace/draw-isolation-20261011/synchronized_retry/runtime-session.log",
+      "sha256": "9f82ec47e506919b5f9abd76fb4728d82ed85130de8bc3d3600b4a38e6650970",
+      "bytes": 212888
+    },
+    "stored_material_inventory": {
+      "path": "build/material-audit/mario-pal.json",
+      "sha256": "a86098938176831952271c3c63bc397f508b9e5a46ace9e952ed9c1554cd1335",
+      "bytes": 151093
+    }
+  },
+  "implementation_phase": {
+    "report": "IMPLEMENTATION.md",
+    "source": "build/implementation-20261012/IMPLEMENTATION.json",
+    "status": "raw BP texture and async ownership defects corrected; new hardware boot identity verified; capture pending",
+    "tests": {
+      "wiicompiled_host": {
+        "passed": 34,
+        "total": 34
+      },
+      "embedded_aurora_host": {
+        "passed": 26,
+        "total": 26
+      },
+      "standalone_aurora_host": {
+        "passed": 21,
+        "total": 21
+      },
+      "sanitizers": {
+        "precomputed_geometry": "PASS",
+        "deferred_program_writes": "PASS",
+        "instrumentation": [
+          "ASan",
+          "UBSan"
+        ]
+      },
+      "installer": 21,
+      "capture_helper": 12
+    },
+    "candidate_self_sha256": "73b644bd59e1acdead673ddf51ff2af53f087f8a51b2958c9d318a32f68fa258",
+    "candidate_vpk_sha256": "b42a57e294b84265f96c1b09b0b05c56b6e4ebd2b88debd01344a9af36ef3f8b",
+    "source_and_generated_sha256": "972aeeddb9fb86d7af24574c8a6b3ccf185f2c64d33c0d570adbf87978dbe7e4",
+    "emulator_active_race": {
+      "state": "verified",
+      "matches_installed_files": true,
+      "self_sha256": "e627e927cf8234f906fa4d602c8b36f3aae3fa9938159c9286f736af7f574a8d",
+      "config_sha256": "f7cb28e4fad76133c933c9b19b7411a0ceb7b5688ea78d774e85669ea187dcc1",
+      "boot_line": "[boot-identity] self_sha256=e627e927cf8234f906fa4d602c8b36f3aae3fa9938159c9286f736af7f574a8d self_bytes=24403061 config_sha256=f7cb28e4fad76133c933c9b19b7411a0ceb7b5688ea78d774e85669ea187dcc1 config_bytes=1001 config_loaded=1 cpu_mhz=444 gpu_mhz=222",
+      "capture_frame": 700,
+      "draw_records": 674,
+      "texture_records": 83,
+      "nonblack_pixels": 0,
+      "pixels_sha256": "96ddc219ce63c7731496e0f09f86160017b127527574a6bd594f5dcb5154ed38",
+      "display_screenshot_available": false,
+      "mapping_effective": "Disabled",
+      "stage": 2,
+      "section_paused": 0,
+      "controller_paused": 0,
+      "scene_paused": 0,
+      "scope": "emulator race progression and trace; no visual/hardware FPS proof"
+    },
+    "device_trial": {
+      "installed_self_verified": true,
+      "boot_confirmed": true,
+      "monitored_seconds": 1804.8,
+      "candidate_promoted": false,
+      "quiet_fps_result": null,
+      "user_feedback": {
+        "recorded_utc": "2026-10-12T16:40:54.322633+00:00",
+        "report_source": "direct user correction and follow-up answers",
+        "candidate_race_visible": true,
+        "run_timing": "candidate attempt, not relaunched after restore",
+        "white_textures": true,
+        "hud_missing": true,
+        "very_slow": true,
+        "fps_measured": false,
+        "runtime_identity_marker_present": false,
+        "prior_black_or_blocked_answer_superseded": true
+      },
+      "boot_confirmation_source": "user feedback only; runtime marker absent"
+    },
+    "device_final_state": {
+      "state": "original_self_and_config_restored_and_readback_verified",
+      "config_sha256": "2f683047cd5a10666585b483af872fae10c68b1c2bb196cd504402fddf7e8e83",
+      "self_sha256": "7e35227b1190bb6cbc1298c12dc3b6386fd492ab104379650fb3d3160c18559c",
+      "self_bytes": 25212726,
+      "runtime_bytes_after_stop": 91871516,
+      "backups": {
+        "ux0:/data/wiicompiled-vita/Config.toml": "ux0:/data/wiicompiled-vita/Config.toml.backup-20261012T160707Z-restore"
+      },
+      "device_boot": "not_confirmed",
+      "candidate_self_retained": false,
+      "test_app_stop_response": "Killed.\n",
+      "candidate_promoted": false,
+      "self_restore_backups": {
+        "ux0:/app/WICMKW001/eboot.bin": "ux0:/app/WICMKW001/eboot.bin.backup-20261012T160919Z-restore-self"
+      }
+    },
+    "remaining": [
+      "reliable pixels",
+      "Mario material identity/correction",
+      "HUD production/visibility",
+      "exclusive CPU/GX attribution",
+      "60 FPS evidence"
+    ],
+    "first_tranche_artifact": {
+      "self_sha256": "e627e927cf8234f906fa4d602c8b36f3aae3fa9938159c9286f736af7f574a8d",
+      "vpk_sha256": "c0461564f31bfc0b3d01baa0b3c300015e72a1b6c76494959ec6215aeb1d8803",
+      "source_and_generated_sha256": "bd596624a8cf9543d4484cb69f21eabfbfe85d01017fcf2305ec540f4ee0b5ef",
+      "sealed_directory": "build/implementation-20261012/sealed-candidate-e627"
+    },
+    "raw_bp_correction": {
+      "negative_oracles": {
+        "source_and_dimensions": {
+          "checks": 31172,
+          "failures": 3,
+          "log": "raw-bp-before-test.log"
+        },
+        "async_state_ownership": {
+          "checks": 31178,
+          "failures": 1,
+          "log": "raw-bp-owner-before-test.log"
+        }
+      },
+      "scope": [
+        "raw IMAGE3 source selection and complete MEM1/MEM2 mip range validation",
+        "1024 texture dimension decoding",
+        "EFB lookup using resolved raw source alias",
+        "native/raw source masks participate in binding reuse",
+        "native texture HLE cache invalidation per touched display-list unit",
+        "recorded bindings are neither suppressed nor published as executed",
+        "BP producer follows async FIFO state ownership"
+      ],
+      "raw_indexed_palette_support": "unimplemented: raw C4/C8/C14X2 require validated TMEM/TLUT mapping; fallback retained",
+      "hardware_visual_result": "pending"
+    },
+    "second_device_trial": {
+      "install": {
+        "utc": "20261012T174009Z",
+        "host": "192.168.1.79",
+        "port": 1337,
+        "self_sha256": "73b644bd59e1acdead673ddf51ff2af53f087f8a51b2958c9d318a32f68fa258",
+        "git_commit": "90eb1ddc93d545a2b4509600de43904d13400196",
+        "aurora_commit": "7a69a51bf392c62e37aca5926f0dbd27cb0c128b",
+        "mode": "time-trial",
+        "diagnostics": "enabled",
+        "audio_policy": "continue",
+        "audio_only": false,
+        "batch_only": false,
+        "probe_only": false,
+        "budget_probe": "on",
+        "visual_only": false,
+        "precomputed_only": false,
+        "precomputed_geometry": "off",
+        "recipe_only": false,
+        "prepared_display_lists": "keep",
+        "lyt_only": false,
+        "native_lyt_packets": "off",
+        "efb_only": false,
+        "async_efb_copies": "off",
+        "deferred_efb_targets": "off",
+        "gpu_lighting": "gpu",
+        "native_materials": "native",
+        "render_batching": "on",
+        "capture_frame": 700,
+        "dry_run": false,
+        "launched": false,
+        "installed_old_self_sha256": "7e35227b1190bb6cbc1298c12dc3b6386fd492ab104379650fb3d3160c18559c",
+        "config_before_sha256": "2f683047cd5a10666585b483af872fae10c68b1c2bb196cd504402fddf7e8e83",
+        "config_after_sha256": "79a18293aa4b10355ac2cd558bf6a9841782a75462bc3b5d1c079d44748928a7",
+        "psarc_before": {
+          "size": 3219564087,
+          "mtime": "213 20261007231324"
+        },
+        "files_to_update": [
+          "ux0:/app/WICMKW001/eboot.bin",
+          "ux0:/data/wiicompiled-vita/Config.toml"
+        ],
+        "other_vpk_entries_unchanged": 13,
+        "remote_backups": {
+          "ux0:/app/WICMKW001/eboot.bin": "ux0:/app/WICMKW001/eboot.bin.backup-20261012T174009Z",
+          "ux0:/data/wiicompiled-vita/Config.toml": "ux0:/data/wiicompiled-vita/Config.toml.backup-20261012T174009Z"
+        },
+        "state": "installed_verified"
+      },
+      "launch": {
+        "utc": "2026-10-12T17:47:20.845578+00:00",
+        "runtime_offset": 91915576,
+        "self_sha256": "73b644bd59e1acdead673ddf51ff2af53f087f8a51b2958c9d318a32f68fa258",
+        "config_sha256": "79a18293aa4b10355ac2cd558bf6a9841782a75462bc3b5d1c079d44748928a7",
+        "game_closed_user_confirmed": true,
+        "install_state": "installed_verified",
+        "reply": "Launched.\n"
+      },
+      "runtime_identity": {
+        "state": "verified",
+        "matches_installed_files": true,
+        "self_sha256": "73b644bd59e1acdead673ddf51ff2af53f087f8a51b2958c9d318a32f68fa258",
+        "config_sha256": "79a18293aa4b10355ac2cd558bf6a9841782a75462bc3b5d1c079d44748928a7",
+        "boot_line": "[boot-identity] self_sha256=73b644bd59e1acdead673ddf51ff2af53f087f8a51b2958c9d318a32f68fa258 self_bytes=24408161 config_sha256=79a18293aa4b10355ac2cd558bf6a9841782a75462bc3b5d1c079d44748928a7 config_bytes=1082 config_loaded=1 cpu_mhz=444 gpu_mhz=222"
+      },
+      "monitor": {
+        "utc": "2026-10-12T17:48:13.702303+00:00",
+        "runtime_offset": 91915576,
+        "runtime_bytes": 92013998,
+        "captured_bytes": 98422,
+        "identity": {
+          "state": "verified",
+          "matches_installed_files": true,
+          "self_sha256": "73b644bd59e1acdead673ddf51ff2af53f087f8a51b2958c9d318a32f68fa258",
+          "config_sha256": "79a18293aa4b10355ac2cd558bf6a9841782a75462bc3b5d1c079d44748928a7",
+          "boot_line": "[boot-identity] self_sha256=73b644bd59e1acdead673ddf51ff2af53f087f8a51b2958c9d318a32f68fa258 self_bytes=24408161 config_sha256=79a18293aa4b10355ac2cd558bf6a9841782a75462bc3b5d1c079d44748928a7 config_bytes=1082 config_loaded=1 cpu_mhz=444 gpu_mhz=222"
+        },
+        "frame700_saved": false,
+        "cadence_windows": 2
+      },
+      "quiet_fps_result": null,
+      "candidate_promoted": false
+    },
+    "device_final_state_scope": "end of first trial; current second trial is in progress"
+  }
+}

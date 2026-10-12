@@ -1,0 +1,585 @@
+diff --git a/include/aurora_vita_view_draw_capture.h b/include/aurora_vita_view_draw_capture.h
+index bca2405..2896b80 100644
+--- a/include/aurora_vita_view_draw_capture.h
++++ b/include/aurora_vita_view_draw_capture.h
+@@ -45,18 +45,54 @@ typedef struct AuroraViewDrawRecord {
+     uint8_t alpha_ref1;
+     uint8_t alpha_op;
+     uint8_t payload_hashes_present;
++    uint8_t diagnostic_suppressed;
++    uint8_t screen_bounds_valid;
++    uint16_t reserved;
++    uint32_t projected_vertices;
++    float screen_bounds[4];
++    uint32_t texture_handles[8];
++    uint8_t tev_maps[16];
++    uint8_t tev_coords[16];
++    uint8_t tev_color_args[16][4];
++    uint8_t tev_alpha_args[16][4];
+ } AuroraViewDrawRecord;
+ 
++typedef struct AuroraViewTextureRecord {
++    uint64_t source_id;
++    uint64_t palette_source_id;
++    uint64_t source_hash;
++    uint64_t palette_hash;
++    uint32_t handle;
++    uint32_t source_hash_bytes;
++    uint32_t palette_hash_bytes;
++    uint32_t source_bytes;
++    uint32_t width;
++    uint32_t height;
++    uint32_t source_revision;
++    uint8_t gx_format;
++    uint8_t palette_format;
++    uint8_t mip_count;
++    uint8_t binding_source;
++} AuroraViewTextureRecord;
++
+ // Start/stop/read ONLY from the game thread after the frame has been joined.
+ int aurora_vita_view_draw_start(size_t maximum_records);
+ // Additional byte-hashing cost is limited to diagnostics and disabled by
+ // default. Consumer and game thread may access this after the frame fence.
+ int aurora_vita_view_draw_start_ex(size_t maximum_records, int capture_payloads);
++// Optional, one-shot draw isolation. Zero/zero disables the range filter.
++int aurora_vita_view_draw_start_ex_range(size_t maximum_records, int capture_payloads,
++                                         uint32_t first, uint32_t last);
++int aurora_vita_view_draw_start_ex_hash(size_t maximum_records, int capture_payloads,
++                                        uint64_t fragment_hash);
+ void aurora_vita_view_draw_stop(void);
+ size_t aurora_vita_view_draw_count(void);
+ size_t aurora_vita_view_draw_capacity(void);
+ uint64_t aurora_vita_view_draw_lost(void);
+ size_t aurora_vita_view_draw_read(size_t start, AuroraViewDrawRecord* out, size_t max_records);
++size_t aurora_vita_view_texture_count(void);
++size_t aurora_vita_view_texture_read(size_t start,AuroraViewTextureRecord* out,size_t max_records);
++void aurora_vita_view_draw_set_texture_probe(int enabled);
+ 
+ // Called by the game before/after its view sequence. Markers travel in FIFO
+ // order; the producer never modifies the worker's current-view state directly.
+diff --git a/platforms/vita/aurora_vita_backend.cpp b/platforms/vita/aurora_vita_backend.cpp
+index 742f850..66bbf11 100644
+--- a/platforms/vita/aurora_vita_backend.cpp
++++ b/platforms/vita/aurora_vita_backend.cpp
+@@ -354,6 +354,13 @@ extern "C" int aurora_vita_view_draw_start(size_t capacity) {
+ extern "C" int aurora_vita_view_draw_start_ex(size_t capacity, int capturePayloads) {
+   return gfx::view_draw_capture().start(capacity,capturePayloads!=0) ? 1 : 0;
+ }
++extern "C" int aurora_vita_view_draw_start_ex_range(size_t capacity,int payloads,
++                                                     uint32_t first,uint32_t last) {
++  return gfx::view_draw_capture().start_filtered(capacity,payloads!=0,first,last,0)?1:0;
++}
++extern "C" int aurora_vita_view_draw_start_ex_hash(size_t capacity,int payloads,uint64_t hash) {
++  return gfx::view_draw_capture().start_filtered(capacity,payloads!=0,0,0,hash)?1:0;
++}
+ extern "C" void aurora_vita_view_draw_stop(void) {
+   gfx::view_draw_capture().stop();
+ }
+@@ -369,6 +376,15 @@ extern "C" uint64_t aurora_vita_view_draw_lost(void) {
+ extern "C" size_t aurora_vita_view_draw_read(size_t first, AuroraViewDrawRecord* out, size_t maximum) {
+   return gfx::view_draw_capture().read(first,out,maximum);
+ }
++extern "C" size_t aurora_vita_view_texture_count(void) {
++  return gfx::view_draw_capture().texture_count();
++}
++extern "C" size_t aurora_vita_view_texture_read(size_t first,AuroraViewTextureRecord* out,size_t maximum) {
++  return gfx::view_draw_capture().read_texture(first,out,maximum);
++}
++extern "C" void aurora_vita_view_draw_set_texture_probe(int enabled) {
++  gfx::view_draw_capture().set_texture_probe(enabled!=0);
++}
+ extern "C" void aurora_vita_view_draw_mark(uint32_t view, uint64_t producerFrame) {
+ #if defined(MKW_TARGET_VITA)
+   aurora::gx::fifo::write_view_marker(view,producerFrame);
+@@ -714,6 +730,7 @@ bool initialize(const BackendConfig& c) noexcept {
+   dc.localDrawBatching=g_config.gxm_local_draw_batching;
+ #if defined(MKW_TARGET_VITA) && defined(AURORA_VITA_RENDERER_GXM)
+   dc.renderBudgetProbe=c.gxm_render_budget_probe;
++  dc.efbCopySnap1to1=c.gxm_efb_copy_snap_1to1;
+ #endif
+   dc.immediateDrawView=c.gxm_immediate_draw_view;
+   dc.allowStreamedFixedVertexGpu=c.gxm_streamed_fixed_vertex_gpu;
+diff --git a/platforms/vita/aurora_vita_backend.hpp b/platforms/vita/aurora_vita_backend.hpp
+index 6ed2868..c4d5a20 100644
+--- a/platforms/vita/aurora_vita_backend.hpp
++++ b/platforms/vita/aurora_vita_backend.hpp
+@@ -202,6 +202,14 @@ struct BackendConfig {
+   bool gxm_local_draw_batching=false;
+   // Sampling is opt-in and scoped to the WiiCompiled GXM backend.
+   bool gxm_render_budget_probe=false;
++  // These WiiCompiled extensions existed only in the lost Oct 11 worktree.
++  // Keep the configuration contract; experimental paths remain opt-in.
++  bool native_lyt_packets=false;
++  uint32_t gxm_native_primitive_min_vertices=0;
++  bool gxm_defer_program_cache_writes=true;
++  bool gxm_precomputed_geometry=false;
++  bool gxm_deferred_efb_targets=false;
++  bool gxm_efb_copy_snap_1to1=false;
+   // Native GXM render-target scene budget. Gameplay telemetry should stay below
+   // this in steady state; Strikers currently averages ~2.4 and peaks at 3.
+   uint32_t gxm_scenes_per_frame=5;
+diff --git a/platforms/vita/gfx/vita_efb_copy.hpp b/platforms/vita/gfx/vita_efb_copy.hpp
+index 50812d2..2f55dd2 100644
+--- a/platforms/vita/gfx/vita_efb_copy.hpp
++++ b/platforms/vita/gfx/vita_efb_copy.hpp
+@@ -9,6 +9,29 @@ inline constexpr bool efb_copy_source_empty(const Scissor& source,uint32_t width
+   return source.width<=0||source.height<=0||source.x>=int64_t(width)||source.y>=int64_t(height)||
+       int64_t(source.x)+source.width<=0||int64_t(source.y)+source.height<=0;
+ }
++// Only the physical capture source is cropped. GXCopyTex(clear=true) must use
++// the full original scissor after the copy or the guest observes stale pixels.
++// Pixel-center filtering differs from shader scaling: this is opt-in only.
++inline constexpr bool efb_snap_one_to_one_capture(const Scissor& source,
++    uint32_t guestSourceWidth,uint32_t guestSourceHeight,
++    uint32_t guestDestWidth,uint32_t guestDestHeight,
++    uint32_t physicalDestWidth,uint32_t physicalDestHeight,
++    uint32_t targetWidth,uint32_t targetHeight,Scissor& capture) noexcept {
++  capture=source;
++  if(!guestSourceWidth||!guestSourceHeight||
++     guestSourceWidth!=guestDestWidth||guestSourceHeight!=guestDestHeight||
++     !physicalDestWidth||!physicalDestHeight||
++     physicalDestWidth>uint32_t(INT32_MAX)||physicalDestHeight>uint32_t(INT32_MAX)||
++     source.x<0||source.y<0||source.width<=0||source.height<=0)return false;
++  const auto w=uint32_t(source.width),h=uint32_t(source.height);
++  if(w<physicalDestWidth||w-physicalDestWidth>1u||
++     h<physicalDestHeight||h-physicalDestHeight>1u||
++     (w==physicalDestWidth&&h==physicalDestHeight)||
++     uint64_t(source.x)+w>targetWidth||uint64_t(source.y)+h>targetHeight)return false;
++  capture.width=int32_t(physicalDestWidth);
++  capture.height=int32_t(physicalDestHeight);
++  return true;
++}
+ // CPU reference for color EFB copies. Coordinates and row order are top-left.
+ // Input/output must not alias. Depth copies need a separate source representation.
+ bool copy_efb_rgba8(const uint8_t* source, uint32_t width, uint32_t height,
+diff --git a/platforms/vita/gfx/vita_view_draw_capture.hpp b/platforms/vita/gfx/vita_view_draw_capture.hpp
+index 93ef382..ae2b947 100644
+--- a/platforms/vita/gfx/vita_view_draw_capture.hpp
++++ b/platforms/vita/gfx/vita_view_draw_capture.hpp
+@@ -18,12 +18,26 @@ class ViewDrawCapture {
+ public:
+     bool enabled() const noexcept { return enabled_.load(std::memory_order_acquire); }
+     bool payload_enabled() const noexcept { return capturePayloads_.load(std::memory_order_relaxed) && enabled(); }
++    bool texture_probe_enabled() const noexcept { return textureProbe_.load(std::memory_order_relaxed); }
++    void set_texture_probe(bool enable) noexcept { textureProbe_.store(enable,std::memory_order_relaxed); }
+ 
+     bool start(size_t limit, bool capturePayloads = false) noexcept {
++        return start_filtered(limit,capturePayloads,0,0,0);
++    }
++
++    bool start_filtered(size_t limit,bool capturePayloads,uint32_t first,uint32_t last,
++                        uint64_t fragmentHash) noexcept {
+         if (enabled() || !limit || limit > 65536) return false;
++        if (((first==0)!=(last==0)) || first>last || last>16384 ||
++            (fragmentHash && first)) return false;
+         std::unique_ptr<AuroraViewDrawRecord[]> next(new (std::nothrow) AuroraViewDrawRecord[limit]{});
+         if (!next) return false;
++        std::unique_ptr<AuroraViewTextureRecord[]> textures(
++            new (std::nothrow) AuroraViewTextureRecord[4096]{});
++        if(!textures) return false;
+         records_ = std::move(next);
++        textures_=std::move(textures);
++        textureCount_=0;
+         capacity_ = limit;
+         count_ = 0;
+         lost_.store(0, std::memory_order_relaxed);
+@@ -31,6 +45,9 @@ public:
+         consumer_frame_ = 0;
+         view_ = 255;
+         draw_ = 0;
++        suppressFirst_=first;
++        suppressLast_=last;
++        suppressHash_=fragmentHash;
+         capturePayloads_.store(capturePayloads, std::memory_order_relaxed);
+         enabled_.store(true, std::memory_order_release);
+         return true;
+@@ -64,6 +81,29 @@ public:
+     }
+ 
+     void suppressed_draw() noexcept { if (enabled()) ++lost_; }
++    bool should_suppress_next(uint64_t fragmentHash) const noexcept {
++        if(!enabled())return false;
++        const uint32_t next=draw_+1;
++        return (suppressHash_ && fragmentHash==suppressHash_) ||
++               (suppressFirst_ && next>=suppressFirst_ && next<=suppressLast_);
++    }
++    bool texture(const AuroraViewTextureRecord& record) noexcept {
++        if(!enabled() || !textures_ || !record.handle)return false;
++        for(size_t i=0;i<textureCount_;++i)
++            if(textures_[i].handle==record.handle){
++                textures_[i]=record;return true;
++            }
++        if(textureCount_>=4096){++lost_;return false;}
++        textures_[textureCount_++]=record;
++        return true;
++    }
++    size_t texture_count() const noexcept {return textureCount_;}
++    size_t read_texture(size_t start,AuroraViewTextureRecord* out,size_t maximum) const noexcept {
++        if(enabled()||!out||!maximum||start>=textureCount_)return 0;
++        const size_t n=std::min(textureCount_-start,maximum);
++        std::memcpy(out,textures_.get()+start,n*sizeof(*out));
++        return n;
++    }
+ 
+     void complete(uint64_t consumerFrame) noexcept {
+         if (!enabled()) return;
+@@ -102,9 +142,14 @@ private:
+ 
+     std::atomic<bool> enabled_{false};
+     std::atomic<bool> capturePayloads_{false};
++    std::atomic<bool> textureProbe_{false};
+     std::unique_ptr<AuroraViewDrawRecord[]> records_;
++    std::unique_ptr<AuroraViewTextureRecord[]> textures_;
+     size_t capacity_ = 0;
+     size_t count_ = 0;
++    size_t textureCount_ = 0;
++    uint32_t suppressFirst_=0,suppressLast_=0;
++    uint64_t suppressHash_=0;
+     // The on-device queue is bounded to 65536 rows; 32-bit atomics avoid an
+     // ARMv7 libatomic dependency on cross-thread overflow/error increments.
+     std::atomic<uint32_t> lost_{0};
+diff --git a/platforms/vita/gx/aurora_vita_draw_sink.cpp b/platforms/vita/gx/aurora_vita_draw_sink.cpp
+index e8bc02a..077c5aa 100644
+--- a/platforms/vita/gx/aurora_vita_draw_sink.cpp
++++ b/platforms/vita/gx/aurora_vita_draw_sink.cpp
+@@ -79,6 +79,10 @@ bool DrawSink::initialize(gfx::Renderer& renderer, const DrawSinkConfig& config)
+   localDrawBatching_=config.localDrawBatching;
+ #if defined(MKW_TARGET_VITA) && defined(AURORA_VITA_RENDERER_GXM)
+   renderBudgetProbe_=config.renderBudgetProbe;
++  efbCopySnap1to1_=config.efbCopySnap1to1;
++  if(renderBudgetProbe_ || efbCopySnap1to1_)
++    std::fprintf(stderr,"[wic-efb-snap-config] enabled=%u probe=%u\n",
++        unsigned(efbCopySnap1to1_),unsigned(renderBudgetProbe_));
+ #endif
+   immediateDrawView_=config.immediateDrawView;
+   allowStreamedFixedVertexGpu_ = config.allowStreamedFixedVertexGpu;
+@@ -189,11 +193,11 @@ void DrawSink::begin_frame(uint64_t frame) noexcept {
+     // Quiet diagnostics intentionally disable AURORA_VITA_LOG_INFO. Use one
+     // bounded stderr record per 32 frames instead, never one per draw.
+     std::fprintf(stderr,
+-        "[wic-draw-health] completed_frame=%llu submitted=%llu requested=%u merged=%u white_fallback_draws=%u dynamic_copy_fallback_draws=%u batching=%u efb_copies=%u efb_flush_us=%llu efb_capture_us=%llu efb_clear_us=%llu\n",
++        "[wic-draw-health] completed_frame=%llu submitted=%llu requested=%u merged=%u white_fallback_draws=%u dynamic_copy_fallback_draws=%u batching=%u efb_copies=%u efb_copy_snaps=%u efb_snap_retries=%u efb_flush_us=%llu efb_capture_us=%llu efb_clear_us=%llu\n",
+         static_cast<unsigned long long>(frame-1),
+         static_cast<unsigned long long>(submittedDraws_-frameStartSubmittedDraws_),
+         frameDrawIndex_,frameBatchedDraws_,frameWhiteFallbackDraws_,frameDynamicCopyFallbackDraws_,
+-        unsigned(localDrawBatching_),frameEfbCopyCalls_,
++        unsigned(localDrawBatching_),frameEfbCopyCalls_,frameEfbCopySnaps_,frameEfbSnapRetries_,
+         static_cast<unsigned long long>(frameEfbFlushUs_),
+         static_cast<unsigned long long>(frameEfbCaptureUs_),
+         static_cast<unsigned long long>(frameEfbClearUs_));
+@@ -203,6 +207,7 @@ void DrawSink::begin_frame(uint64_t frame) noexcept {
+   frameDynamicCopyFallbackDraws_=0;
+   frameBatchedDraws_=0;
+   frameEfbCopyCalls_=0;
++  frameEfbCopySnaps_=frameEfbSnapRetries_=0;
+   frameEfbFlushUs_=frameEfbCaptureUs_=frameEfbClearUs_=0;
+   // Frame indices start at zero; the GXM sampler records completed frames
+   // 32, 64, ... (and the first four for startup sanity).
+@@ -525,6 +530,16 @@ bool DrawSink::copy_tex(const void* dest, bool clear) noexcept {
+     if (strictUnsupported_) strictFailed_ = true;
+     return false;
+   }
++  gfx::Scissor captureSrc=src;
++#if defined(MKW_TARGET_VITA) && defined(AURORA_VITA_RENDERER_GXM) && !defined(AURORA_VITA_UPSTREAM_STUB)
++  const bool snapped=efbCopySnap1to1_&&
++      copyFormat==gfx::EfbCopyFormat::Passthrough&&
++      g.texCopySrc.width>0&&g.texCopySrc.height>0&&
++      gfx::efb_snap_one_to_one_capture(src,
++          static_cast<uint32_t>(g.texCopySrc.width),static_cast<uint32_t>(g.texCopySrc.height),
++          g.texCopyDstWidth,g.texCopyDstHeight,dstW,dstH,
++          renderer_->target_width(),renderer_->target_height(),captureSrc);
++#endif
+   const uintptr_t copyKey = reinterpret_cast<uintptr_t>(dest);
+   const auto oldIt = copyTextures_.find(copyKey);
+   const gfx::Handle oldHandle = oldIt == copyTextures_.end() ? gfx::InvalidHandle : oldIt->second.handle;
+@@ -577,7 +592,19 @@ bool DrawSink::copy_tex(const void* dest, bool clear) noexcept {
+   } else
+ #endif
+   {
+-    h=renderer_->capture_current(oldHandle, src, dstW, dstH, physicalFormat, physicalFlipX, physicalFlipY);
++    h=renderer_->capture_current(oldHandle,captureSrc,dstW,dstH,physicalFormat,physicalFlipX,physicalFlipY);
++#if defined(MKW_TARGET_VITA) && defined(AURORA_VITA_RENDERER_GXM) && !defined(AURORA_VITA_UPSTREAM_STUB)
++    if(snapped) {
++      if(h) ++frameEfbCopySnaps_;
++      else {
++        ++frameEfbSnapRetries_;
++        // A failed capture may have released oldHandle. Retry the original
++        // shader rectangle with a fresh target rather than a stale handle.
++        h=renderer_->capture_current(gfx::InvalidHandle,src,dstW,dstH,
++                                     physicalFormat,physicalFlipX,physicalFlipY);
++      }
++    }
++#endif
+   }
+ #if defined(MKW_TARGET_VITA) && defined(AURORA_VITA_RENDERER_GXM)
+   const uint64_t afterCaptureProbe=renderBudgetFrame_?render_budget_now_us():0;
+diff --git a/platforms/vita/gx/aurora_vita_draw_sink.hpp b/platforms/vita/gx/aurora_vita_draw_sink.hpp
+index 8e70cc1..594274a 100644
+--- a/platforms/vita/gx/aurora_vita_draw_sink.hpp
++++ b/platforms/vita/gx/aurora_vita_draw_sink.hpp
+@@ -64,6 +64,7 @@ struct DrawSinkConfig {
+   bool localDrawBatching = false;
+ #if defined(MKW_TARGET_VITA) && defined(AURORA_VITA_RENDERER_GXM)
+   bool renderBudgetProbe = false;
++  bool efbCopySnap1to1 = false;
+ #endif
+   bool immediateDrawView = false;
+   bool allowStreamedFixedVertexGpu = false;
+@@ -219,8 +220,11 @@ private:
+   uint32_t frameBatchedDraws_ = 0;
+   uint64_t frameStartSubmittedDraws_ = 0;
+   bool renderBudgetProbe_ = false;
++  bool efbCopySnap1to1_ = false;
+   bool renderBudgetFrame_ = false;
+   uint32_t frameEfbCopyCalls_ = 0;
++  uint32_t frameEfbCopySnaps_ = 0;
++  uint32_t frameEfbSnapRetries_ = 0;
+   uint64_t frameEfbFlushUs_ = 0;
+   uint64_t frameEfbCaptureUs_ = 0;
+   uint64_t frameEfbClearUs_ = 0;
+diff --git a/platforms/vita/gxm/gxm_renderer.cpp b/platforms/vita/gxm/gxm_renderer.cpp
+index 0c12fc1..7c241fe 100644
+--- a/platforms/vita/gxm/gxm_renderer.cpp
++++ b/platforms/vita/gxm/gxm_renderer.cpp
+@@ -17,6 +17,7 @@
+ #include "gfx/vita_shader_debug_registry.hpp"
+ #include "gfx/vita_view_draw_capture.hpp"
+ #include "gfx/vita_draw_payload_hash.hpp"
++#include "gfx/vita_texture_provenance.hpp"
+ #include "../aurora_vita_backend.hpp"
+ #include <psp2/display.h>
+ #include <psp2/kernel/processmgr.h>
+@@ -40,6 +41,28 @@
+ namespace aurora::vita::gxm {
+ namespace {
+ using namespace gfx;
++AuroraViewTextureRecord native_texture_source_record(const TextureDesc& desc,
++                                                     size_t encodedBytes,bool hashBytes) noexcept {
++  AuroraViewTextureRecord out{};
++  out.width=desc.width;out.height=desc.height;
++  out.gx_format=static_cast<uint8_t>(desc.format);
++  out.palette_format=static_cast<uint8_t>(desc.paletteFormat);
++  out.mip_count=desc.mipCount;
++  out.source_id=desc.sourceId;
++  out.palette_source_id=desc.paletteSourceId;
++  out.source_revision=desc.revision;
++  out.source_bytes=static_cast<uint32_t>(std::min(encodedBytes,size_t(UINT32_MAX)));
++  if(hashBytes) {
++    const auto bytes=bounded_texture_fingerprint_bytes(encodedBytes);
++    out.source_hash_bytes=static_cast<uint32_t>(bytes);
++    out.source_hash=fingerprint_texture_source(desc.data,bytes);
++    const auto paletteBytes=desc.palette?bounded_texture_fingerprint_bytes(desc.paletteSize):0;
++    out.palette_hash_bytes=static_cast<uint32_t>(paletteBytes);
++    out.palette_hash=fingerprint_texture_source(desc.palette,paletteBytes);
++  }
++  return out;
++}
++using namespace gfx;
+ #if defined(MKW_TARGET_VITA)
+ // Only the WiiCompiled diagnostic observer reads this. 0=none, 1=EndScene,
+ // 2=BeginScene, 3=Draw, 4=Finish, 5=DisplayQueueAddEntry,
+@@ -355,6 +378,7 @@ struct Renderer::Impl {
+     SamplerDesc descriptorSampler{};
+     bool descriptorSamplerValid = false;
+     bool inFlight = false, depthValid = false;
++    AuroraViewTextureRecord provenance{};
+     ~Texture() {
+       if (sync) sceGxmSyncObjectDestroy(sync);
+       if (target) sceGxmDestroyRenderTarget(target);
+@@ -1216,6 +1240,8 @@ Handle Renderer::create_texture(const TextureDesc& desc,CompactTextureData* prep
+           sceGxmTextureInitLinear(&texture.descriptor,texture.memory.data(),native.format,
+                                   desc.width,desc.height,texture.mipCount);
+       if(nativeResult>=0) {
++        texture.provenance=native_texture_source_record(
++            desc,encoded,gfx::view_draw_capture().texture_probe_enabled());
+         if(d.diagnosticsEnabled)
+           AURORA_VITA_LOG_DEBUG("[aurora-gxm] compact_texture fmt=%u size=%ux%u mips=%u bytes=%u bc1=%u\n",
+             unsigned(desc.format),desc.width,desc.height,texture.mipCount,unsigned(native.pixels.size()),
+@@ -1255,6 +1281,8 @@ Handle Renderer::create_texture(const TextureDesc& desc,CompactTextureData* prep
+       sceGxmTextureInitLinear(&texture.descriptor, texture.memory.data(),
+           SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR, desc.width, desc.height, texture.mipCount);
+   if (!d.check(textureResult, "initialize native texture")) return 0;
++  texture.provenance=native_texture_source_record(
++      desc,encoded,gfx::view_draw_capture().texture_probe_enabled());
+   d.resourceBytes += texture.memory.size();
+   const Handle handle = d.nextHandle++;
+   d.textures.emplace(handle, std::move(owned));
+@@ -1784,9 +1812,14 @@ bool Renderer::draw(const DrawSubmissionView& packet, bool gameDraw) {
+   }
+   const auto primitive = pipeline.primitive == Primitive::Triangles ? SCE_GXM_PRIMITIVE_TRIANGLES :
+       pipeline.primitive == Primitive::TriangleFan ? SCE_GXM_PRIMITIVE_TRIANGLE_FAN : SCE_GXM_PRIMITIVE_TRIANGLE_STRIP;
+-  watch_kernel_operation(3);
+-  const int drawResult=sceGxmDraw(d.context, primitive, SCE_GXM_INDEX_FORMAT_U16, indices, packet.indexCount);
+-  watch_kernel_operation(0);
++  const bool diagnosticSuppressed=traceDraw&&
++      viewTrace.should_suppress_next(p.fragmentCode?p.fragmentCode->sourceHash:0);
++  int drawResult=0;
++  if(!diagnosticSuppressed) {
++    watch_kernel_operation(3);
++    drawResult=sceGxmDraw(d.context, primitive, SCE_GXM_INDEX_FORMAT_U16, indices, packet.indexCount);
++    watch_kernel_operation(0);
++  }
+   if (!d.check(drawResult, "draw indexed")) return false;
+   if(traceDraw) {
+     AuroraViewDrawRecord row{};
+@@ -1803,6 +1836,38 @@ bool Renderer::draw(const DrawSubmissionView& packet, bool gameDraw) {
+     row.tev_stages=p.desc.tev.stageCount;
+     row.texture_mask=p.textureMask;
+     row.texgen_mask=gfx::pipeline_texgen_compute_mask(p.desc);
++    row.diagnostic_suppressed=static_cast<uint8_t>(diagnosticSuppressed);
++    for(unsigned stage=0;stage<std::min<unsigned>(p.desc.tev.stageCount,16);++stage) {
++      const auto& s=p.desc.tev.stages[stage];
++      row.tev_maps[stage]=s.texture;
++      row.tev_coords[stage]=s.texCoord;
++      row.tev_color_args[stage][0]=static_cast<uint8_t>(s.color.a);
++      row.tev_color_args[stage][1]=static_cast<uint8_t>(s.color.b);
++      row.tev_color_args[stage][2]=static_cast<uint8_t>(s.color.c);
++      row.tev_color_args[stage][3]=static_cast<uint8_t>(s.color.d);
++      row.tev_alpha_args[stage][0]=static_cast<uint8_t>(s.alpha.a);
++      row.tev_alpha_args[stage][1]=static_cast<uint8_t>(s.alpha.b);
++      row.tev_alpha_args[stage][2]=static_cast<uint8_t>(s.alpha.c);
++      row.tev_alpha_args[stage][3]=static_cast<uint8_t>(s.alpha.d);
++    }
++    for(unsigned slot=0;slot<MaxTextures;++slot)if(p.textureMask&(1u<<slot)) {
++      const auto& binding=packet.texture_bindings()[slot];
++      row.texture_handles[slot]=binding.texture;
++      const auto it=d.textures.find(binding.texture);
++      if(it==d.textures.end()||!it->second) {
++        viewTrace.suppressed_draw();
++        continue;
++      }
++      auto source=it->second->provenance;
++      source.handle=binding.texture;
++      source.binding_source=static_cast<uint8_t>(binding.source);
++      if(!source.width) {
++        source.width=it->second->width;source.height=it->second->height;
++        source.gx_format=0xff;
++        source.mip_count=static_cast<uint8_t>(std::min(it->second->mipCount,255u));
++      }
++      (void)viewTrace.texture(source);
++    }
+     row.program_native=static_cast<uint8_t>(p.nativeMaterial);
+     row.indexed_pn=static_cast<uint8_t>(p.desc.fixedVertexIndexedPn);
+     row.blend=static_cast<uint8_t>(p.desc.blendMode);
+@@ -2022,6 +2087,12 @@ bool Renderer::update_texture(Handle handle,const TextureDesc& desc,bool storage
+   // display queue can retain, matching StreamingArena's retirement contract.
+   if(storageRetired) texture.inFlight=false;
+   std::memcpy(texture.memory.data(),pixels,pixelBytes);
++  const auto encoded=encoded_mip_chain_size(desc.width,desc.height,desc.format,
++                                             std::max<uint8_t>(desc.mipCount,1));
++  if(encoded&&encoded<=desc.dataSize)
++    texture.provenance=native_texture_source_record(
++        desc,encoded,gfx::view_draw_capture().texture_probe_enabled());
++  else texture.provenance={};
+   texture.descriptorSamplerValid=false;
+   return true;
+ }
+diff --git a/tests/vita_efb_empty_source_test.cpp b/tests/vita_efb_empty_source_test.cpp
+index 4dbfea8..36454a1 100644
+--- a/tests/vita_efb_empty_source_test.cpp
++++ b/tests/vita_efb_empty_source_test.cpp
+@@ -2,6 +2,7 @@
+ 
+ using aurora::vita::gfx::Scissor;
+ using aurora::vita::gfx::efb_copy_source_empty;
++using aurora::vita::gfx::efb_snap_one_to_one_capture;
+ 
+ // Visible VI height is not the EFB storage bound. WiiCompiled light maps at
+ // logical row 456 become valid captures once scratch rows are retained.
+@@ -17,4 +18,20 @@ static_assert(!efb_copy_source_empty(Scissor{0,0,202,153},960,544));
+ static_assert(!efb_copy_source_empty(Scissor{940,520,40,40},960,544));
+ static_assert(!efb_copy_source_empty(Scissor{-10,20,20,40},960,544));
+ 
++constexpr bool validate_one_to_one_snap() {
++  Scissor cropped{};
++  const Scissor first{0,544,51,39},second{50,544,52,39};
++  if(!efb_snap_one_to_one_capture(first,32,32,32,32,51,38,1024,640,cropped)||
++     cropped.width!=51||cropped.height!=38||first.height!=39)return false;
++  if(!efb_snap_one_to_one_capture(second,32,32,32,32,51,38,1024,640,cropped)||
++     cropped.x!=50||cropped.width!=51||cropped.height!=38||second.width!=52)return false;
++  if(efb_snap_one_to_one_capture({0,0,202,153},128,128,128,128,202,153,1024,640,cropped)||
++     efb_snap_one_to_one_capture({0,0,152,114},64,48,32,24,76,57,1024,640,cropped)||
++     efb_snap_one_to_one_capture({0,0,53,39},32,32,32,32,51,38,1024,640,cropped)||
++     efb_snap_one_to_one_capture({999,544,52,39},32,32,32,32,51,38,1024,640,cropped)||
++     efb_snap_one_to_one_capture({-1,544,52,39},32,32,32,32,51,38,1024,640,cropped))return false;
++  return true;
++}
++static_assert(validate_one_to_one_snap());
++
+ int main() { return 0; }
+diff --git a/tests/vita_view_draw_capture_test.cpp b/tests/vita_view_draw_capture_test.cpp
+index 9d27f4b..7d60c02 100644
+--- a/tests/vita_view_draw_capture_test.cpp
++++ b/tests/vita_view_draw_capture_test.cpp
+@@ -1,4 +1,5 @@
+ #include "gfx/vita_view_draw_capture.hpp"
++#include "gfx/vita_texture_provenance.hpp"
+ #include <array>
+ #ifdef NDEBUG
+ #undef NDEBUG
+@@ -77,5 +78,37 @@ int main() {
+     capture.suppressed_draw(); // Disabled shader must invalidate the capture.
+     capture.stop();
+     assert(capture.lost() == 3);
++    assert(aurora::vita::gfx::fingerprint_texture_source("hello",5)==0xa430d84680aabd0bull);
++    assert(aurora::vita::gfx::bounded_texture_fingerprint_bytes(2u*1024u*1024u)==1024u*1024u);
++    assert(!capture.start_filtered(4,true,3,2,0));
++    assert(!capture.start_filtered(4,true,0,2,0));
++    assert(!capture.start_filtered(4,true,2,3,0x10));
++    assert(capture.start_filtered(8,true,2,3,0));
++    capture.set_texture_probe(true);
++    assert(capture.texture_probe_enabled());
++    capture.mark(905,255);
++    assert(!capture.should_suppress_next(0x111));
++    capture.draw(first);
++    assert(capture.should_suppress_next(0x111));
++    AuroraViewTextureRecord texture{};
++    texture.handle=19;texture.width=256;texture.height=128;
++    texture.source_hash=0xa430d84680aabd0bull;
++    assert(capture.texture(texture));
++    texture.binding_source=2;
++    assert(capture.texture(texture));
++    assert(capture.texture_count()==1);
++    capture.draw(first);
++    assert(capture.should_suppress_next(0x222));
++    capture.stop();
++    AuroraViewTextureRecord actual[2]{};
++    assert(capture.read_texture(0,actual,2)==1);
++    assert(actual[0].handle==19 && actual[0].binding_source==2);
++    capture.set_texture_probe(false);
++    assert(!capture.texture_probe_enabled());
++    assert(capture.start_filtered(8,false,0,0,0x3344));
++    capture.mark(906,255);
++    assert(capture.should_suppress_next(0x3344));
++    assert(!capture.should_suppress_next(0x111));
++    capture.stop();
+     std::puts("View/draw capture: ordered views, frame boundaries, bounded loss passed");
+ }
+diff --git a/platforms/vita/gfx/vita_texture_provenance.hpp b/platforms/vita/gfx/vita_texture_provenance.hpp
+new file mode 100644
+index 0000000..001d7ab
+--- /dev/null
++++ b/platforms/vita/gfx/vita_texture_provenance.hpp
+@@ -0,0 +1,22 @@
++#pragma once
++#include <cstddef>
++#include <cstdint>
++
++namespace aurora::vita::gfx {
++
++// Encoded GX source hashes are diagnostic identities, never cache keys.
++// Match scripts/audit_mkw_brres_materials.py (FNV-1a 64, at most 1 MiB).
++inline constexpr size_t TextureFingerprintLimit = 1024u * 1024u;
++inline constexpr size_t bounded_texture_fingerprint_bytes(size_t bytes) noexcept {
++  return bytes < TextureFingerprintLimit ? bytes : TextureFingerprintLimit;
++}
++inline uint64_t fingerprint_texture_source(const void* source,size_t bytes) noexcept {
++  if(!source || !bytes)return 0;
++  const auto* data=static_cast<const uint8_t*>(source);
++  uint64_t result=UINT64_C(14695981039346656037);
++  for(size_t i=0;i<bytes;++i)
++    result=(result^data[i])*UINT64_C(1099511628211);
++  return result;
++}
++
++} // namespace aurora::vita::gfx

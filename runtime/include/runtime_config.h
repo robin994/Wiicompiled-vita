@@ -65,6 +65,8 @@ struct RuntimeUserConfig {
     // a cadence comparison. An explicit frame replaces the legacy captures.
     std::optional<bool> diagnosticsEnabled;
     std::optional<uint32_t> diagnosticsCaptureFrame;
+    std::optional<uint32_t> diagnosticsDrawSuppressFirst;
+    std::optional<uint32_t> diagnosticsDrawSuppressLast;
     VitaRenderOptions vitaRender;
     std::optional<bool> attenuateMusicWhenMediaPlays;
     // Real Wii Remotes (with or without Nunchuk / Classic Controller) and Wii U Pro
@@ -335,14 +337,20 @@ inline void EnsureConfigFile() {
               "# Set capture_frame = 300 for a single race framebuffer capture.\n\n"
               "[vita]\n"
               "shader_binary_preload = true\n"
+              "shader_cache_deferred_writes = true\n"
               "shader_preload_limit = 1024\n"
               "pipeline_prewarm_limit = 192\n"
               "native_asset_cache_mb = 2\n"
+              "# CPU sidecar prewarm from the previous visit to each scene; 0 = off.\n"
+              "native_asset_prewarm_mb = 0\n"
               "worker_threads = 2\n"
               "renderer_lanes = 0\n"
               "geometry_min_vertices = 48\n"
               "prepared_display_lists = false\n"
               "draw_batching = false\n"
+              "# Experimental 1:1 EFB transfer for rounded copy rectangles.\n"
+              "efb_copy_snap_1to1 = false\n"
+              "native_primitive_min_vertices = 0\n"
               "immediate_draw_view = false\n"
               "fragment_prepare_cache = false\n"
               "fixed_uniform_pool = false\n"
@@ -545,6 +553,8 @@ inline RuntimeUserConfig ParseConfigDocument(const toml::value& document) {
     config.testTimeTrial = FindConfigValue<bool>(document, "test", "time_trial");
     config.diagnosticsEnabled = FindConfigValue<bool>(document, "diagnostics", "enabled");
     config.diagnosticsCaptureFrame = FindConfigUint(document, "diagnostics", "capture_frame");
+    config.diagnosticsDrawSuppressFirst = FindConfigUint(document, "diagnostics", "draw_suppress_first");
+    config.diagnosticsDrawSuppressLast = FindConfigUint(document, "diagnostics", "draw_suppress_last");
     auto renderBool = [&](const char* key, bool& output) {
         if (auto v=FindConfigValue<bool>(document,"vita",key)) output=*v;
     };
@@ -553,17 +563,27 @@ inline RuntimeUserConfig ParseConfigDocument(const toml::value& document) {
     };
     auto& render=config.vitaRender;
     renderBool("shader_binary_preload",render.shaderBinaryPreload);
+    renderBool("shader_cache_deferred_writes",render.deferShaderDiskWrites);
     renderUint("shader_preload_limit",render.shaderPreloadLimit,0,1024);
     renderUint("pipeline_prewarm_limit",render.pipelinePrewarmLimit,0,512);
     renderUint("native_asset_cache_mb",render.nativeAssetCacheMb,0,32);
+    renderUint("native_asset_prewarm_mb",render.nativeAssetPrewarmMb,0,8);
     renderUint("worker_threads",render.workerThreads,0,2);
     renderUint("renderer_lanes",render.rendererLanes,0,3);
     renderUint("geometry_min_vertices",render.geometryMinVertices,3,65535);
     renderBool("prepared_display_lists",render.preparedDisplayLists);
+    renderBool("native_lyt_packets",render.nativeLytPackets);
     renderBool("draw_batching",render.drawBatching);
+    if(auto v=FindConfigUint(document,"vita","native_primitive_min_vertices");
+       v && (*v==0 || (*v>=3 && *v<=64000)))
+        render.nativePrimitiveMinVertices=*v;
     renderBool("render_budget_probe",render.renderBudgetProbe);
     renderBool("immediate_draw_view",render.immediateDrawView);
     renderBool("fragment_prepare_cache",render.fragmentPrepareCache);
+    renderBool("precomputed_geometry",render.precomputedGeometry);
+    renderBool("async_efb_copies",render.asyncEfbCopies);
+    renderBool("deferred_efb_targets",render.deferredEfbTargets);
+    renderBool("efb_copy_snap_1to1",render.efbCopySnap1to1);
     renderBool("fixed_uniform_pool",render.fixedUniformPool);
     renderBool("geometry_preflight",render.geometryPreflight);
     renderBool("distinct_cpu_dispatch",render.distinctCpuDispatch);
@@ -611,10 +631,24 @@ inline RuntimeUserConfig ParseConfig(std::istream& input, std::string sourceName
     }
 }
 
+struct LoadedConfigSource {
+    std::string bytes;
+    bool available=false;
+};
+inline LoadedConfigSource& LoadedSource() {
+    static LoadedConfigSource source;
+    return source;
+}
+
 inline RuntimeUserConfig LoadConfigFile() {
     EnsureConfigFile();
     std::ifstream file(ResolveConfigPath(), std::ios::binary);
-    return file ? ParseConfig(file, PathToUtf8(ResolveConfigPath())) : RuntimeUserConfig{};
+    auto& source=LoadedSource();
+    source.available=bool(file);
+    source.bytes=file?std::string(std::istreambuf_iterator<char>(file),{}):std::string{};
+    if(!source.available)return {};
+    std::istringstream input(source.bytes);
+    return ParseConfig(input,PathToUtf8(ResolveConfigPath()));
 }
 
 inline const RuntimeUserConfig& Get() {

@@ -3,6 +3,7 @@
 #include "psarc_backend.hpp"
 #include "hle/audio/ax_internal.h"
 #include <fstream>
+#include <filesystem>
 #include <iterator>
 #include <cstdio>
 #include <cstring>
@@ -123,6 +124,146 @@ int main(int argc,char** argv) {
         CHECK(std::memcmp(&reference,&candidate,sizeof candidate)==0);
     }
     wiicompiled::vita::assets::ShutdownAudio();wiicompiled::vita::assets::Shutdown();
+    // Learn a real texture sidecar in one scene, persist a bounded manifest,
+    // then reopen the same PSARC and prove that prefetch avoids a second IO.
+    using namespace wiicompiled::vita;
+    const auto directory=std::filesystem::path(argv[3]).parent_path().string();
+    constexpr uint64_t sceneKey=0x001f0208000101ull;
+    const char* texturePath="native/v1/textures/000000000000002a.avnr";
+    CHECK(assets::Initialize(1024,512,directory.c_str()));
+    CHECK(assets::PrewarmEnabled());
+    CHECK(!assets::EnterScene(sceneKey).manifestLoaded);
+    CHECK(assets::Read(texturePath,graphics,nullptr));
+    CHECK(assets::Checkpoint());
+    CHECK(!assets::Checkpoint()); // No repeated writes without new hot accesses.
+    CHECK(assets::Read(texturePath,graphics,nullptr));
+    CHECK(!assets::Checkpoint()); // Repeated cache hit is not a new manifest.
+    assets::Shutdown();
+    CHECK(assets::Initialize(1024,512,directory.c_str()));
+    const auto warmed=assets::EnterScene(sceneKey);
+    CHECK(warmed.manifestLoaded && warmed.selected==1 && warmed.loaded==1);
+    CHECK(warmed.bytes==graphics.size());
+    const auto warmedIo=psarc::Statistics().reads;
+    CHECK(assets::Read(texturePath,graphics,nullptr));
+    CHECK(psarc::Statistics().reads==warmedIo); // cache hit, no archive IO.
+    assets::Shutdown();
+    // Scene transitions only schedule CPU-sidecar prewarm. Large bursts of
+    // PSARC reads must not happen inside the frame presentation callback.
+    CHECK(assets::Initialize(1024,512,directory.c_str()));
+    const auto prePlanReads=psarc::Statistics().reads;
+    const auto plan=assets::QueueScene(sceneKey);
+    CHECK(plan.manifestLoaded && plan.selected==1 && plan.remaining==1);
+    CHECK(plan.loaded==0 && plan.bytes==0);
+    CHECK(psarc::Statistics().reads==prePlanReads);
+    const auto skipped=assets::StepScenePrewarm(1,1);
+    CHECK(skipped.skippedLarge==1 && skipped.loaded==0 && skipped.remaining==0);
+    CHECK(psarc::Statistics().reads==prePlanReads);
+    assets::Shutdown();
+    CHECK(assets::Initialize(1024,512,directory.c_str()));
+    CHECK(assets::QueueScene(sceneKey).remaining==1);
+    const auto prior=psarc::Statistics().reads;
+    const auto step=assets::StepScenePrewarm(1024,1);
+    CHECK(step.loaded==1 && step.bytes==graphics.size() && step.remaining==0);
+    CHECK(psarc::Statistics().reads==prior+1);
+    CHECK(assets::Read(texturePath,graphics,nullptr));
+    CHECK(psarc::Statistics().reads==prior+1); // Prefetched bytes reused.
+    CHECK(assets::StepScenePrewarm(1024,1).loaded==0); // Exactly one pass.
+    assets::Shutdown();
+    CHECK(assets::Initialize(1024,512,directory.c_str()));
+    CHECK(assets::QueueScene(sceneKey).remaining==1);
+    (void)assets::QueueScene(sceneKey+1); // cancel stale scene.
+    CHECK(assets::StepScenePrewarm(1024,1).loaded==0);
+    assets::Shutdown();
+    // A tiny warm budget must not even start an oversized sidecar prefetch.
+    CHECK(assets::Initialize(1024,1,directory.c_str()));
+    const auto smallBudget=assets::EnterScene(sceneKey);
+    CHECK(smallBudget.manifestLoaded && smallBudget.loaded==0 && smallBudget.selected==0);
+    assets::Shutdown();
+    // Checksum corruption is not a fatal boot failure or reason to reuse old data.
+    char suffix[50];
+    std::snprintf(suffix,sizeof(suffix),"/native_hot_%016llx.warm",
+                  static_cast<unsigned long long>(sceneKey));
+    const auto manifest=directory+suffix;
+    {
+        std::fstream io(manifest,std::ios::in|std::ios::out|std::ios::binary);
+        CHECK(io.good());io.seekp(-1,std::ios::end);io.put('\x7f');
+        CHECK(io.good());
+    }
+    CHECK(assets::Initialize(1024,512,directory.c_str()));
+    CHECK(!assets::EnterScene(sceneKey).manifestLoaded);
+    const auto beforeRead=psarc::Statistics().reads;
+    CHECK(assets::Read(texturePath,graphics,nullptr));
+    CHECK(psarc::Statistics().reads==beforeRead+1);
+    assets::Shutdown();
+    // Startup prewarm deliberately runs *after* shader GXP preload. Learning
+    // a boot asset in scene zero lets WarmBoot pin it as MRU for first draws.
+    CHECK(assets::Initialize(1024,512,directory.c_str()));
+    CHECK(assets::Read(texturePath,graphics,nullptr));
+    CHECK(assets::Checkpoint());
+    assets::Shutdown();
+    CHECK(assets::Initialize(1024,512,directory.c_str()));
+    const auto coldBootReads=psarc::Statistics().reads;
+    const auto bootWarm=assets::WarmBoot();
+    CHECK(bootWarm.manifestLoaded && bootWarm.loaded==1 &&
+          psarc::Statistics().reads==coldBootReads+1);
+    CHECK(assets::Read(texturePath,graphics,nullptr));
+    CHECK(psarc::Statistics().reads==coldBootReads+1);
+    assets::Shutdown();
+    // A scene transition itself saves the previous scene's learned hot set;
+    // do not require an explicit checkpoint or a clean application exit.
+    constexpr uint64_t anotherScene=0x001f0209000101ull;
+    CHECK(assets::Initialize(1024,512,directory.c_str()));
+    CHECK(!assets::EnterScene(anotherScene).manifestLoaded);
+    CHECK(assets::Read(texturePath,graphics,nullptr));
+    (void)assets::EnterScene(sceneKey);
+    assets::Shutdown();
+    CHECK(assets::Initialize(1024,512,directory.c_str()));
+    const auto changedScene=assets::EnterScene(anotherScene);
+    CHECK(changedScene.manifestLoaded && changedScene.loaded==1);
+    assets::Shutdown();
+    // A scene with TWO ranked hot assets must not create an I/O burst on
+    // transition: the first 1-item tick loads only one sidecar, then the
+    // next tick independently loads the second. Both are reused on demand.
+    constexpr uint64_t dualScene=0x001f0208000404ull;
+    constexpr const char* otherTexture="native/v1/textures/000000000000002c.avnr";
+    CHECK(assets::Initialize(1024,512,directory.c_str()));
+    CHECK(!assets::QueueScene(dualScene).manifestLoaded);
+    CHECK(assets::Read(texturePath,graphics,nullptr));
+    CHECK(assets::Read(otherTexture,graphics,nullptr));
+    CHECK(assets::Checkpoint());
+    assets::Shutdown();
+    CHECK(assets::Initialize(1024,512,directory.c_str()));
+    const auto initialReads=psarc::Statistics().reads;
+    const auto dual=assets::QueueScene(dualScene);
+    CHECK(dual.manifestLoaded && dual.selected==2 && dual.remaining==2);
+    CHECK(psarc::Statistics().reads==initialReads);
+    const auto part1=assets::StepScenePrewarm(128,1);
+    CHECK(part1.loaded==1 && part1.remaining==1);
+    CHECK(psarc::Statistics().reads==initialReads+1);
+    const auto part2=assets::StepScenePrewarm(128,1);
+    CHECK(part2.loaded==1 && part2.remaining==0);
+    CHECK(psarc::Statistics().reads==initialReads+2);
+    CHECK(assets::Read(texturePath,graphics,nullptr));
+    CHECK(assets::Read(otherTexture,graphics,nullptr));
+    CHECK(psarc::Statistics().reads==initialReads+2);
+    assets::Shutdown();
+    // Both assets fit independently in a 128-byte step, but not together.
+    // The second must remain scheduled, never silently be discarded.
+    CHECK(assets::Initialize(1024,512,directory.c_str()));
+    CHECK(assets::QueueScene(dualScene).remaining==2);
+    const auto boundedBefore=psarc::Statistics().reads;
+    const auto boundedFirst=assets::StepScenePrewarm(128,2);
+    CHECK(boundedFirst.loaded==1 && boundedFirst.remaining==1);
+    CHECK(boundedFirst.skippedLarge==0 && boundedFirst.bytes<=128);
+    CHECK(psarc::Statistics().reads==boundedBefore+1);
+    const auto boundedSecond=assets::StepScenePrewarm(128,2);
+    CHECK(boundedSecond.loaded==1 && boundedSecond.remaining==0);
+    CHECK(boundedSecond.skippedLarge==0 && boundedSecond.bytes<=128);
+    CHECK(psarc::Statistics().reads==boundedBefore+2);
+    CHECK(assets::Read(texturePath,graphics,nullptr));
+    CHECK(assets::Read(otherTexture,graphics,nullptr));
+    CHECK(psarc::Statistics().reads==boundedBefore+2);
+    assets::Shutdown();
     wiicompiled::vita::psarc::Shutdown();
     CHECK(wiicompiled::vita::psarc::Mount(argv[4]));
     CHECK(!wiicompiled::vita::assets::Initialize());

@@ -12,7 +12,7 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from install_vita_current import (activate, configure, digest, verify_build,
-                                   write_toml_value)
+                                   write_toml_value, main)
 from install_vita_current import file_digest
 
 
@@ -152,6 +152,139 @@ class InstallCurrentTests(unittest.TestCase):
             write_toml_value(b'[diagnostics]\ncapture_frame = "700"\n',
                              "diagnostics", "capture_frame", 700)
 
+    def test_precomputed_a_b_a_preserves_all_other_settings(self):
+        baseline = configure(self.ORIGINAL, menu=False, quiet=True,
+                             legacy_audio=False, draw_batching=True,
+                             render_budget_probe=True, precomputed_geometry=False)
+        candidate = configure(baseline, menu=True, quiet=False, legacy_audio=True,
+                              precomputed_only=True, precomputed_geometry=True)
+        self.assertEqual(candidate.replace(b"precomputed_geometry = true",
+                                            b"precomputed_geometry = false"), baseline)
+        self.assertEqual(configure(candidate, menu=True, quiet=False, legacy_audio=True,
+                                   precomputed_only=True, precomputed_geometry=False), baseline)
+        self.assertEqual(configure(candidate, menu=True, quiet=False, legacy_audio=True,
+                                   precomputed_only=True, precomputed_geometry=True), candidate)
+        with self.assertRaisesRegex(ValueError, "requires"):
+            configure(baseline, menu=True, quiet=True, legacy_audio=False,
+                      precomputed_only=True)
+
+    def test_native_recipe_a_b_a_does_not_modify_previous_options(self):
+        control = configure(self.ORIGINAL, menu=False, quiet=True,
+                            legacy_audio=False, draw_batching=True,
+                            precomputed_geometry=True, prepared_display_lists=False)
+        enabled = configure(control, menu=True, quiet=False, legacy_audio=True,
+                            recipe_only=True, prepared_display_lists=True)
+        self.assertEqual(enabled.replace(b"prepared_display_lists = true",
+                                         b"prepared_display_lists = false"), control)
+        self.assertIn(b"time_trial = true # old run", enabled)
+        self.assertIn(b"precomputed_geometry = true", enabled)
+        self.assertEqual(configure(enabled, menu=True, quiet=False,
+                                   legacy_audio=True, recipe_only=True,
+                                   prepared_display_lists=False), control)
+        with self.assertRaisesRegex(ValueError, "requires"):
+            configure(control, menu=True, quiet=True, legacy_audio=False,
+                      recipe_only=True)
+
+    def test_native_recipe_cli_rejects_mixed_controls_early(self):
+        with mock.patch("install_vita_current.verify_build") as verify:
+            for extra in ([], ["--time-trial"], ["--render-batching", "on"],
+                          ["--precomputed-geometry", "on"],
+                          ["--efb-only"], ["--native-materials", "reference"]):
+                with self.subTest(extra=extra), mock.patch("sys.stderr", io.StringIO()):
+                    args = ["--recipe-only"]
+                    if extra:
+                        args += ["--prepared-display-lists", "on"] + extra
+                    with self.assertRaises(SystemExit) as error:
+                        main(args)
+                    self.assertEqual(error.exception.code, 2)
+            verify.assert_not_called()
+
+    def test_native_lyt_a_b_a_preserves_all_other_settings(self):
+        control=configure(self.ORIGINAL,menu=False,quiet=True,legacy_audio=False,
+                          prepared_display_lists=True,native_lyt_packets=False)
+        enabled=configure(control,menu=True,quiet=False,legacy_audio=True,
+                          lyt_only=True,native_lyt_packets=True)
+        self.assertEqual(enabled.replace(b"native_lyt_packets = true",
+                                         b"native_lyt_packets = false"),control)
+        self.assertIn(b"time_trial = true # old run",enabled)
+        self.assertIn(b"prepared_display_lists = true",enabled)
+        self.assertEqual(configure(enabled,menu=True,quiet=False,legacy_audio=True,
+                                   lyt_only=True,native_lyt_packets=False),control)
+        with self.assertRaisesRegex(ValueError,"requires"):
+            configure(control,menu=True,quiet=True,legacy_audio=False,lyt_only=True)
+
+    def test_native_lyt_rejects_other_partial_cli_modes(self):
+        with mock.patch("install_vita_current.verify_build") as verify:
+            for args in (["--lyt-only"],
+                         ["--lyt-only","--native-lyt-packets","on","--time-trial"],
+                         ["--lyt-only","--native-lyt-packets","on","--recipe-only"],
+                         ["--lyt-only","--native-lyt-packets","on","--precomputed-geometry","on"],
+                         ["--native-lyt-packets","on","--batch-only","--render-batching","on"]):
+                with self.subTest(args=args),mock.patch("sys.stderr",io.StringIO()):
+                    with self.assertRaises(SystemExit) as err:main(args)
+                    self.assertEqual(err.exception.code,2)
+            verify.assert_not_called()
+
+    def test_efb_copy_and_retirement_ab_without_replacing_self(self):
+        baseline=configure(self.ORIGINAL,menu=False,quiet=True,legacy_audio=False,
+                           draw_batching=True,precomputed_geometry=True,
+                           async_efb_copies=False,deferred_efb_targets=False)
+        async_copy=configure(baseline,menu=True,quiet=False,legacy_audio=True,
+                             efb_only=True,async_efb_copies=True)
+        self.assertEqual(async_copy.replace(b"async_efb_copies = true",
+                                             b"async_efb_copies = false"),baseline)
+        retired=configure(async_copy,menu=True,quiet=False,legacy_audio=True,
+                          efb_only=True,deferred_efb_targets=True)
+        self.assertIn(b"precomputed_geometry = true",retired)
+        self.assertIn(b"time_trial = true # old run",retired)
+        self.assertIn(b"deferred_efb_targets = true",retired)
+        no_retire=configure(retired,menu=True,quiet=False,legacy_audio=True,
+                            efb_only=True,deferred_efb_targets=False)
+        self.assertEqual(no_retire,async_copy)
+        restored=configure(no_retire,menu=True,quiet=False,legacy_audio=True,
+                           efb_only=True,async_efb_copies=False)
+        self.assertEqual(restored,baseline)
+        for controls in ({},dict(async_efb_copies=True,deferred_efb_targets=True)):
+            with self.subTest(controls=controls),self.assertRaisesRegex(ValueError,"exactly one"):
+                configure(baseline,menu=False,quiet=True,legacy_audio=False,
+                          efb_only=True,**controls)
+
+    def test_efb_only_invalid_combinations_fail_before_build_or_ftp(self):
+        with mock.patch("install_vita_current.verify_build") as verify:
+            for extra in (["--deferred-efb-targets","on"],
+                          ["--time-trial"],["--precomputed-geometry","on"],
+                          ["--batch-only"],["--render-batching","on"]):
+                with self.subTest(extra=extra),mock.patch("sys.stderr",io.StringIO()):
+                    with self.assertRaises(SystemExit) as error:
+                        main(["--efb-only","--async-efb-copies","on"]+extra)
+                    self.assertEqual(error.exception.code,2)
+            verify.assert_not_called()
+
+    def test_precomputed_cli_rejects_mixed_controls_before_build_or_ftp(self):
+        with mock.patch("install_vita_current.verify_build") as verify:
+            for extra in ([], ["--batch-only"], ["--time-trial"],
+                          ["--budget-probe", "off"], ["--gpu-lighting", "cpu"]):
+                args = ["--precomputed-only"]
+                if extra:
+                    args += ["--precomputed-geometry", "on"] + extra
+                with self.subTest(extra=extra), mock.patch("sys.stderr", io.StringIO()):
+                    with self.assertRaises(SystemExit) as error:
+                        main(args)
+                    self.assertEqual(error.exception.code, 2)
+            verify.assert_not_called()
+
+    def test_precomputed_cli_requires_matching_installed_self(self):
+        payloads = {"eboot.bin": b"current candidate"}
+        delivery = {"head": "a" * 40, "aurora_pin": "b" * 40}
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch("install_vita_current.verify_build", return_value=(payloads, delivery)), \
+                mock.patch("install_vita_current.ftplib.FTP"), \
+                mock.patch("install_vita_current.read_remote", return_value=b"old executable"), \
+                mock.patch("builtins.print"):
+            with self.assertRaisesRegex(RuntimeError, "current SELF"):
+                main(["--build-dir", tmp, "--precomputed-only",
+                      "--precomputed-geometry", "on"])
+
     def test_malformed_setting_does_not_replace_other_options(self):
         raw = b"[audio]\nlegacy_stop_dma_on_queue_full = \"false\"\n"
         with self.assertRaisesRegex(ValueError, "Invalid type"):
@@ -216,6 +349,8 @@ class InstallCurrentTests(unittest.TestCase):
                      for p in (exe, self_file, package)]
             delivery = {
                 "head": "b" * 40, "aurora_pin": "a" * 40,
+                "source_and_generated_sha256": "current-source-digest",
+                "source_files_hashed": 3,
                 "cmake_options": {
                     "WIC_BUILD_GAME:BOOL": "ON",
                     "AURORA_VITA_RENDERER:STRING": "GXM",
@@ -232,11 +367,22 @@ class InstallCurrentTests(unittest.TestCase):
             def save():
                 (folder / "DELIVERY.json").write_text(json.dumps(delivery))
             with mock.patch("install_vita_current.subprocess.check_output",
-                            side_effect=git_id), mock.patch("vita_sfo.verify_package_sfo",
+                            side_effect=git_id), mock.patch("record_vita_delivery.source_digest",
+                            return_value=("current-source-digest",3)) as source, mock.patch("vita_sfo.verify_package_sfo",
                                                             return_value={"ATTRIBUTE2": 12}):
                 save()
                 contents, _ = verify_build(folder)
                 self.assertEqual(contents["eboot.bin"], b"new executable")
+                source.return_value=("stale-source-digest",3)
+                with self.assertRaisesRegex(ValueError, "rebuild Vita"):
+                    verify_build(folder)
+                source.return_value=("current-source-digest",3)
+                delivery["source_files_hashed"]=4
+                save()
+                with self.assertRaisesRegex(ValueError, "rebuild Vita"):
+                    verify_build(folder)
+                delivery["source_files_hashed"]=3
+                save()
                 delivery["cmake_options"]["AURORA_VITA_ASYNC_GX:BOOL"] = "OFF"
                 save()
                 with self.assertRaisesRegex(ValueError, "async options"):

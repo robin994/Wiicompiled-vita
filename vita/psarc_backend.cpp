@@ -1,6 +1,7 @@
 #include "psarc_backend.hpp"
 #include "psarc_stall_watch.hpp"
 #include "port/asset_archive.h"
+#include "psarc_read_cache.hpp"
 #include <atomic>
 #include <climits>
 #include <cstdio>
@@ -19,6 +20,7 @@ std::atomic<bool> mounted{false};
 std::string mountedPath;
 char lastError[192]="not mounted";
 Stats counters{};
+ReadAheadCache readCache;
 uint64_t micros() {
 #if defined(__vita__)
     return sceKernelGetProcessTimeWide(); // Only called by the native worker.
@@ -44,12 +46,13 @@ void execute(Request& r) {
             return;
         }
         archive=port_asset_archive_open(r.path,lastError,sizeof(lastError));
-        if(archive) { mountedPath=r.path;r.okay=true;counters={};mounted.store(true,std::memory_order_release);std::snprintf(lastError,sizeof(lastError),"ok"); }
+        if(archive) { mountedPath=r.path;r.okay=true;counters={};readCache.reset();mounted.store(true,std::memory_order_release);std::snprintf(lastError,sizeof(lastError),"ok"); }
         return;
     }
     if(r.op==Request::Close) {
         mounted.store(false,std::memory_order_release);
         port_asset_archive_close(archive);archive=nullptr;mountedPath.clear();r.okay=true;
+        readCache.reset();
         std::snprintf(lastError,sizeof(lastError),"not mounted");return;
     }
     if(!archive)return;
@@ -61,46 +64,102 @@ void execute(Request& r) {
     if(r.offset>size || r.bytes>size-r.offset || (!r.destination && r.bytes) || r.bytes>LONG_MAX) {
         ++counters.failures;std::snprintf(lastError,sizeof(lastError),"PSARC read outside file");return;
     }
-    const uint64_t started=micros();
-    r.okay=port_asset_archive_read(archive,static_cast<unsigned>(entry),r.destination,r.bytes,r.offset)==static_cast<long>(r.bytes);
-    counters.ioMicros+=micros()-started;
+    r.okay=readCache.read(static_cast<unsigned>(entry),size,r.offset,r.destination,r.bytes,
+        [](unsigned file,uint64_t at,void* destination,size_t count) noexcept {
+            const uint64_t started=micros();
+            const bool okay=port_asset_archive_read(
+                archive,file,destination,count,at)==static_cast<long>(count);
+            counters.ioMicros+=micros()-started; // actual PSARC calls only
+            return okay;
+        });
+    const auto physical=readCache.counters();
+    counters.physicalReads=physical.physicalReads;
+    counters.physicalBytes=physical.physicalBytes;
+    counters.smallReads=physical.smallReads;
+    counters.cacheHits=physical.cacheHits;
+    counters.cacheFills=physical.cacheFills;
+    counters.physicalFailures=physical.ioFailures;
     if(r.okay)counters.bytes+=r.bytes;else ++counters.failures;
     if(!r.okay)std::snprintf(lastError,sizeof(lastError),"short PSARC read");
 }
 #if defined(__vita__)
 std::atomic_flag requestLock=ATOMIC_FLAG_INIT;
+std::atomic<bool> workerBroken{false};
 std::atomic<unsigned> state{0}; // 0 idle, 1 published, 2 completed.
 std::atomic<uint64_t> requestSubmitted{0}, requestCompleted{0};
 std::atomic<uint32_t> activeOp{0};
 Request request{};
 SceUID worker=-1;
+SceUID readySema=-1,doneSema=-1;
 void relax() { __asm__ volatile("yield" ::: "memory"); }
 int threadMain(SceSize,void*) {
     for(;;) {
-        if(state.load(std::memory_order_acquire)!=1) { sceKernelDelayThread(100);continue; }
+        // Blocking wait replaces the old 100 us polling loop on the IO core.
+        // The published request and completion retain the same order.
+        if(sceKernelWaitSema(readySema,1,nullptr)<0) {
+            sceKernelDelayThread(1000);continue;
+        }
+        if(state.load(std::memory_order_acquire)!=1)continue;
         try { execute(request); }
         catch(...) { request.okay=false;std::snprintf(lastError,sizeof(lastError),"PSARC worker failed"); }
         state.store(2,std::memory_order_release);
+        sceKernelSignalSema(doneSema,1);
     }
 }
 bool startWorker() {
     if(worker>=0)return true;
+    readySema=sceKernelCreateSema("wic_io_ready",0,0,1,nullptr);
+    if(readySema<0) {
+        std::snprintf(lastError,sizeof(lastError),"cannot create PSARC ready semaphore");
+        return false;
+    }
+    doneSema=sceKernelCreateSema("wic_io_done",0,0,1,nullptr);
+    if(doneSema<0) {
+        sceKernelDeleteSema(readySema);readySema=-1;
+        std::snprintf(lastError,sizeof(lastError),"cannot create PSARC completion semaphore");
+        return false;
+    }
     worker=sceKernelCreateThread("wic_psarc_io",threadMain,0x10000100,64*1024,0,0,nullptr);
-    if(worker<0) { std::snprintf(lastError,sizeof(lastError),"cannot create PSARC worker");return false; }
+    if(worker<0) {
+        sceKernelDeleteSema(readySema);sceKernelDeleteSema(doneSema);
+        readySema=doneSema=-1;
+        std::snprintf(lastError,sizeof(lastError),"cannot create PSARC worker");return false;
+    }
     if(sceKernelStartThread(worker,0,nullptr)<0) {
         sceKernelDeleteThread(worker);worker=-1;
+        sceKernelDeleteSema(readySema);sceKernelDeleteSema(doneSema);
+        readySema=doneSema=-1;
         std::snprintf(lastError,sizeof(lastError),"cannot start PSARC worker");return false;
     }
     return true;
 }
 void submit(Request& r) {
     requestSubmitted.fetch_add(1,std::memory_order_relaxed);
-    while(requestLock.test_and_set(std::memory_order_acquire))relax();
+    unsigned contentionSpins=0;
+    while(requestLock.test_and_set(std::memory_order_acquire)) {
+        if(++contentionSpins<32)relax();
+        else {
+            // Other callers may hold this lock for an entire SD-card read.
+            // Never burn a second CPU core spinning through flash latency.
+            sceKernelDelayThread(100); // strictly positive Vita delay
+            contentionSpins=0;
+        }
+    }
     activeOp.store(static_cast<uint32_t>(r.op)+1u,std::memory_order_relaxed);
-    if(worker>=0) {
+    if(worker>=0 && !workerBroken.load(std::memory_order_acquire)) {
         request=r;state.store(1,std::memory_order_release);
-        while(state.load(std::memory_order_acquire)!=2)relax();
-        r=request;state.store(0,std::memory_order_release);
+        if(sceKernelSignalSema(readySema,1)<0 ||
+           sceKernelWaitSema(doneSema,1,nullptr)<0 ||
+           state.load(std::memory_order_acquire)!=2) {
+            // Do not submit a second request to an uncertain in-flight
+            // operation. Fail future accesses instead of spinning forever.
+            workerBroken.store(true,std::memory_order_release);
+            r.okay=false;std::snprintf(lastError,sizeof(lastError),"PSARC worker semaphore error");
+        } else {
+            r=request;state.store(0,std::memory_order_release);
+        }
+    } else if(worker>=0) {
+        r.okay=false; // worker failed previously; preserve original error
     }
     activeOp.store(0,std::memory_order_relaxed);
     requestCompleted.fetch_add(1,std::memory_order_relaxed);

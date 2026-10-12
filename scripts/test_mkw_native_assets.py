@@ -17,7 +17,11 @@ def main():
     with tempfile.TemporaryDirectory(prefix='wic-native-contract-') as tmp:
         work=Path(tmp);root=work/'payload';native=root/'native/v1';(native/'textures').mkdir(parents=True)
         graphics=b'AVNR'+bytes(60);g=native/'textures/000000000000002a.avnr';g.write_bytes(graphics)
-        (native/'index.bin').write_bytes(b'WICNAT01'+struct.pack('<II',1,1)+struct.pack('<IQI',1,42,len(graphics)))
+        graphics_b=b'AVNR'+bytes(92)
+        (native/'textures/000000000000002c.avnr').write_bytes(graphics_b)
+        (native/'index.bin').write_bytes(b'WICNAT01'+struct.pack('<II',1,2)+
+            struct.pack('<IQI',1,42,len(graphics))+
+            struct.pack('<IQI',1,44,len(graphics_b)))
         shaders=native/'shaders/gxm-cg-gxp-v1';shaders.mkdir(parents=True)
         # The transport remains opaque. GXP ABI/hash validation is exercised
         # separately by Aurora's cache tests and the native device consumer.

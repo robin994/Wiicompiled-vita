@@ -6,7 +6,8 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from capture_vita_current import fetch_log_tail, latest_boot, stream_sha256, verify_frame_ppm
+from capture_vita_current import (fetch_log_tail, latest_boot, stream_sha256,
+                                 verify_frame_ppm, verify_session_identity)
 
 
 class MemoryFTP:
@@ -28,6 +29,49 @@ class MemoryFTP:
 
 
 class CaptureTests(unittest.TestCase):
+    def identity_session(self, config=b"[test]\ntime_trial=true\n", self_hash="a" * 64):
+        return (b"[boot] build=current\n[boot-identity] self_sha256=" + self_hash.encode() +
+                b" config_sha256=" + hashlib.sha256(config).hexdigest().encode() +
+                b" config_loaded=1 cpu_mhz=444 gpu_mhz=222\n")
+
+    def test_boot_identity_matches_installed_artifact_and_loaded_config(self):
+        config = b"[test]\ntime_trial=true\n"
+        identity = verify_session_identity(self.identity_session(config), "a" * 64, config)
+        self.assertEqual(identity["state"], "verified")
+        self.assertTrue(identity["matches_installed_files"])
+
+    def test_old_session_cannot_be_bound_to_new_installed_self(self):
+        with self.assertRaisesRegex(ValueError, "prior session"):
+            verify_session_identity(self.identity_session(), "b" * 64,
+                                    b"[test]\ntime_trial=true\n")
+
+    def test_config_changed_after_boot_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "different settings"):
+            verify_session_identity(self.identity_session(), "a" * 64,
+                                    b"[test]\ntime_trial=false\n")
+
+    def test_legacy_evidence_needs_explicit_unverified_archive(self):
+        session = b"[boot] build=legacy\n"
+        with self.assertRaisesRegex(ValueError, "no artifact/config identity"):
+            verify_session_identity(session, "a" * 64, b"config")
+        self.assertEqual(verify_session_identity(session, "a" * 64, b"config",
+                                                allow_legacy=True)["state"], "legacy_unverified")
+
+    def test_legacy_override_does_not_ignore_conflicting_identity(self):
+        with self.assertRaisesRegex(ValueError, "prior session"):
+            verify_session_identity(self.identity_session(), "b" * 64, b"config",
+                                    allow_legacy=True)
+
+    def test_multiple_or_unavailable_identities_are_rejected(self):
+        session = self.identity_session()
+        with self.assertRaisesRegex(ValueError, "multiple"):
+            verify_session_identity(session + session.splitlines()[1] + b"\n", "a" * 64, b"config")
+        with self.assertRaisesRegex(ValueError, "unavailable"):
+            verify_session_identity(session.replace(b"a" * 64, b"unavailable"), "a" * 64, b"config")
+        with self.assertRaisesRegex(ValueError, "loaded configuration"):
+            verify_session_identity(session.replace(b"config_loaded=1", b"config_loaded=0"),
+                                    "a" * 64, b"config")
+
     def test_latest_session_excludes_prior_footage(self):
         data = (
             b"[boot] build=first\n[frame-health] frame=2\n"

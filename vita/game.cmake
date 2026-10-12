@@ -52,6 +52,8 @@ target_include_directories(wiicompiled_runtime PUBLIC
 target_compile_definitions(wiicompiled_runtime PUBLIC MKW_TARGET_VITA=1 TARGET_PC=1
     WIC_FAST_PPC_MATH=$<BOOL:${WIC_FAST_PPC_MATH}>
     WIC_FAST_RAM_RANGES=$<BOOL:${WIC_FAST_RAM_RANGES}>)
+target_compile_definitions(wiicompiled_runtime PUBLIC
+    WIC_IMMUTABLE_DISPATCH_FASTPATH=$<BOOL:${WIC_IMMUTABLE_DISPATCH_FASTPATH}>)
 target_compile_definitions(wiicompiled_runtime PUBLIC WIC_RESIDENT_GEOMETRY=$<BOOL:${WIC_RESIDENT_GEOMETRY}>)
 target_compile_definitions(wiicompiled_runtime PRIVATE WIC_PRECOMPILED_ASSETS=$<BOOL:${WIC_PRECOMPILED_ASSETS}>)
 target_compile_definitions(wiicompiled_runtime PRIVATE AURORA_VITA_ASYNC_GX=0)
@@ -63,6 +65,7 @@ file(GLOB translated_sources CONFIGURE_DEPENDS
     "${PROJECT_SOURCE_DIR}/generated/build_shards/base_dispatch/*.cpp")
 enable_language(ASM)
 add_executable(wiicompiled-vita-game "${PROJECT_SOURCE_DIR}/vita/game_main.cpp"
+    "${PROJECT_SOURCE_DIR}/vita/boot_identity.cpp"
     "${PROJECT_SOURCE_DIR}/vita/game_stdio.cpp"
     "${PROJECT_SOURCE_DIR}/vita/runtime_checks.cpp"
     ${translated_sources} "${PROJECT_SOURCE_DIR}/generated/data_sections_init.cpp"

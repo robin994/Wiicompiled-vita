@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <array>
 
 namespace GxTextureBindingContract {
 
@@ -58,9 +59,20 @@ inline bool SameBinding(const State& lhs, const State& rhs) noexcept {
 
 inline bool CanSkipHostLoad(const State& oldBinding, const State& newBinding,
                             bool needsInit, bool tlutChanged,
-                            bool textureDataUploaded) noexcept {
+                            bool textureDataUploaded, bool recording = false) noexcept {
     return SameBinding(oldBinding, newBinding) &&
-           !needsInit && !tlutChanged && !textureDataUploaded;
+           !needsInit && !tlutChanged && !textureDataUploaded && !recording;
+}
+
+constexpr uint8_t BindingMaskForBpRegister(uint8_t reg) noexcept {
+    if(reg>=0x80 && reg<=0x9b)return uint8_t(1u<<(reg&3u));
+    if(reg>=0xa0 && reg<=0xbb)return uint8_t(1u<<(4u+(reg&3u)));
+    return 0;
+}
+
+inline void InvalidateBindings(std::array<State,8>& bindings,uint8_t mask) noexcept {
+    for(unsigned slot=0;slot<8;++slot)
+        if(mask&(1u<<slot))bindings[slot].objAddr=0;
 }
 
 } // namespace GxTextureBindingContract

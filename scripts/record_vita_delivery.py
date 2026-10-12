@@ -22,6 +22,24 @@ def git(root, *arguments):
     return subprocess.check_output(['git', '-C', str(root), *arguments], text=True).strip()
 
 
+def source_digest(root: Path) -> tuple[str,int]:
+    # Include dirty/untracked renderer sources and generated PPC shards, not
+    # just Git commit IDs: the developer's local Vita build is often uncommitted.
+    source_hash = hashlib.sha256()
+    extensions = {'.cpp', '.c', '.h', '.hpp', '.cc', '.cs', '.S', '.s', '.cmake', '.yml', '.bin', '.py'}
+    paths = [root / 'CMakeLists.txt', root / 'build-vita.sh']
+    for name in ['core', 'vita', 'runtime', 'translator/src', 'aurora-main', 'projects/mkwii', 'generated', 'scripts']:
+        for path in (root / name).rglob('*'):
+            if any(part in {'bin', 'obj', 'build', 'TestResults', '.git'} for part in path.relative_to(root).parts):
+                continue
+            if path.is_file() and (path.suffix in extensions or path.name == 'CMakeLists.txt'):
+                paths.append(path)
+    for path in sorted(set(paths)):
+        source_hash.update(str(path.relative_to(root)).encode() + b'\0')
+        source_hash.update(bytes.fromhex(digest(path)))
+    return source_hash.hexdigest(),len(set(paths))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('build_dir', type=Path)
@@ -54,18 +72,7 @@ def main():
         raise RuntimeError('No native Vita artifacts found')
 
     # Covers local changes and generated inputs as well as the upstream pins.
-    source_hash = hashlib.sha256()
-    extensions = {'.cpp', '.c', '.h', '.hpp', '.cc', '.cs', '.S', '.s', '.cmake', '.yml', '.bin', '.py'}
-    paths = [root / 'CMakeLists.txt', root / 'build-vita.sh']
-    for name in ['core', 'vita', 'runtime', 'translator/src', 'aurora-main', 'projects/mkwii', 'generated', 'scripts']:
-        for path in (root / name).rglob('*'):
-            if any(part in {'bin', 'obj', 'build', 'TestResults', '.git'} for part in path.relative_to(root).parts):
-                continue
-            if path.is_file() and (path.suffix in extensions or path.name == 'CMakeLists.txt'):
-                paths.append(path)
-    for path in sorted(set(paths)):
-        source_hash.update(str(path.relative_to(root)).encode() + b'\0')
-        source_hash.update(bytes.fromhex(digest(path)))
+    source_hash,count=source_digest(root)
 
     cache = {}
     for line in (folder / 'CMakeCache.txt').read_text().splitlines():
@@ -82,9 +89,9 @@ def main():
         'head': git(root, 'rev-parse', 'HEAD'),
         'branch': git(root, 'branch', '--show-current'),
         'worktree_dirty': bool(git(root, 'status', '--porcelain')),
-        'source_and_generated_sha256': source_hash.hexdigest(),
+        'source_and_generated_sha256': source_hash,
         'source_digest_scope': 'source, generated inputs and host data/build tooling',
-        'source_files_hashed': len(set(paths)),
+        'source_files_hashed': count,
         'cmake_options': cache,
         'validation_scope': 'host tests and native ELF/package checks; device behavior unverified',
         'artifacts': artifacts,

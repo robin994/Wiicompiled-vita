@@ -1,0 +1,529 @@
+{
+  "api_references": [
+    "https://docs.vitasdk.org/group__SceGxmUser.html",
+    "https://github.com/Grarak/mh3-wii/blob/04092f4e9fe3906212eb27281c66ee72236a91b6/docs/optimizations/rendering/precomputed-draws.md"
+  ],
+  "authorizing_request": "procediamo allo sviluppo",
+  "cache": {
+    "allocation": "Lazy GPU-mapped CpuGpu memory",
+    "backing_bytes": 262144,
+    "cpu_metadata_additional": true,
+    "eviction": "Last-use scene must have completed",
+    "formats_over_slot_limit_use_context": true,
+    "no_new_finish_or_wait": true,
+    "notify": "Exclusive first word of sceGxmGetNotificationRegion",
+    "record_immutable": true,
+    "records": 512,
+    "repeated_pending_hits_allowed": true,
+    "slot_bytes": 512
+  },
+  "checkouts": [
+    {
+      "branch": "codex/restart-iso-gxm-20261005",
+      "head": "90eb1ddc93d545a2b4509600de43904d13400196",
+      "name": "wiicompiled",
+      "patch": {
+        "bytes": 32886,
+        "path": "build/mh3-m06-20261010/wiicompiled-worktree.patch",
+        "sha256": "58ca65dc0f3ed00d62fbde2562a273d04166ac0d03e0bec19a4b8ff5b77e5822"
+      },
+      "path": "/Users/robin994/Documents/Code/PSVita/wiicompiled-vita",
+      "source_sha256": [
+        {
+          "bytes": 14522,
+          "path": "CMakeLists.txt",
+          "sha256": "40f7a3eb1727392ebaa8f3924a4cf3f426aa0e8ed3e49d4ef10f5d77b5873035"
+        },
+        {
+          "bytes": 16635,
+          "path": "README.md",
+          "sha256": "88707124dc5b2de91e847dbbd6975c34c49b04279a200b182d8df49a7a46eabd"
+        },
+        {
+          "bytes": 1055,
+          "path": "runtime/include/vita_render_options.h",
+          "sha256": "6cd361ea674f87449d9837580dd8cd8f1cee071c7ec14b464a67938abd8e0451"
+        },
+        {
+          "bytes": 49557,
+          "path": "runtime/include/runtime_config.h",
+          "sha256": "2e6e35f8b2c6aa6a4e583613c03503b675816b5f3a386298ecc424825142c480"
+        },
+        {
+          "bytes": 6460,
+          "path": "runtime/tests/runtime_config_tests.cpp",
+          "sha256": "54467f3e8889d4b636c6f8e05fcc6cdd232931fcedd2d9b13bef6b3c24d4f6f0"
+        },
+        {
+          "bytes": 8241,
+          "path": "vita/backend.cpp",
+          "sha256": "4f4491e5145004112be159f7ec0bb4923cdf4ef11e995b4e8bffde80426c72f7"
+        },
+        {
+          "bytes": 1886,
+          "path": "vita/render_config.hpp",
+          "sha256": "87ff584c93e61e5caba7efd23d7c070ffd34e3462200fa772999feea461e969f"
+        },
+        {
+          "bytes": 2229,
+          "path": "vita/tests/render_config_test.cpp",
+          "sha256": "5c30a78e623e9de398b99ee4e9fd3718dbe5d6fdbbd523dcec58115e1d7832fb"
+        }
+      ],
+      "status": [
+        "M CMakeLists.txt",
+        " M README.md",
+        " M aurora-main",
+        " M runtime/include/abi_bridge.h",
+        " M runtime/include/runtime_config.h",
+        " M runtime/include/vita_render_options.h",
+        " M runtime/tests/runtime_config_tests.cpp",
+        " M vita/CMakeLists.txt",
+        " M vita/backend.cpp",
+        " M vita/game.cmake",
+        " M vita/game_main.cpp",
+        " M vita/render_config.hpp",
+        " M vita/tests/render_config_test.cpp",
+        "?? 2026-10-08-210330.png",
+        "?? docs/MH3_DEVELOPMENT_M06_2026-10-10.md",
+        "?? docs/MH3_REUSE_2026-10-10/",
+        "?? runtime/tests/immutable_dispatch_tests.cpp",
+        "?? scripts/inventory_mkw_gx_callers.py",
+        "?? scripts/test_inventory_mkw_gx_callers.py"
+      ]
+    },
+    {
+      "branch": "wiicompiled-integration-20261006",
+      "head": "7a69a51bf392c62e37aca5926f0dbd27cb0c128b",
+      "name": "embedded",
+      "patch": {
+        "bytes": 29558,
+        "path": "build/mh3-m06-20261010/embedded-worktree.patch",
+        "sha256": "9c41cf3718882e8455933343d97e5031e07c04f576f1e069166ed630413f4c75"
+      },
+      "path": "/Users/robin994/Documents/Code/PSVita/wiicompiled-vita/aurora-main",
+      "source_sha256": [
+        {
+          "bytes": 12328,
+          "path": "cmake/aurora_vita.cmake",
+          "sha256": "33dce13ec77336ddeaddb00d3bfc14344f08c129495d65c863777e0ad1c21b27"
+        },
+        {
+          "bytes": 58924,
+          "path": "platforms/vita/aurora_vita_backend.cpp",
+          "sha256": "0fe6e77a6ab5debc1b5349934e852de67c8a04f81628bdd4d8f2658b016798ff"
+        },
+        {
+          "bytes": 16765,
+          "path": "platforms/vita/aurora_vita_backend.hpp",
+          "sha256": "ecd25f06d0b0ef97ed8aa385de78f42d1379dacc8459144f1d41dc7ac77984c0"
+        },
+        {
+          "bytes": 31726,
+          "path": "platforms/vita/gfx/vita_gfx_types.hpp",
+          "sha256": "3ff5a524184331272f80f6f692d7e24b2cfae13a01561639f30a73e7d3eb4123"
+        },
+        {
+          "bytes": 8775,
+          "path": "platforms/vita/gfx/vita_renderer.hpp",
+          "sha256": "fc4f8830daa6bab78b1dbe1b9b81765282b1d58ae4a301d31035c80b3ddf6836"
+        },
+        {
+          "bytes": 32577,
+          "path": "platforms/vita/gxm/gxm_facade.cpp",
+          "sha256": "d349d6fe82d7070252a67b0740cdbdbfbcb8d8ead99089c2779b9d539f271fba"
+        },
+        {
+          "bytes": 140414,
+          "path": "platforms/vita/gxm/gxm_renderer.cpp",
+          "sha256": "540f1fef9eb62fbb0e249cda073db202f4b8dc9a44a307ffb1eeb686cfd6f5c6"
+        },
+        {
+          "bytes": 6328,
+          "path": "platforms/vita/gxm/gxm_renderer.hpp",
+          "sha256": "c452614fb234f9bd99c5939b68168b81eb51da688ca29afa1b0dccf91cd4cda7"
+        },
+        {
+          "bytes": 4174,
+          "path": "platforms/vita/gxm/gxm_precomputed_geometry.hpp",
+          "sha256": "818453f77abe48031677a541025aa442dcdf25aecb12d8eb5e93de6f03b4f42c"
+        },
+        {
+          "bytes": 5102,
+          "path": "tests/vita_precomputed_geometry_test.cpp",
+          "sha256": "57efb64afe1110579b7db3a6c472797b50238f6522182b30c6d21e203d480e93"
+        }
+      ],
+      "status": [
+        "M cmake/aurora_vita.cmake",
+        " M platforms/vita/aurora_vita_backend.cpp",
+        " M platforms/vita/aurora_vita_backend.hpp",
+        " M platforms/vita/gfx/vita_gfx_types.hpp",
+        " M platforms/vita/gfx/vita_renderer.hpp",
+        " M platforms/vita/gxm/gxm_facade.cpp",
+        " M platforms/vita/gxm/gxm_renderer.cpp",
+        " M platforms/vita/gxm/gxm_renderer.hpp",
+        "?? platforms/vita/gxm/gxm_precomputed_geometry.hpp",
+        "?? tests/vita_precomputed_geometry_test.cpp"
+      ]
+    },
+    {
+      "branch": "vita-experiment",
+      "head": "262e8e1e55ee238decd1d0220db7937c92526edf",
+      "name": "standalone",
+      "patch": {
+        "bytes": 28914,
+        "path": "build/mh3-m06-20261010/standalone-worktree.patch",
+        "sha256": "4285928706e87b8ad36c48a87d7be6a9ea6979557d7033418fa527a7f77b5f9f"
+      },
+      "path": "/Users/robin994/Documents/Code/PSVita/aurora-vita",
+      "source_sha256": [
+        {
+          "bytes": 9680,
+          "path": "cmake/aurora_vita.cmake",
+          "sha256": "9ce1fffbfc1f58eebfca03b9f85b1677ff8175115569edfe405dd99a89efdab4"
+        },
+        {
+          "bytes": 50367,
+          "path": "platforms/vita/aurora_vita_backend.cpp",
+          "sha256": "387cabcb15e47cced5856f65dba090def41bd89d6fe11f9856e43f9ce1c91b36"
+        },
+        {
+          "bytes": 15211,
+          "path": "platforms/vita/aurora_vita_backend.hpp",
+          "sha256": "c278d410b2e9d7fd5cb4c571a0309f0700fd6fce805ae9ae5944a9f3ccfd74d4"
+        },
+        {
+          "bytes": 31368,
+          "path": "platforms/vita/gfx/vita_gfx_types.hpp",
+          "sha256": "68b08fe78427f51d3f9f166689f66e5b43272f119d27d633d349e2d72e167b82"
+        },
+        {
+          "bytes": 8238,
+          "path": "platforms/vita/gfx/vita_renderer.hpp",
+          "sha256": "5f807f0c043aa4c1923b8cd007ba664766467d5b145992b8b49e217939bd752f"
+        },
+        {
+          "bytes": 30502,
+          "path": "platforms/vita/gxm/gxm_facade.cpp",
+          "sha256": "297f79fd6facd26d1fd611bcbc64b2af1a927c1a5fd03fb0aca1884623be6318"
+        },
+        {
+          "bytes": 126551,
+          "path": "platforms/vita/gxm/gxm_renderer.cpp",
+          "sha256": "76edd0d96f81d21d7e98f528e909e1487bda2da8b5ddb377a03f131de29fbd8f"
+        },
+        {
+          "bytes": 5739,
+          "path": "platforms/vita/gxm/gxm_renderer.hpp",
+          "sha256": "ba6e8d1e95121c5867c2d4d686c906ad801736aadf8ecef70a784fad65c40dd7"
+        },
+        {
+          "bytes": 4174,
+          "path": "platforms/vita/gxm/gxm_precomputed_geometry.hpp",
+          "sha256": "818453f77abe48031677a541025aa442dcdf25aecb12d8eb5e93de6f03b4f42c"
+        },
+        {
+          "bytes": 5102,
+          "path": "tests/vita_precomputed_geometry_test.cpp",
+          "sha256": "57efb64afe1110579b7db3a6c472797b50238f6522182b30c6d21e203d480e93"
+        }
+      ],
+      "status": [
+        "M cmake/aurora_vita.cmake",
+        " M platforms/vita/aurora_vita_backend.cpp",
+        " M platforms/vita/aurora_vita_backend.hpp",
+        " M platforms/vita/gfx/vita_gfx_types.hpp",
+        " M platforms/vita/gfx/vita_renderer.hpp",
+        " M platforms/vita/gxm/gxm_facade.cpp",
+        " M platforms/vita/gxm/gxm_renderer.cpp",
+        " M platforms/vita/gxm/gxm_renderer.hpp",
+        "?? platforms/vita/gxm/gxm_precomputed_geometry.hpp",
+        "?? tests/vita_precomputed_geometry_test.cpp"
+      ]
+    }
+  ],
+  "compiler": "15.2.0",
+  "date": "2026-10-10",
+  "format": "wic-mh3-m06-development",
+  "hardware": {
+    "fps_improvement_proven": false,
+    "installed": false,
+    "new_vita_build": false,
+    "tested": false,
+    "visual_correctness_proven": false
+  },
+  "host": "macOS-27.0.1-arm64-arm-64bit",
+  "initial_standalone_check": {
+    "resolution": "Final check uses supported frontend definitions published by aurora_vita_frontend.cmake",
+    "result": "Failed without MKW_TARGET_VITA due to pre-existing FIFO include dependency",
+    "unrelated_source_fix": false
+  },
+  "limits": [
+    "Host policy test does not execute GXM",
+    "Syntax checks do not link or audit final ARM code",
+    "GPU notification ordering and geometry-only context behavior require device validation",
+    "No blanket migration of Aurora from MH3"
+  ],
+  "option": {
+    "backend": "gxm_precomputed_geometry",
+    "default": false,
+    "native": "precomputedGeometry",
+    "renderer": "nativePrecomputedGeometry",
+    "toml": "[vita] precomputed_geometry"
+  },
+  "pending": [
+    "M06.2 precomputed vertex/fragment states and view uniforms",
+    "M00 hardware coverage/correctness/cost",
+    "M02 native NW4r draw producers",
+    "M04 EFB/resource retirement improvements"
+  ],
+  "phase": "M06.1 immutable geometry-only GXM records",
+  "report": {
+    "bytes": 8863,
+    "path": "docs/MH3_DEVELOPMENT_M06_2026-10-10.md",
+    "sha256": "598f24c7bf13c1bf7de2a723415c8ffbf7df3945bbb3eacb4e0dadcf7ff308f6"
+  },
+  "sdk_header": {
+    "bytes": 115622,
+    "path": "arm-vita-eabi/include/psp2/gxm.h",
+    "sha256": "80b0b9dce238b8570fdd964e04d3c276d0f62e0ba293033c01c5a299ee0d296b"
+  },
+  "sdk_syntax_commands": {
+    "embedded": [
+      "/usr/local/vitasdk/bin/arm-vita-eabi-g++",
+      "-DAURORA_GFX_VITA=1",
+      "-DAURORA_PLATFORM_VITA=1",
+      "-DAURORA_VITA_ASYNC_GX=1",
+      "-DAURORA_VITA_DIRECT_STREAM_WRITE=0",
+      "-DAURORA_VITA_DISTINCT_CPU_CORES=0",
+      "-DAURORA_VITA_GXM_DIRECT_DRAW_SUBMIT=0",
+      "-DAURORA_VITA_GXM_DIRECT_STREAM_WRITE=0",
+      "-DAURORA_VITA_GXM_IMMEDIATE_DRAW_VIEW=0",
+      "-DAURORA_VITA_NATIVE_CMPR=0",
+      "-DAURORA_VITA_NATIVE_GX_TEXTURES=0",
+      "-DAURORA_VITA_RENDERER_GXM=1",
+      "-DAURORA_VITA_RUNTIME_LOGGING=1",
+      "-DAURORA_VITA_UPSTREAM=1",
+      "-DMKW_TARGET_VITA=1",
+      "-DTARGET_PC=1",
+      "-D__vita__=1",
+      "-I/Users/robin994/Documents/Code/PSVita/wiicompiled-vita/aurora-main/include",
+      "-I/Users/robin994/Documents/Code/PSVita/wiicompiled-vita/aurora-main/lib",
+      "-I/Users/robin994/Documents/Code/PSVita/wiicompiled-vita/aurora-main/platforms/vita",
+      "-I/Users/robin994/Documents/Code/PSVita/wiicompiled-vita/aurora-main/platforms/vita/gfx",
+      "-I/Users/robin994/Documents/Code/PSVita/wiicompiled-vita/aurora-main/platforms/vita/integration",
+      "-I/Users/robin994/Documents/Code/PSVita/wiicompiled-vita/build/vita-psarc/_deps/xxhash-src/cmake_unofficial/..",
+      "-I/Users/robin994/Documents/Code/PSVita/wiicompiled-vita/build/vita-psarc/_deps/robin_hood-src/src/include",
+      "-O3",
+      "-DNDEBUG",
+      "-std=gnu++20",
+      "-O3",
+      "-ffunction-sections",
+      "-fdata-sections",
+      "-fno-exceptions",
+      "-fno-rtti",
+      "-march=armv7-a",
+      "-mtune=cortex-a9",
+      "-mfpu=neon",
+      "-mfloat-abi=hard",
+      "-fsigned-char",
+      "-fno-math-errno",
+      "-funsafe-math-optimizations",
+      "-fno-signed-zeros",
+      "-ffp-contract=fast",
+      "-fsyntax-only",
+      "/Users/robin994/Documents/Code/PSVita/wiicompiled-vita/aurora-main/platforms/vita/gxm/gxm_renderer.cpp",
+      "/Users/robin994/Documents/Code/PSVita/wiicompiled-vita/aurora-main/platforms/vita/gxm/gxm_facade.cpp",
+      "/Users/robin994/Documents/Code/PSVita/wiicompiled-vita/aurora-main/platforms/vita/aurora_vita_backend.cpp"
+    ],
+    "standalone": [
+      "/usr/local/vitasdk/bin/arm-vita-eabi-g++",
+      "-DAURORA_GFX_VITA=1",
+      "-DAURORA_PLATFORM_VITA=1",
+      "-DAURORA_VITA_ASYNC_GX=1",
+      "-DAURORA_VITA_DIRECT_STREAM_WRITE=0",
+      "-DAURORA_VITA_DISTINCT_CPU_CORES=0",
+      "-DAURORA_VITA_GXM_DIRECT_DRAW_SUBMIT=0",
+      "-DAURORA_VITA_GXM_DIRECT_STREAM_WRITE=0",
+      "-DAURORA_VITA_GXM_IMMEDIATE_DRAW_VIEW=0",
+      "-DAURORA_VITA_NATIVE_CMPR=0",
+      "-DAURORA_VITA_NATIVE_GX_TEXTURES=0",
+      "-DAURORA_VITA_RENDERER_GXM=1",
+      "-DAURORA_VITA_RUNTIME_LOGGING=1",
+      "-DAURORA_VITA_UPSTREAM=1",
+      "-DMKW_TARGET_VITA=1",
+      "-DTARGET_PC=1",
+      "-D__vita__=1",
+      "-I/Users/robin994/Documents/Code/PSVita/aurora-vita/include",
+      "-I/Users/robin994/Documents/Code/PSVita/aurora-vita/lib",
+      "-I/Users/robin994/Documents/Code/PSVita/aurora-vita/platforms/vita",
+      "-I/Users/robin994/Documents/Code/PSVita/aurora-vita/platforms/vita/gfx",
+      "-I/Users/robin994/Documents/Code/PSVita/aurora-vita/platforms/vita/integration",
+      "-I/Users/robin994/Documents/Code/PSVita/wiicompiled-vita/build/vita-psarc/_deps/xxhash-src/cmake_unofficial/..",
+      "-I/Users/robin994/Documents/Code/PSVita/wiicompiled-vita/build/vita-psarc/_deps/robin_hood-src/src/include",
+      "-O3",
+      "-DNDEBUG",
+      "-std=gnu++20",
+      "-O3",
+      "-ffunction-sections",
+      "-fdata-sections",
+      "-fno-exceptions",
+      "-fno-rtti",
+      "-march=armv7-a",
+      "-mtune=cortex-a9",
+      "-mfpu=neon",
+      "-mfloat-abi=hard",
+      "-fsigned-char",
+      "-fno-math-errno",
+      "-funsafe-math-optimizations",
+      "-fno-signed-zeros",
+      "-ffp-contract=fast",
+      "-fsyntax-only",
+      "/Users/robin994/Documents/Code/PSVita/aurora-vita/platforms/vita/gxm/gxm_renderer.cpp",
+      "/Users/robin994/Documents/Code/PSVita/aurora-vita/platforms/vita/gxm/gxm_facade.cpp",
+      "/Users/robin994/Documents/Code/PSVita/aurora-vita/platforms/vita/aurora_vita_backend.cpp"
+    ]
+  },
+  "shared_sources": [
+    {
+      "byte_identical": true,
+      "path": "platforms/vita/gxm/gxm_precomputed_geometry.hpp",
+      "sha256": "818453f77abe48031677a541025aa442dcdf25aecb12d8eb5e93de6f03b4f42c"
+    },
+    {
+      "byte_identical": true,
+      "path": "tests/vita_precomputed_geometry_test.cpp",
+      "sha256": "57efb64afe1110579b7db3a6c472797b50238f6522182b30c6d21e203d480e93"
+    }
+  ],
+  "unchanged": {
+    "assets": true,
+    "device": true,
+    "prior_dispatch_experiment": true,
+    "screenshot_sha256": "8e211c96e234c56d9cf5605344aee3bbfdf5e8b9c656495cc1b684a064f81e89",
+    "simulation": true,
+    "translator": true
+  },
+  "validation": {
+    "aurora": {
+      "build_log": {
+        "bytes": 57844,
+        "path": "build/mh3-m06-aurora-build.log",
+        "sha256": "236098b35c767f0f689e7695ab4339bf668dba0d74ec7fdbfc78f74fcd914613"
+      },
+      "exit_code": 0,
+      "log": {
+        "bytes": 2897,
+        "path": "build/mh3-m06-aurora-tests.log",
+        "sha256": "463171f5641344f375d4002931eeda02c965e7710a3f754c77b8ad3d4b646b51"
+      },
+      "tests_passed": 25,
+      "tests_total": 25
+    },
+    "embedded-sdk-syntax": {
+      "exit_code": 0,
+      "log": {
+        "bytes": 0,
+        "path": "build/mh3-m06-embedded-sdk-syntax.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "mode": "-fsyntax-only; no object, ELF, SELF or VPK generated",
+      "profile": "Supported GX frontend: MKW_TARGET_VITA=1 TARGET_PC=1 AURORA_VITA_RENDERER_GXM=1",
+      "translation_units": [
+        "gxm_renderer.cpp",
+        "gxm_facade.cpp",
+        "aurora_vita_backend.cpp"
+      ]
+    },
+    "git_diff_check": "PASS",
+    "host": {
+      "build_log": {
+        "bytes": 3706,
+        "path": "build/mh3-m06-host-build.log",
+        "sha256": "42c3629673a3cd4bc17fb990f33de45a833734e4791d1148d0c4eda5977ffb7a"
+      },
+      "exit_code": 0,
+      "log": {
+        "bytes": 3807,
+        "path": "build/mh3-m06-host-tests.log",
+        "sha256": "9e04291f4b4810c701f6cd729b428dc05607de7b31ae88e16163a59f934bd8d3"
+      },
+      "tests_passed": 30,
+      "tests_total": 30
+    },
+    "host_test_executable_sha256": [
+      {
+        "bytes": 653880,
+        "path": "build/host/runtime-config-tests",
+        "sha256": "dff8e3b36fb23044741b5ea5d7cc24e452e500c8ababf4f719183238d26930f6"
+      },
+      {
+        "bytes": 16848,
+        "path": "build/host/render-config-tests",
+        "sha256": "9f94845305bc91e18109d5fa327d79eb015a10288b0144ef72be0fb8072c90bf"
+      },
+      {
+        "bytes": 53592,
+        "path": "build/aurora-host/aurora_vita_precomputed_geometry_test",
+        "sha256": "d214ea5aca2b6cb2ca2b0e408bfb72cfa963bc07be6339b90e8908fe52f1ab11"
+      },
+      {
+        "bytes": 53592,
+        "path": "build/mh3-reuse-20261010/standalone-host/aurora_vita_precomputed_geometry_test",
+        "sha256": "d214ea5aca2b6cb2ca2b0e408bfb72cfa963bc07be6339b90e8908fe52f1ab11"
+      }
+    ],
+    "sanitizers": {
+      "executable": {
+        "bytes": 135312,
+        "path": "build/mh3-reuse-20261010/precomputed-geometry-sanitize",
+        "sha256": "92b93e0cf13d1025f2adf1650da5e1dd19a1e78291b9035f9e6fceb23cabfa9d"
+      },
+      "exit_code": 0,
+      "independent_pending_payload_oracle": true,
+      "instrumentation": [
+        "AddressSanitizer",
+        "UndefinedBehaviorSanitizer"
+      ],
+      "log": {
+        "bytes": 105,
+        "path": "build/mh3-m06-sanitizers.log",
+        "sha256": "36374b845a82f0a683796c6d72b3965b5065325e568f6b6d8985f339200fd68e"
+      },
+      "scenes": 100000
+    },
+    "source_and_patch_hashes_verified": true,
+    "standalone": {
+      "build_log": {
+        "bytes": 64368,
+        "path": "build/mh3-m06-standalone-build.log",
+        "sha256": "94f4ad6a5df8ec8a94d11aef942b00c62b6b95f1bcaf6e6b2e3f52394fc232a5"
+      },
+      "exit_code": 0,
+      "log": {
+        "bytes": 2257,
+        "path": "build/mh3-m06-standalone-tests.log",
+        "sha256": "f609c7ec54b946912d5112de1c0e52daf9f13a697342bebbaf42207ed50bd558"
+      },
+      "tests_passed": 19,
+      "tests_total": 19
+    },
+    "standalone-sdk-syntax": {
+      "exit_code": 0,
+      "log": {
+        "bytes": 0,
+        "path": "build/mh3-m06-standalone-sdk-syntax.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "mode": "-fsyntax-only; no object, ELF, SELF or VPK generated",
+      "profile": "Supported GX frontend: MKW_TARGET_VITA=1 TARGET_PC=1 AURORA_VITA_RENDERER_GXM=1",
+      "translation_units": [
+        "gxm_renderer.cpp",
+        "gxm_facade.cpp",
+        "aurora_vita_backend.cpp"
+      ]
+    }
+  },
+  "version": 1
+}

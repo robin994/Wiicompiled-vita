@@ -19,6 +19,10 @@
 #include <tuple>
 #include <type_traits>
 
+#ifndef WIC_IMMUTABLE_DISPATCH_FASTPATH
+#define WIC_IMMUTABLE_DISPATCH_FASTPATH 0
+#endif
+
 inline void InvokeIndirectCpu(uint32_t target, CpuContext* ctx);
 
 // Some game-facing runtime options alter arguments at well-defined ABI
@@ -338,9 +342,11 @@ public:
     }
     static std::optional<TranslatedFunctionInfo> FindNearestByAddress(uint32_t address);
     static inline const TranslatedFunctionInfo* FindByAddressPtr(uint32_t address) {
+#if !WIC_IMMUTABLE_DISPATCH_FASTPATH
         if (!lookupPublished_.load(std::memory_order_acquire)) {
             return FindByAddressPtrSlow(address);
         }
+#endif
 
         auto& cached = g_indirectResolvedDispatchMemo[
             ((address >> 2) * 2654435761u) & (kIndirectDispatchCacheEntries - 1)];
@@ -348,6 +354,15 @@ public:
             return cached.info;
         }
 
+#if WIC_IMMUTABLE_DISPATCH_FASTPATH
+        // This thread's memo is filled only after acquiring the one-way
+        // publication. A hit carries that earlier acquire; a miss must still
+        // acquire before accessing the immutable registry. Never memoize a
+        // provisional winner or miss before Finalize.
+        if (!lookupPublished_.load(std::memory_order_acquire)) {
+            return FindByAddressPtrSlow(address);
+        }
+#endif
         const auto* info = FindByAddressPtrSlow(address);
         cached = {true, address, info};
         return info;
@@ -358,9 +373,11 @@ public:
     // the inliner's budget and out-of-lined the probe itself, which is the part
     // every bctrl executes.
     static MKW_PPC_FORCE_INLINE const RawDispatchRecord* FindRawByAddressPtr(uint32_t address) {
+#if !WIC_IMMUTABLE_DISPATCH_FASTPATH
         if (!lookupPublished_.load(std::memory_order_acquire)) {
             return nullptr;
         }
+#endif
 
         auto& cached = g_indirectRawDispatchMemo[
             ((address >> 2) * 2654435761u) & (kIndirectDispatchCacheEntries - 1)];
@@ -368,6 +385,11 @@ public:
             return cached.record;
         }
 
+#if WIC_IMMUTABLE_DISPATCH_FASTPATH
+        if (!lookupPublished_.load(std::memory_order_acquire)) {
+            return nullptr;
+        }
+#endif
         return FindRawByAddressPtrMiss(address, cached);
     }
     // Look up a registered function by host (native) address.
@@ -532,7 +554,16 @@ inline bool IsBaseTranslatedCpuTargetActive() {
     static std::atomic<uint8_t> cachedVerdict{0};
     constexpr uint8_t kNegativeVerdict = 1;
     constexpr uint8_t kPositiveVerdict = 2;
-    const uint8_t cached = cachedVerdict.load(std::memory_order_acquire);
+    // The verdict is the whole cached value, not a publication of a pointer
+    // or payload. Every thread that fills it still acquires the registry;
+    // an unresolved relaxed read merely recomputes the same immutable answer.
+    const uint8_t cached = cachedVerdict.load(
+#if WIC_IMMUTABLE_DISPATCH_FASTPATH
+        std::memory_order_relaxed
+#else
+        std::memory_order_acquire
+#endif
+    );
     if (cached != 0) {
         return cached == kPositiveVerdict;
     }

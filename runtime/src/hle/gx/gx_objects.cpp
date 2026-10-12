@@ -68,6 +68,11 @@ GxSync::Mutex g_tlutObjMutex;
 std::unordered_map<uint32_t, TexObjSlot> g_TexObjMeta;
 std::map<uint32_t, TlutObjMeta> g_TlutObjMeta;
 std::array<BoundTexInfo, 8> g_boundTexMaps{};
+void InvalidateNativeTextureBindings(uint8_t mask) {
+    if(!mask)return;
+    std::lock_guard<GxSync::Mutex> guard(g_texObjMutex);
+    GxTextureBindingContract::InvalidateBindings(g_boundTexMaps,mask);
+}
 
 namespace {
 

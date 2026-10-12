@@ -1,6 +1,7 @@
 #include "gx_internal.h"
 #include "gx_stream_common.h"
 #include "gx_cp_decode.h"
+#include "gx/fifo.hpp"
 #include "isa/big_endian.h"
 
 #include <cstdlib>
@@ -195,7 +196,9 @@ static bool SubmitLytDrawDirect(float x0, float y0, float x1, float y1, int texC
     uint32_t pos = 0;
     AppendLytQuadVertices(vertices.data(), pos, x0, y0, x1, y1, texCoordAddr, texCoordCount, colors);
 
-    if (!aurora::gx::fifo::submit_raw_draw(GX_QUADS, GX_VTXFMT0, vertices.data(), 4, pos)) {
+    // The recovered frontend retains its ordered raw-draw packet path. The
+    // optional LYT consumer is not implemented and must not bypass this FIFO.
+    if (!aurora::gx::fifo::submit_raw_draw(GX_QUADS,GX_VTXFMT0,vertices.data(),4,pos)) {
         return false;
     }
     GXMarkFrameWork();
@@ -467,6 +470,7 @@ struct DlScanCacheEntry {
     bool dlHasNestedDl = false;
     bool dlHasArrayStateWrites = false;
     bool dlHasCpWrites = false;
+    uint8_t textureBindingMask = 0;
     bool scanOk = false;
     // Flatten results for lists that need one. `flattenVerbatim` means the
     // flattened stream is byte-identical to the source list, so aurora can be
@@ -790,7 +794,11 @@ struct DlMayContainDrawVisitor {
     static constexpr bool kHandlesDraw = false;
 
     bool OnNop(uint8_t) { return true; }
-    bool OnBpReg(const uint8_t*, uint32_t) { return true; }
+    uint8_t textureBindingMask=0;
+    bool OnBpReg(const uint8_t*, uint32_t word) {
+        textureBindingMask|=GxTextureBindingContract::BindingMaskForBpRegister(uint8_t(word>>24));
+        return true;
+    }
     // An array base/stride write means the list is setting up indexed geometry.
     bool OnCpReg(const uint8_t*, uint8_t reg, uint32_t) { return !(reg >= 0xA0 && reg <= 0xBF); }
     bool OnXfReg(const uint8_t*, uint32_t) { return true; }
@@ -804,13 +812,17 @@ struct DlMayContainDrawVisitor {
         const uint8_t* nested = static_cast<const uint8_t*>(GuestToHostPtr(addr, size));
         if (!nested) return false;
         DlMayContainDrawVisitor child;
-        return WalkDisplayList(nested, size, child, depth + 1);
+        const bool ok=WalkDisplayList(nested,size,child,depth+1);
+        textureBindingMask|=child.textureBindingMask;
+        return ok;
     }
 };
 
-static bool DisplayListMayContainDraw(const uint8_t* data, uint32_t nbytes) {
+static bool DisplayListMayContainDraw(const uint8_t* data, uint32_t nbytes,uint8_t& bindings) {
     DlMayContainDrawVisitor visitor;
-    return !WalkDisplayList(data, nbytes, visitor, 0);
+    const bool containsDraw=!WalkDisplayList(data,nbytes,visitor,0);
+    bindings=visitor.textureBindingMask;
+    return containsDraw;
 }
 
 // Interpreter fallback
@@ -823,6 +835,7 @@ struct DlInterpretVisitor {
     bool OnUnknownCommand(uint8_t) { return true; }
     bool OnCpReg(const uint8_t*, uint8_t reg, uint32_t value) { ApplyCpRegWrite(reg, value); return true; }
     bool OnBpReg(const uint8_t*, uint32_t bpWord) {
+        InvalidateNativeTextureBindings(GxTextureBindingContract::BindingMaskForBpRegister(uint8_t(bpWord>>24)));
         GXApplyBPReg(static_cast<uint8_t>(bpWord >> 24), bpWord & 0x00FFFFFFu);
         return true;
     }
@@ -896,6 +909,7 @@ struct DlIndexScanVisitor {
     bool* outHasArrayStateWrites;
     bool* outHasCpWrites;
     std::vector<DlCpWrite>* outCpWrites;
+    uint8_t* outTextureBindingMask;
     // Every walk - including each nested one - gets its own layout generation, so
     // a cached layout can only be reused inside the walk that built it.
     uint32_t layoutVersion = 1;
@@ -903,7 +917,10 @@ struct DlIndexScanVisitor {
     const ScanLayoutCacheEntry* pendingLayout = nullptr;
 
     bool OnNop(uint8_t) { return true; }
-    bool OnBpReg(const uint8_t*, uint32_t) { return true; }
+    bool OnBpReg(const uint8_t*, uint32_t word) {
+        if(outTextureBindingMask)*outTextureBindingMask|=GxTextureBindingContract::BindingMaskForBpRegister(uint8_t(word>>24));
+        return true;
+    }
     bool OnXfReg(const uint8_t*, uint32_t) { return true; }
     bool OnInvalidateVertexCache(uint8_t) { return true; }
     bool OnUnknownCommand(uint8_t) { return false; }
@@ -936,7 +953,7 @@ struct DlIndexScanVisitor {
                 DlIndexScanVisitor child{maxIdx,         sawIdx,         maxXfIdx,
                                          maxXfBytes,     sawXfIdx,       outFmt,
                                          outFmtMixed,    outHasNestedDl, outHasArrayStateWrites,
-                                         outHasCpWrites, outCpWrites};
+                                         outHasCpWrites, outCpWrites, outTextureBindingMask};
                 if (!WalkDisplayList(nested, size, child, depth + 1)) return false;
             }
             ++layoutVersion;
@@ -970,11 +987,11 @@ static bool ScanDisplayListMaxIndices(const uint8_t* data, uint32_t nbytes,
                                       std::array<bool, GX_VA_MAX_ATTR>& sawXfIdx,
                                       GXVtxFmt* outFmt, bool* outFmtMixed, bool* outHasNestedDl,
                                       bool* outHasArrayStateWrites, bool* outHasCpWrites,
-                                      std::vector<DlCpWrite>* outCpWrites) {
+                                      std::vector<DlCpWrite>* outCpWrites,uint8_t* outTextureBindingMask) {
     DlIndexScanVisitor visitor{maxIdx,         sawIdx,         maxXfIdx,
                                maxXfBytes,     sawXfIdx,       outFmt,
                                outFmtMixed,    outHasNestedDl, outHasArrayStateWrites,
-                               outHasCpWrites, outCpWrites};
+                               outHasCpWrites, outCpWrites, outTextureBindingMask};
     return WalkDisplayList(data, nbytes, visitor, 0);
 }
 
@@ -1307,11 +1324,13 @@ extern "C" void GX__CallDisplayList_80172f64(uint32_t listAddr, uint32_t nbytes)
 
         // The scan a cached record came from already walked the list for this,
         // so only a miss pays for DisplayListMayContainDraw.
+        uint8_t textureBindingMask=cached?cached->result.textureBindingMask:0;
         const bool mayContainDraw =
-            (cached != nullptr) ? cached->mayContainDraw : DisplayListMayContainDraw(list, nbytes);
+            (cached != nullptr) ? cached->mayContainDraw : DisplayListMayContainDraw(list, nbytes,textureBindingMask);
         if (!mayContainDraw) {
             EnsureAuroraFrameActive();
             GXMarkFrameWork();
+            InvalidateNativeTextureBindings(textureBindingMask);
             GXCallDisplayList(list, nbytes);
             // The republish is required even for register-only lists (verified by
             // experiment: dropping it corrupts in-race geometry decode). It is
@@ -1378,7 +1397,7 @@ extern "C" void GX__CallDisplayList_80172f64(uint32_t listAddr, uint32_t nbytes)
             haveStateBeforeScan = true;
             scanOk = ScanDisplayListMaxIndices(list, nbytes, maxIdx, sawIdx, maxXfIdx, maxXfBytes, sawXfIdx,
                                                &dlVtxFmt, &dlVtxFmtMixed, &dlHasNestedDl,
-                                               &dlHasArrayStateWrites, &dlHasCpWrites, &cpWrites);
+                                               &dlHasArrayStateWrites, &dlHasCpWrites, &cpWrites, &textureBindingMask);
             needsFlatten = dlHasNestedDl || dlHasArrayStateWrites || dlHasCpWrites;
             bool flattenVerbatim = true;
             auto& flattened = FlattenDisplayListScratch();
@@ -1415,6 +1434,7 @@ extern "C" void GX__CallDisplayList_80172f64(uint32_t listAddr, uint32_t nbytes)
                 entry.dlHasNestedDl = dlHasNestedDl;
                 entry.dlHasArrayStateWrites = dlHasArrayStateWrites;
                 entry.dlHasCpWrites = dlHasCpWrites;
+                entry.textureBindingMask = textureBindingMask;
                 entry.scanOk = scanOk;
                 entry.needsFlatten = needsFlatten;
                 entry.flattenOk = flattenOk;
@@ -1444,6 +1464,7 @@ extern "C" void GX__CallDisplayList_80172f64(uint32_t listAddr, uint32_t nbytes)
             if (flattenApplyOk) {
                 EnsureAuroraFrameActive();
                 GXMarkFrameWork();
+                InvalidateNativeTextureBindings(textureBindingMask);
                 GXCallDisplayList(auroraStream, auroraStreamBytes);
                 // No flip back to GX_DIRECT here
                 SyncAppliedVtxStateFromHleReal();
@@ -1464,6 +1485,7 @@ extern "C" void GX__CallDisplayList_80172f64(uint32_t listAddr, uint32_t nbytes)
             if (applyOk) {
                 EnsureAuroraFrameActive();
                 GXMarkFrameWork();
+                InvalidateNativeTextureBindings(textureBindingMask);
                 GXCallDisplayList(list, nbytes);
 
                 SyncAppliedVtxStateFromHleReal();
